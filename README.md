@@ -8,6 +8,7 @@
 - hard squashes record exactly what they absorbed in a causal landing receipt;
 - a merge planner subtracts proven prior work instead of relying only on Git topology;
 - reconciliation can be forecast in an isolated worktree and pinned before application;
+- indexed Markdown can be merged deterministically by stable block identity;
 - conflicted reconciliation can pause, survive process exit, continue, or abort safely;
 - exact conflict resolutions can be suggested across branches and worktrees with explicit provenance;
 - workspaces use real Git worktrees but add path-independent logical metadata and non-disruptive checkpoints;
@@ -42,7 +43,7 @@ On Windows, use PowerShell, Git Bash, or a terminal where `git` and `node` are o
 This project now has its own Git history and should live in a normal development repository. The portable repository bundle retains the release commits and tags:
 
 ```bash
-git clone /path/to/causal-vcs-lab-0.4.0.bundle vcs-lab
+git clone /path/to/causal-vcs-lab-0.5.0.bundle vcs-lab
 cd vcs-lab
 git remote remove origin
 npm link
@@ -54,7 +55,7 @@ If you instead use the source ZIP, initialize its extracted directory with:
 ```bash
 git init -b main
 git add .
-git commit -m "Bootstrap causal-vcs-lab 0.4.0"
+git commit -m "Bootstrap causal-vcs-lab 0.5.0"
 npm link
 npm test
 ```
@@ -152,7 +153,7 @@ Similarity is deliberately advisory. Run `vlab reconcile <branch> --accept-candi
 
 ## Forecasting reconciliation
 
-Version 0.4 can simulate the complete proven-new queue before touching the
+The lab can simulate the complete proven-new queue before touching the
 current worktree:
 
 ```bash
@@ -320,7 +321,66 @@ vlab spec index docs/checkout.md
 vlab spec show docs/checkout.md
 ```
 
-The exact Markdown remains canonical. The tracked `.vcs-lab/specs/docs/checkout.md.json` sidecar assigns stable IDs to headings and explicit `REQ-*:` entries. Re-index after editing to see which entities were added, changed, moved, or removed.
+The exact Markdown remains canonical. The tracked `.vcs-lab/specs/docs/checkout.md.json` sidecar assigns stable IDs to the preamble, headings, and explicit `REQ-*:` entries. Version 0.5 manifests are deterministic: they do not contain generation timestamps, and new entity IDs derive from the shared artifact identity and semantic key.
+
+An unchanged source hash is an incremental-index cache hit and does not rewrite
+the sidecar. Index every tracked or non-ignored Markdown document in one pass:
+
+```bash
+vlab spec index --all
+```
+
+### Deterministic block reconciliation
+
+Version 0.5 uses heading-delimited sections as disjoint merge units. `REQ-*`
+records remain independently addressable entities, but their text is merged as
+part of the containing section so overlapping units cannot produce inconsistent
+bytes.
+
+The three-way merge is deliberately conservative:
+
+- edits to different blocks combine;
+- a block move on one side combines with a content edit on the other;
+- identical concurrent edits or additions combine;
+- same-block divergent edits remain blocked;
+- delete-versus-edit and incompatible ordering remain blocked.
+
+The result is rendered with LF endings, one blank line between blocks, and one
+final newline. No language model judgment is involved. The normal forecast
+automatically discovers these decisions, records their exact input signature
+and result hashes, and can apply them only through the reviewed forecast:
+
+```bash
+vlab forecast feature
+vlab reconcile feature --use-forecast forecast_...
+```
+
+To inspect the semantic merge independently of reconciliation:
+
+```bash
+vlab spec merge-plan docs/checkout.md <base> <target> <source>
+```
+
+Without a forecast, reconciliation pauses before changing conflicted spec
+bytes. Inspect and explicitly stage a clean deterministic suggestion:
+
+```bash
+vlab spec status
+vlab spec resolve --all
+git diff --cached -- docs/checkout.md .vcs-lab/specs/docs/checkout.md.json
+vlab reconcile --continue
+```
+
+If you edit the staged suggestion, re-run `vlab spec index`, stage both the
+Markdown and sidecar, and continue. The application receipt records the
+semantic decision as `accepted` or `modified`; a stale sidecar cannot be
+committed through reconciliation.
+
+Run the prepared experiment with:
+
+```bash
+npm run demo:spec
+```
 
 ## Commands
 
@@ -338,7 +398,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab cherry-pick` | Preserve or deliberately fork a Change ID |
 | `vlab graph` | Branch history plus causal relationships, without metadata-ref noise |
 | `vlab workspace ...` | Worktree-backed workspaces, checkpoints, and committed-head forecasts |
-| `vlab spec ...` | Hybrid file/semantic-document representation |
+| `vlab spec ...` | Incremental indexing, block merge planning, explicit resolution, and corpus benchmarks |
 | `vlab receipts` | Inspect causal records as text or JSON |
 | `vlab doctor --benchmark` | Sample Git subprocess latency in the current repository |
 
@@ -368,7 +428,7 @@ The current lab starts a Git process for each storage or graph operation. Get a
 small repeatable baseline for the current repository with:
 
 ```bash
-vlab doctor --benchmark
+vlab doctor --benchmark --samples 10 --warmup 2
 ```
 
 For command-by-command timings, enable tracing for one invocation:
@@ -381,17 +441,31 @@ Trace output contains durations and Git command names, not file content or
 commit messages. These probes are intended to reveal when the compatibility
 layer or a synchronized filesystem becomes the bottleneck.
 
-Forecast output separately reports simulation wall time. Completed
+Forecast output separately reports preflight, planning, simulation, invariant,
+temporary-worktree, and Git subprocess totals. Completed
 reconciliation receipts report active application time, excluding time spent
 waiting for a person between a conflict and `--continue`, plus total elapsed
 wall time.
+
+Measure indexing and raw/estimated-compressed metadata size without changing the
+current repository:
+
+```bash
+vlab spec benchmark --documents 25 --blocks 40
+```
+
+The benchmark creates and removes a disposable repository. It reports cold,
+unchanged, and one-block-change indexing, cache hits, semantic entity counts,
+manifest bytes, and a deflate-based approximation of Git object compression.
 
 ## What this prototype intentionally does not solve
 
 - cryptographic signing or a trusted landing server;
 - a native content-addressed object database;
 - content-defined chunking;
-- deterministic AST merge drivers;
+- semantic merge drivers for formats other than heading-oriented Markdown;
+- nested requirement-level byte merging within a section;
+- a compact binary or content-addressed native spec index;
 - server-side branch policy and atomic multi-ref landing;
 - virtual/lazy filesystem materialization;
 - forecasting uncommitted workspace drafts or checkpoints;
@@ -406,10 +480,11 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The 19-test integration suite creates disposable Git repositories and exercises
+The 27-test integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
 non-mutating and stale-safe forecasts, pinned batch application, committed-head
 workspace comparison, independent worktree operations, checkpoints, annotated
-Markdown stability, conservative patch-equivalence handling, and Git timing
-probes.
+Markdown stability, incremental indexing, clean and blocked deterministic block
+merges, forecasted and explicit semantic application, conservative
+patch-equivalence handling, corpus measurements, and Git timing probes.

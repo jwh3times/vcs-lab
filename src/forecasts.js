@@ -3,7 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
+  beginGitMetrics,
   currentHead,
+  endGitMetrics,
   repoContext,
   runGit,
   treeId,
@@ -22,6 +24,12 @@ import {
 import { readJson, writeJson } from "./store.js";
 import { listWorkspaces } from "./workspaces.js";
 import { CliError } from "./errors.js";
+import {
+  compactSpecMerge,
+  materializeSpecMerge,
+  planSpecMerge,
+  specFilesForConflictPaths,
+} from "./specs.js";
 
 function forecastDirectory(cwd) {
   return path.join(repoContext(cwd).gitDir, "vcs-lab", "forecasts");
@@ -70,20 +78,33 @@ function saveForecast(forecast, cwd) {
 }
 
 function withTemporaryWorktree(targetHead, cwd, callback) {
+  const totalStarted = performance.now();
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "vcs-lab-forecast-"),
   );
   const temporaryWorktree = path.join(temporaryRoot, "worktree");
   let added = false;
   let pruneAfterRemoval = false;
+  let value;
+  let callbackError;
+  let setupMs = 0;
+  let callbackMs = 0;
+  let cleanupMs = 0;
   try {
+    const setupStarted = performance.now();
     runGit(
       ["worktree", "add", "--detach", temporaryWorktree, targetHead],
       { cwd },
     );
     added = true;
-    return callback(temporaryWorktree);
+    setupMs = performance.now() - setupStarted;
+    const callbackStarted = performance.now();
+    value = callback(temporaryWorktree);
+    callbackMs = performance.now() - callbackStarted;
+  } catch (error) {
+    callbackError = error;
   } finally {
+    const cleanupStarted = performance.now();
     if (added) {
       if (fs.existsSync(temporaryWorktree)) {
         runGit(["cherry-pick", "--abort"], {
@@ -99,21 +120,43 @@ function withTemporaryWorktree(targetHead, cwd, callback) {
     }
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
     if (pruneAfterRemoval) runGit(["worktree", "prune"], { cwd });
+    cleanupMs = performance.now() - cleanupStarted;
   }
+  if (callbackError) throw callbackError;
+  return {
+    value,
+    timings: {
+      setupMs: Number(setupMs.toFixed(2)),
+      applicationMs: Number(callbackMs.toFixed(2)),
+      cleanupMs: Number(cleanupMs.toFixed(2)),
+      totalMs: Number((performance.now() - totalStarted).toFixed(2)),
+    },
+  };
 }
 
 function simulationCounts(steps) {
   return steps.reduce(
     (counts, step) => {
       if (step.outcome === "clean") counts.clean += 1;
-      if (step.outcome === "exact-resolution") {
+      if (step.resolutions?.length) {
         counts.exactResolution += 1;
         counts.exactResolutionPaths += step.resolutions.length;
+      }
+      if (step.semanticMerges?.length) {
+        counts.semanticSpec += 1;
+        counts.semanticSpecPaths += step.semanticMerges.length;
       }
       if (step.outcome.startsWith("blocked")) counts.blocked += 1;
       return counts;
     },
-    { clean: 0, exactResolution: 0, exactResolutionPaths: 0, blocked: 0 },
+    {
+      clean: 0,
+      exactResolution: 0,
+      exactResolutionPaths: 0,
+      semanticSpec: 0,
+      semanticSpecPaths: 0,
+      blocked: 0,
+    },
   );
 }
 
@@ -121,20 +164,38 @@ function blockedReason(conflicts) {
   const missing = conflicts.filter((conflict) => conflict.candidates.length === 0);
   const ambiguous = conflicts.filter((conflict) => conflict.candidates.length > 1);
   if (missing.length && ambiguous.length) return "missing-and-ambiguous-resolutions";
+  if (
+    missing.some((conflict) =>
+      conflict.semanticSpec?.conflicts?.some(
+        (item) => item.type === "semantic-metadata-unavailable",
+      ),
+    )
+  ) {
+    return "semantic-spec-metadata-unavailable";
+  }
+  if (
+    missing.some((conflict) =>
+      conflict.semanticSpec?.conflicts?.length,
+    )
+  ) {
+    return "semantic-spec-conflict";
+  }
   if (missing.length) return "missing-exact-resolution";
   if (ambiguous.length) return "ambiguous-exact-resolution";
   return "unresolved-conflict";
 }
 
 function simulatePlan(plan, cwd) {
-  return withTemporaryWorktree(plan.targetHead, cwd, (temporaryWorktree) => {
+  const simulated = withTemporaryWorktree(plan.targetHead, cwd, (temporaryWorktree) => {
     const queue = plan.changes.filter((change) => change.status === "new");
     const steps = [];
     const approvedResolutions = [];
+    const approvedSpecMerges = [];
     let status = "complete";
     let reason = null;
 
     for (const change of queue) {
+      const targetBefore = currentHead(temporaryWorktree);
       const picked = runGit(["cherry-pick", "-x", change.commit], {
         cwd: temporaryWorktree,
         allowFailure: true,
@@ -166,27 +227,69 @@ function simulatePlan(plan, cwd) {
       }
 
       const conflicts = captureConflictDescriptors(paths, temporaryWorktree);
-      if (!conflicts.every((conflict) => conflict.candidates.length === 1)) {
+      const semanticPlans = specFilesForConflictPaths(paths)
+        .map((file) =>
+          planSpecMerge(
+            file,
+            `${change.commit}^`,
+            targetBefore,
+            change.commit,
+            temporaryWorktree,
+          ),
+        );
+      for (const semanticPlan of semanticPlans) {
+        const descriptor = conflicts.find(
+          (conflict) =>
+            conflict.path === semanticPlan.file ||
+            conflict.path === semanticPlan.manifestFile,
+        );
+        if (descriptor) descriptor.semanticSpec = compactSpecMerge(semanticPlan);
+      }
+
+      const semanticMerges = [];
+      const semanticallyResolved = new Set();
+      for (const semanticPlan of semanticPlans.filter(
+        (candidate) => candidate.status === "clean",
+      )) {
+        materializeSpecMerge(semanticPlan, temporaryWorktree);
+        const outcome = compactSpecMerge(semanticPlan, "forecast-batch");
+        semanticMerges.push(outcome);
+        for (const resolvedPath of outcome.resolvedPaths) {
+          if (paths.includes(resolvedPath)) semanticallyResolved.add(resolvedPath);
+        }
+        approvedSpecMerges.push({
+          sourceCommit: change.commit,
+          path: outcome.path,
+          signature: outcome.signature,
+          resultMarkdownHash: outcome.resultMarkdownHash,
+          resultManifestHash: outcome.resultManifestHash,
+        });
+      }
+      const exactConflicts = conflicts.filter(
+        (conflict) => !semanticallyResolved.has(conflict.path),
+      );
+      if (!exactConflicts.every((conflict) => conflict.candidates.length === 1)) {
         status = "blocked";
-        reason = blockedReason(conflicts);
+        reason = blockedReason(exactConflicts);
         steps.push({
           sourceCommit: change.commit,
           changeId: change.changeId,
           subject: change.subject,
           outcome: "blocked-conflict",
           conflicts,
+          semanticMerges,
         });
         break;
       }
 
-      for (const conflict of conflicts) {
+      for (const conflict of exactConflicts) {
         const candidate = conflict.candidates[0];
         materializeResolutionCandidate(conflict, candidate, temporaryWorktree);
         conflict.selectedResolutionId = candidate.id;
         conflict.selectionMethod = "forecast-batch";
       }
       const resolutions = captureResolutionOutcomes(
-        conflicts,
+        exactConflicts,
         temporaryWorktree,
       );
       const continued = runGit(
@@ -202,6 +305,7 @@ function simulatePlan(plan, cwd) {
           subject: change.subject,
           outcome: "blocked-resolution-application",
           conflicts,
+          semanticMerges,
           resolutions,
           gitOutput: continued.output,
         });
@@ -221,10 +325,16 @@ function simulatePlan(plan, cwd) {
         sourceCommit: change.commit,
         changeId: change.changeId,
         subject: change.subject,
-        outcome: "exact-resolution",
+        outcome:
+          semanticMerges.length && resolutions.length
+            ? "semantic-spec-and-exact-resolution"
+            : semanticMerges.length
+              ? "semantic-spec-merge"
+              : "exact-resolution",
         relation: "contextual-application",
         conflicts,
         resolutions,
+        semanticMerges,
         resultTree: treeId("HEAD", temporaryWorktree),
       });
     }
@@ -235,6 +345,7 @@ function simulatePlan(plan, cwd) {
       blockedReason: reason,
       steps,
       approvedResolutions,
+      approvedSpecMerges,
       counts: simulationCounts(steps),
       simulatedChanges: steps.length,
       remainingChanges: queue.length - steps.length,
@@ -244,6 +355,10 @@ function simulatePlan(plan, cwd) {
         status === "complete" ? partialResultTree === plan.sourceTree : null,
     };
   });
+  return {
+    ...simulated.value,
+    worktreeTimings: simulated.timings,
+  };
 }
 
 export function forecastReconciliation(sourceRef, options = {}) {
@@ -255,13 +370,21 @@ export function forecastReconciliation(sourceRef, options = {}) {
   }
   const startedAt = new Date().toISOString();
   const started = performance.now();
+  const gitMetrics = beginGitMetrics("forecast");
+  const phases = {};
+  const preflightStarted = performance.now();
   const before = {
     head: currentHead(cwd),
     tree: treeId("HEAD", cwd),
     status: runGit(["status", "--porcelain=v1"], { cwd }).stdout,
   };
+  phases.preflightMs = performance.now() - preflightStarted;
+  const planningStarted = performance.now();
   const plan = buildMergePlan(sourceRef, cwd);
+  phases.planningMs = performance.now() - planningStarted;
+  const simulationStarted = performance.now();
   const simulation = simulatePlan(plan, cwd);
+  phases.simulationMs = performance.now() - simulationStarted;
   const candidateDecisionRequired =
     plan.counts["candidate-equivalent"] > 0 && !options.acceptCandidates;
   if (candidateDecisionRequired && simulation.status === "complete") {
@@ -270,6 +393,7 @@ export function forecastReconciliation(sourceRef, options = {}) {
     simulation.predictedResultTree = null;
     simulation.exactStateEqualityAfter = null;
   }
+  const invariantStarted = performance.now();
   const after = {
     head: currentHead(cwd),
     tree: treeId("HEAD", cwd),
@@ -280,12 +404,16 @@ export function forecastReconciliation(sourceRef, options = {}) {
     before.tree !== after.tree ||
     before.status !== after.status
   ) {
+    endGitMetrics(gitMetrics);
     throw new CliError("Forecasting unexpectedly changed the current worktree.");
   }
+  phases.invariantCheckMs = performance.now() - invariantStarted;
 
   const context = repoContext(cwd);
+  const git = endGitMetrics(gitMetrics);
+  const { worktreeTimings, ...simulationResult } = simulation;
   const forecast = {
-    schema: "vcs-lab.forecast/v1",
+    schema: "vcs-lab.forecast/v2",
     id: newId("forecast"),
     sourceRef,
     sourceHead: plan.sourceHead,
@@ -299,10 +427,15 @@ export function forecastReconciliation(sourceRef, options = {}) {
     candidateDecisionRequired,
     planFingerprint: planFingerprint(plan),
     plan,
-    ...simulation,
+    ...simulationResult,
     workspaceComparison: options.workspaceComparison ?? null,
     timings: {
       forecastMs: Number((performance.now() - started).toFixed(2)),
+      phases: Object.fromEntries(
+        Object.entries(phases).map(([name, value]) => [name, Number(value.toFixed(2))]),
+      ),
+      worktree: worktreeTimings,
+      git,
     },
     startedAt,
     createdAt: new Date().toISOString(),
@@ -312,7 +445,10 @@ export function forecastReconciliation(sourceRef, options = {}) {
 
 export function forecastForPlan(id, plan, cwd = process.cwd()) {
   const forecast = readForecast(id, cwd);
-  if (forecast.schema !== "vcs-lab.forecast/v1" || forecast.id !== id) {
+  if (
+    !["vcs-lab.forecast/v1", "vcs-lab.forecast/v2"].includes(forecast.schema) ||
+    forecast.id !== id
+  ) {
     throw new CliError(`Forecast '${id}' has invalid metadata.`);
   }
   const currentFingerprint = planFingerprint(plan);

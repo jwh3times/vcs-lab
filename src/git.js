@@ -3,6 +3,56 @@ import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { CliError } from "./errors.js";
 
+const activeMetricCollectors = new Set();
+const repositoryContextCache = new Map();
+
+function gitCommandName(args) {
+  let commandIndex = 0;
+  while (args[commandIndex] === "-c") commandIndex += 2;
+  return args[commandIndex] ?? "unknown";
+}
+
+export function beginGitMetrics(label = "git") {
+  const collector = { label, commands: [] };
+  activeMetricCollectors.add(collector);
+  return collector;
+}
+
+export function endGitMetrics(collector) {
+  activeMetricCollectors.delete(collector);
+  const byCommand = new Map();
+  for (const item of collector.commands) {
+    const current = byCommand.get(item.command) ?? {
+      command: item.command,
+      count: 0,
+      totalMs: 0,
+      maxMs: 0,
+    };
+    current.count += 1;
+    current.totalMs += item.durationMs;
+    current.maxMs = Math.max(current.maxMs, item.durationMs);
+    byCommand.set(item.command, current);
+  }
+  const totalMs = collector.commands.reduce(
+    (total, item) => total + item.durationMs,
+    0,
+  );
+  return {
+    count: collector.commands.length,
+    totalMs: Number(totalMs.toFixed(2)),
+    failed: collector.commands.filter((item) => !item.ok).length,
+    byCommand: [...byCommand.values()]
+      .map((item) => ({
+        ...item,
+        totalMs: Number(item.totalMs.toFixed(2)),
+        maxMs: Number(item.maxMs.toFixed(2)),
+      }))
+      .sort((left, right) =>
+        right.totalMs - left.totalMs || left.command.localeCompare(right.command),
+      ),
+  };
+}
+
 export function runGit(args, options = {}) {
   const {
     cwd = process.cwd(),
@@ -43,10 +93,16 @@ export function runGit(args, options = {}) {
     ? stderr
     : [stdout, stderr].filter(Boolean).join("\n");
 
+  const command = gitCommandName(args);
+  for (const collector of activeMetricCollectors) {
+    collector.commands.push({
+      command,
+      durationMs,
+      ok: result.status === 0,
+    });
+  }
+
   if (process.env.VLAB_TRACE === "1") {
-    let commandIndex = 0;
-    while (args[commandIndex] === "-c") commandIndex += 2;
-    const command = args[commandIndex] ?? "unknown";
     process.stderr.write(
       `[vlab trace] ${durationMs.toFixed(1)}ms git ${command}\n`,
     );
@@ -82,14 +138,19 @@ export function gitText(args, options = {}) {
 }
 
 export function repoContext(cwd = process.cwd()) {
+  const cacheKey = path.resolve(cwd);
+  const cached = repositoryContextCache.get(cacheKey);
+  if (cached) return cached;
   const root = gitText(["rev-parse", "--show-toplevel"], { cwd });
   const gitDirRaw = gitText(["rev-parse", "--git-dir"], { cwd });
   const commonDirRaw = gitText(["rev-parse", "--git-common-dir"], { cwd });
-  return {
+  const context = {
     root: path.resolve(root),
     gitDir: path.resolve(cwd, gitDirRaw),
     commonDir: path.resolve(cwd, commonDirRaw),
   };
+  repositoryContextCache.set(cacheKey, context);
+  return context;
 }
 
 export function resolveRevision(revision, cwd = process.cwd()) {

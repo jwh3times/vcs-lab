@@ -12,7 +12,15 @@ import { land } from "./landings.js";
 import { initLab } from "./store.js";
 import { runGit } from "./git.js";
 import { createWorkspace, checkpointWorkspace, listWorkspaces } from "./workspaces.js";
-import { indexSpec, readSpecManifest } from "./specs.js";
+import {
+  applyPendingSpecMerges,
+  benchmarkSpecIndex,
+  indexAllSpecs,
+  indexSpec,
+  pendingSpecMergeStatus,
+  planSpecMerge,
+  readSpecManifest,
+} from "./specs.js";
 import { listNoteRecords } from "./notes.js";
 import { CliError } from "./errors.js";
 import { VERSION } from "./version.js";
@@ -53,9 +61,14 @@ Usage:
   vlab workspace list [--json]
   vlab workspace checkpoint [--label <text>] [--json]
   vlab workspace forecast <target> <source> [--accept-candidates] [--json]
-  vlab spec index <markdown-file> [--json]
+  vlab spec index <markdown-file> [--force] [--json]
+  vlab spec index --all [--force] [--json]
   vlab spec show <markdown-file> [--json]
-  vlab doctor [--benchmark]
+  vlab spec merge-plan <markdown-file> <base> <ours> <theirs> [--json]
+  vlab spec status [--json]
+  vlab spec resolve [markdown-file] [--all] [--json]
+  vlab spec benchmark [--documents <n>] [--blocks <n>] [--json]
+  vlab doctor [--benchmark] [--samples <n>] [--warmup <n>]
   vlab version
 
 Legend for merge-plan: '=' proven covered, '?' heuristic candidate, '+' new.
@@ -64,7 +77,7 @@ Legend for merge-plan: '=' proven covered, '?' heuristic candidate, '+' new.
 function parseArgs(args) {
   const positionals = [];
   const options = {};
-  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--label", "--resolution", "--use-forecast"]);
+  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--label", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks"]);
   for (let index = 0; index < args.length; index += 1) {
     const item = args[index];
     if (valueFlags.has(item)) {
@@ -102,7 +115,78 @@ function formatSpecResult(result) {
     `source       ${manifest.source}`,
     `manifest     ${path.relative(process.cwd(), manifestPath)}`,
     `blocks       ${manifest.blocks.length}`,
+    `index        ${result.cacheHit ? "cache hit; manifest unchanged" : "manifest written"}`,
     `changes      ${changes.added.length} added, ${changes.changed.length} changed, ${changes.moved.length} moved, ${changes.removed.length} removed`,
+  ].join("\n");
+}
+
+function formatSpecBatch(result) {
+  return [
+    "Specification index",
+    `files        ${result.files}`,
+    `entities     ${result.blocks}`,
+    `cache hits   ${result.cacheHits}`,
+    `written      ${result.manifestsWritten}`,
+    `changes      ${result.changes.added} added, ${result.changes.changed} changed, ${result.changes.moved} moved, ${result.changes.removed} removed`,
+    `duration     ${result.durationMs.toFixed(2)} ms`,
+  ].join("\n");
+}
+
+function formatSpecMergePlan(plan) {
+  const lines = [
+    "Semantic specification merge",
+    `status       ${plan.status}`,
+    `source       ${plan.file}`,
+    `artifact     ${plan.artifactId ?? "incompatible"}`,
+    `signature    ${short(plan.signature)}`,
+    `ordering     ${plan.ordering.decision}`,
+  ];
+  const decisions = Object.entries(plan.counts)
+    .map(([name, count]) => `${count} ${name}`)
+    .join(", ");
+  if (decisions) lines.push(`blocks       ${decisions}`);
+  for (const conflict of plan.conflicts) {
+    lines.push(
+      `! ${conflict.type}${conflict.title ? `: ${conflict.title}` : ""}`,
+    );
+  }
+  if (plan.status === "clean") {
+    lines.push(
+      `result       ${short(plan.result?.markdownHash)}`,
+      "The plan is deterministic; no language model judgment was used.",
+    );
+  } else {
+    lines.push("Ambiguous blocks remain for explicit review.");
+  }
+  return lines.join("\n");
+}
+
+function formatSpecMergeStatus(status) {
+  if (!status.active) return "No semantic specification merge is pending.";
+  const lines = [`operation    ${status.operationId}`];
+  for (const plan of status.plans) {
+    lines.push(
+      "",
+      `path         ${plan.path}`,
+      `status       ${plan.status}`,
+      `signature    ${short(plan.signature)}`,
+      `ordering     ${plan.ordering}`,
+    );
+    for (const conflict of plan.conflicts) {
+      lines.push(`  ! ${conflict.type}${conflict.title ? `: ${conflict.title}` : ""}`);
+    }
+  }
+  if (status.plans.some((plan) => plan.status === "clean")) {
+    lines.push("", "Apply deterministic suggestions with: vlab spec resolve --all");
+  }
+  return lines.join("\n");
+}
+
+function formatSpecMergeAction(result) {
+  return [
+    `Applied ${result.applied.length} deterministic spec merge${result.applied.length === 1 ? "" : "s"}.`,
+    ...result.applied.map((item) => `  ${item.path}`),
+    "Inspect the staged Markdown and sidecars, then run: vlab reconcile --continue",
   ].join("\n");
 }
 
@@ -136,6 +220,11 @@ function formatReceipt(record) {
       const decisions = record.resolutions.map((item) => item.decision);
       lines.push(`  resolutions ${decisions.join(", ")}`);
     }
+    if ((record.semanticMerges ?? []).length) {
+      lines.push(
+        `  spec merges ${record.semanticMerges.map((item) => `${item.decision ?? "recorded"}:${item.path}`).join(", ")}`,
+      );
+    }
   } else if (record.type === "resolution") {
     lines.push(
       `  signature   ${short(record.signature)}`,
@@ -153,6 +242,11 @@ function formatReceipt(record) {
     if (record.timings?.activeApplicationMs !== undefined) {
       lines.push(
         `  active time ${record.timings.activeApplicationMs.toFixed(2)} ms`,
+      );
+    }
+    if (record.timings?.git?.count !== undefined) {
+      lines.push(
+        `  git calls   ${record.timings.git.count} (${record.timings.git.totalMs.toFixed(2)} ms)`,
       );
     }
     if (record.exactStateEqualityAfter !== undefined) {
@@ -241,6 +335,10 @@ function formatReconciliationResult(result) {
   const decisionText = Object.entries(decisions)
     .map(([name, count]) => `${count} ${name}`)
     .join(", ");
+  const semanticMerges = receipt.applied.reduce(
+    (count, item) => count + (item.semanticMerges?.length ?? 0),
+    0,
+  );
   return [
     "Reconciliation complete.",
     `operation    ${result.operationId}`,
@@ -253,6 +351,10 @@ function formatReconciliationResult(result) {
     receipt.timings
       ? `active time  ${receipt.timings.activeApplicationMs.toFixed(2)} ms`
       : null,
+    receipt.timings?.git
+      ? `git calls    ${receipt.timings.git.count} (${receipt.timings.git.totalMs.toFixed(2)} ms)`
+      : null,
+    semanticMerges ? `spec merges  ${semanticMerges} deterministic` : null,
     decisionText ? `resolutions  ${decisionText}` : null,
   ]
     .filter(Boolean)
@@ -269,12 +371,15 @@ function formatForecast(forecast) {
     `source       ${forecast.sourceRef} @ ${short(forecast.sourceHead)}`,
     "scope        committed heads only",
     `plan         ${forecast.plan.counts.covered} covered, ${forecast.plan.counts["candidate-equivalent"]} candidate, ${forecast.plan.counts.new} new`,
-    `simulation   ${counts.clean} clean, ${counts.exactResolution} exact-resolved, ${counts.blocked} blocked`,
+    `simulation   ${counts.clean} clean, ${counts.exactResolution} exact-resolved, ${counts.semanticSpec ?? 0} spec-merged, ${counts.blocked} blocked`,
     `predicted    ${short(forecast.predictedResultTree)}`,
     `partial      ${short(forecast.partialResultTree)}`,
     `same state   ${forecast.exactStateEqualityAfter === null ? "unknown" : forecast.exactStateEqualityAfter ? "yes" : "no"}`,
     `forecast time ${forecast.timings.forecastMs.toFixed(2)} ms`,
-  ];
+    forecast.timings.git
+      ? `git calls    ${forecast.timings.git.count} (${forecast.timings.git.totalMs.toFixed(2)} ms)`
+      : null,
+  ].filter(Boolean);
   if (forecast.ignoredTargetDirtyFiles) {
     lines.push(`target dirty ${forecast.ignoredTargetDirtyFiles} files ignored`);
   }
@@ -299,11 +404,21 @@ function formatForecast(forecast) {
   for (const step of forecast.steps) {
     if (step.outcome === "clean") {
       lines.push(`C ${short(step.sourceCommit)} ${step.subject} [clean]`);
-    } else if (step.outcome === "exact-resolution") {
+    } else if (!step.outcome.startsWith("blocked")) {
+      const labels = [];
+      if (step.semanticMerges?.length) {
+        labels.push(`${step.semanticMerges.length} deterministic spec merge${step.semanticMerges.length === 1 ? "" : "s"}`);
+      }
+      if (step.resolutions?.length) {
+        labels.push(`${step.resolutions.length} exact resolution${step.resolutions.length === 1 ? "" : "s"}`);
+      }
       lines.push(
-        `R ${short(step.sourceCommit)} ${step.subject} [${step.resolutions.length} exact resolution${step.resolutions.length === 1 ? "" : "s"}]`,
+        `R ${short(step.sourceCommit)} ${step.subject} [${labels.join(", ")}]`,
       );
-      for (const resolution of step.resolutions) {
+      for (const merge of step.semanticMerges ?? []) {
+        lines.push(`  ${merge.path} <= stable block IDs`);
+      }
+      for (const resolution of step.resolutions ?? []) {
         lines.push(
           `  ${resolution.path} <= ${resolution.selectedResolutionId}`,
         );
@@ -314,6 +429,9 @@ function formatForecast(forecast) {
         lines.push(
           `  ${conflict.path}: ${conflict.candidates.length} exact candidate${conflict.candidates.length === 1 ? "" : "s"}`,
         );
+        for (const semantic of conflict.semanticSpec?.conflicts ?? []) {
+          lines.push(`    semantic blocker: ${semantic.type}`);
+        }
       }
     }
   }
@@ -386,7 +504,23 @@ function formatResolutionCatalog(records) {
   ].join("\n");
 }
 
-function gitBenchmark() {
+function positiveInteger(value, fallback, name, minimum = 1) {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > 100) {
+    throw new CliError(`${name} must be an integer between ${minimum} and 100.`);
+  }
+  return parsed;
+}
+
+function percentile(sorted, fraction) {
+  const index = Math.max(0, Math.ceil(sorted.length * fraction) - 1);
+  return sorted[index];
+}
+
+function gitBenchmark(options = {}) {
+  const sampleCount = positiveInteger(options.samples, 3, "--samples");
+  const warmupCount = positiveInteger(options.warmup, 1, "--warmup", 0);
   const probes = [
     { name: "head", args: ["rev-parse", "HEAD"] },
     { name: "status", args: ["status", "--porcelain=v1"] },
@@ -394,18 +528,26 @@ function gitBenchmark() {
     { name: "notes", args: ["notes", "--ref=vcs-lab", "list"], allowFailure: true },
   ];
   return probes.map((probe) => {
+    for (let index = 0; index < warmupCount; index += 1) {
+      runGit(probe.args, { allowFailure: probe.allowFailure });
+    }
     const samples = [];
-    for (let index = 0; index < 3; index += 1) {
+    for (let index = 0; index < sampleCount; index += 1) {
       samples.push(
         runGit(probe.args, { allowFailure: probe.allowFailure }).durationMs,
       );
     }
+    const sorted = [...samples].sort((left, right) => left - right);
     return {
       name: probe.name,
+      warmup: warmupCount,
       samplesMs: samples.map((sample) => Number(sample.toFixed(2))),
       averageMs: Number(
         (samples.reduce((sum, sample) => sum + sample, 0) / samples.length).toFixed(2),
       ),
+      medianMs: Number(percentile(sorted, 0.5).toFixed(2)),
+      p95Ms: Number(percentile(sorted, 0.95).toFixed(2)),
+      minMs: Number(Math.min(...samples).toFixed(2)),
       maxMs: Number(Math.max(...samples).toFixed(2)),
     };
   });
@@ -623,17 +765,56 @@ export async function main(rawArgs) {
     }
     case "spec": {
       const subcommand = positionals[0];
-      const file = requireValue(positionals[1], `vlab spec ${subcommand ?? "index"} <file>`);
       if (subcommand === "index") {
-        const result = indexSpec(file);
+        if (options.all) {
+          const result = indexAllSpecs(process.cwd(), { force: options.force });
+          print(options.json ? result : formatSpecBatch(result), options.json);
+          return;
+        }
+        const file = requireValue(positionals[1], "vlab spec index <file>");
+        const result = indexSpec(file, process.cwd(), { force: options.force });
         print(options.json ? result : formatSpecResult(result), options.json);
         return;
       }
       if (subcommand === "show") {
+        const file = requireValue(positionals[1], "vlab spec show <file>");
         print(readSpecManifest(file), true);
         return;
       }
-      throw new CliError("Unknown spec command. Use index or show.");
+      if (subcommand === "merge-plan") {
+        const file = requireValue(
+          positionals[1],
+          "vlab spec merge-plan <file> <base> <ours> <theirs>",
+        );
+        const base = requireValue(positionals[2], "vlab spec merge-plan <file> <base> <ours> <theirs>");
+        const ours = requireValue(positionals[3], "vlab spec merge-plan <file> <base> <ours> <theirs>");
+        const theirs = requireValue(positionals[4], "vlab spec merge-plan <file> <base> <ours> <theirs>");
+        const result = planSpecMerge(file, base, ours, theirs);
+        print(options.json ? result : formatSpecMergePlan(result), options.json);
+        return;
+      }
+      if (subcommand === "status") {
+        const result = pendingSpecMergeStatus();
+        print(options.json ? result : formatSpecMergeStatus(result), options.json);
+        return;
+      }
+      if (subcommand === "resolve") {
+        const result = applyPendingSpecMerges({
+          path: positionals[1],
+          all: options.all,
+        });
+        print(options.json ? result : formatSpecMergeAction(result), options.json);
+        return;
+      }
+      if (subcommand === "benchmark") {
+        const result = benchmarkSpecIndex({
+          documents: options.documents,
+          blocks: options.blocks,
+        });
+        print(result, true);
+        return;
+      }
+      throw new CliError("Unknown spec command. Use index, show, merge-plan, status, resolve, or benchmark.");
     }
     case "doctor": {
       const git = runGit(["--version"]);
@@ -644,7 +825,7 @@ export async function main(rawArgs) {
         node: process.version,
         repository: context.root,
         notesRef: "refs/notes/vcs-lab",
-        benchmark: options.benchmark ? gitBenchmark() : undefined,
+        benchmark: options.benchmark ? gitBenchmark(options) : undefined,
       }, true);
       return;
     }

@@ -1,7 +1,7 @@
 {
   "name": "causal-vcs-lab",
-  "version": "0.4.0",
-  "description": "A local Git-backed laboratory for stable changes, forecasted causal reconciliation, reusable conflict resolutions, AI workspaces, and hybrid specs.",
+  "version": "0.5.0",
+  "description": "A Git-backed laboratory for causal reconciliation, deterministic specification merges, reusable resolutions, and AI workspaces.",
   "type": "module",
   "bin": {
     "vlab": "./bin/vlab.js"
@@ -11,7 +11,8 @@
     "demo": "node ./scripts/demo.mjs",
     "demo:conflict": "node ./scripts/conflict-demo.mjs",
     "demo:resolution": "node ./scripts/resolution-demo.mjs",
-    "demo:forecast": "node ./scripts/forecast-demo.mjs"
+    "demo:forecast": "node ./scripts/forecast-demo.mjs",
+    "demo:spec": "node ./scripts/spec-merge-demo.mjs"
   },
   "engines": {
     "node": ">=20"

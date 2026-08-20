@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0
+
+- Add deterministic three-way reconciliation for indexed Markdown using stable
+  preamble and heading-block identities.
+- Combine independent block edits and move-plus-edit cases while keeping
+  divergent same-block edits, delete-versus-edit, and incompatible ordering as
+  explicit blockers.
+- Integrate semantic decisions into disposable forecasts, pin their exact input
+  signatures and output hashes, and batch-apply them only through a reviewed
+  forecast.
+- Add `vlab spec status` and `vlab spec resolve` for explicit application during
+  a paused non-forecast reconciliation, with semantic decisions preserved in
+  application and reconciliation receipts.
+- Upgrade spec manifests to deterministic v2 metadata with cross-branch entity
+  IDs, canonical LF rendering, and no generation timestamp.
+- Make unchanged source hashes true cache hits and add `vlab spec index --all`
+  for incremental repository-wide indexing.
+- Add `vlab spec merge-plan` for direct three-revision inspection and
+  `vlab spec benchmark` for generated-corpus latency and storage measurements.
+- Add forecast phase timings and Git subprocess counts grouped by command.
+- Add configurable benchmark warmup/sample counts plus min, median, p95,
+  average, and max latency.
+- Add a deterministic spec-merge demo and expand the integration suite to 27
+  tests.
+
 ## 0.4.0
 
 - Add `vlab forecast <source>` to simulate proven-new changes in a disposable

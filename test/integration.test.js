@@ -12,7 +12,7 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 test("CLI reports the package version", () => {
   assert.equal(
     exec(process.execPath, [cli, "--version"], projectRoot),
-    "vcs-lab 0.4.0",
+    "vcs-lab 0.5.0",
   );
 });
 
@@ -64,6 +64,41 @@ function makeRepo(t) {
   git(repo, "config", "user.email", "vcs-lab@example.test");
   t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
   return { repo, parent };
+}
+
+function createIndexedSpecDivergence(repo, options = {}) {
+  write(
+    repo,
+    "docs/spec.md",
+    "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+  );
+  vlab(repo, "spec", "index", "docs/spec.md", "--json");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base specification"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(
+    repo,
+    "docs/spec.md",
+    "# Alpha\n\nsource alpha\n\n# Beta\n\nbase beta\n",
+  );
+  vlab(repo, "spec", "index", "docs/spec.md", "--json");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source edits alpha"));
+
+  git(repo, "switch", "main");
+  write(
+    repo,
+    "docs/spec.md",
+    options.sameBlock
+      ? "# Alpha\n\ntarget alpha\n\n# Beta\n\nbase beta\n"
+      : "# Alpha\n\nbase alpha\n\n# Beta\n\ntarget beta\n",
+  );
+  vlab(repo, "spec", "index", "docs/spec.md", "--json");
+  git(repo, "add", ".");
+  const target = JSON.parse(vlab(repo, "commit", "-m", "target edits specification"));
+  return { base, source, target };
 }
 
 test("init keeps an existing worktree clean", (t) => {
@@ -233,10 +268,331 @@ test("annotated Markdown keeps stable block IDs across edits and moves", (t) => 
   );
   const second = JSON.parse(vlab(repo, "spec", "index", "docs/spec.md", "--json"));
   for (const block of second.manifest.blocks) {
-    assert.equal(block.id, ids.get(block.semanticKey));
+    if (ids.has(block.semanticKey)) {
+      assert.equal(block.id, ids.get(block.semanticKey));
+    }
   }
+  assert.equal(second.manifest.schema, "vcs-lab.spec-manifest/v2");
+  assert.equal(second.cacheHit, false);
   assert.ok(second.changes.changed.length >= 1);
   assert.ok(second.changes.moved.length >= 1);
+
+  const manifestBefore = fs.readFileSync(second.manifestPath, "utf8");
+  const third = JSON.parse(vlab(repo, "spec", "index", "docs/spec.md", "--json"));
+  assert.equal(third.cacheHit, true);
+  assert.equal(third.written, false);
+  assert.equal(fs.readFileSync(second.manifestPath, "utf8"), manifestBefore);
+});
+
+test("forecast deterministically merges independent specification blocks", (t) => {
+  const { repo } = makeRepo(t);
+  createIndexedSpecDivergence(repo);
+  const before = {
+    head: git(repo, "rev-parse", "HEAD"),
+    status: git(repo, "status", "--porcelain=v1"),
+  };
+  const idsBefore = new Map(
+    JSON.parse(vlab(repo, "spec", "show", "docs/spec.md", "--json"))
+      .manifest.blocks.map((block) => [block.semanticKey, block.id]),
+  );
+
+  const forecast = JSON.parse(vlab(repo, "forecast", "feature", "--json"));
+  assert.equal(forecast.schema, "vcs-lab.forecast/v2");
+  assert.equal(forecast.status, "complete");
+  assert.equal(forecast.counts.semanticSpec, 1);
+  assert.equal(forecast.counts.exactResolution, 0);
+  assert.equal(forecast.steps[0].outcome, "semantic-spec-merge");
+  assert.equal(forecast.approvedSpecMerges.length, 1);
+  assert.deepEqual(forecast.steps[0].semanticMerges[0].counts, {
+    "theirs-edit": 1,
+    "ours-edit": 1,
+  });
+  assert.ok(forecast.timings.phases.planningMs >= 0);
+  assert.ok(forecast.timings.worktree.applicationMs >= 0);
+  assert.ok(forecast.timings.git.count > 0);
+  assert.equal(git(repo, "rev-parse", "HEAD"), before.head);
+  assert.equal(git(repo, "status", "--porcelain=v1"), before.status);
+
+  const result = JSON.parse(
+    vlab(
+      repo,
+      "reconcile",
+      "feature",
+      "--use-forecast",
+      forecast.id,
+      "--json",
+    ),
+  );
+  assert.equal(result.receipt.schema, "vcs-lab.reconciliation/v6");
+  assert.equal(result.receipt.resultTree, forecast.predictedResultTree);
+  assert.equal(result.receipt.applied[0].semanticMerges.length, 1);
+  assert.equal(
+    result.receipt.applied[0].semanticMerges[0].selectionMethod,
+    "forecast-batch",
+  );
+  assert.equal(result.receipt.applied[0].semanticMerges[0].decision, "accepted");
+  assert.equal(
+    readText(repo, "docs/spec.md"),
+    "# Alpha\n\nsource alpha\n\n# Beta\n\ntarget beta\n",
+  );
+  const indexed = JSON.parse(
+    vlab(repo, "spec", "index", "docs/spec.md", "--json"),
+  );
+  assert.equal(indexed.cacheHit, true);
+  for (const block of indexed.manifest.blocks) {
+    assert.equal(block.id, idsBefore.get(block.semanticKey));
+  }
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("same-block specification edits remain an explicit forecast blocker", (t) => {
+  const { repo } = makeRepo(t);
+  const { base, source, target } = createIndexedSpecDivergence(repo, {
+    sameBlock: true,
+  });
+  const forecast = JSON.parse(vlab(repo, "forecast", "feature", "--json"));
+  assert.equal(forecast.status, "blocked");
+  assert.equal(forecast.blockedReason, "semantic-spec-conflict");
+  const semantic = forecast.steps[0].conflicts.find(
+    (conflict) => conflict.semanticSpec,
+  ).semanticSpec;
+  assert.equal(semantic.status, "blocked");
+  assert.equal(semantic.conflicts[0].type, "same-block-edit");
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+
+  const direct = JSON.parse(
+    vlab(
+      repo,
+      "spec",
+      "merge-plan",
+      "docs/spec.md",
+      base.commit,
+      target.commit,
+      source.commit,
+      "--json",
+    ),
+  );
+  assert.equal(direct.status, "blocked");
+  assert.equal(direct.conflicts[0].type, "same-block-edit");
+});
+
+test("spec merge combines a block move with an edit but blocks delete versus edit", (t) => {
+  const { repo } = makeRepo(t);
+  write(
+    repo,
+    "docs/spec.md",
+    "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n\n# Gamma\n\nbase gamma\n",
+  );
+  vlab(repo, "spec", "index", "docs/spec.md");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base blocks"));
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(
+    repo,
+    "docs/spec.md",
+    "# Alpha\n\nbase alpha\n\n# Beta\n\nsource beta\n\n# Gamma\n\nbase gamma\n",
+  );
+  vlab(repo, "spec", "index", "docs/spec.md");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "edit beta"));
+
+  git(repo, "switch", "-c", "target-move", base.commit);
+  write(
+    repo,
+    "docs/spec.md",
+    "# Beta\n\nbase beta\n\n# Alpha\n\nbase alpha\n\n# Gamma\n\nbase gamma\n",
+  );
+  vlab(repo, "spec", "index", "docs/spec.md");
+  git(repo, "add", ".");
+  const moved = JSON.parse(vlab(repo, "commit", "-m", "move beta"));
+  const movePlan = JSON.parse(
+    vlab(
+      repo,
+      "spec",
+      "merge-plan",
+      "docs/spec.md",
+      base.commit,
+      moved.commit,
+      source.commit,
+      "--json",
+    ),
+  );
+  assert.equal(movePlan.status, "clean");
+  assert.equal(movePlan.ordering.decision, "ours-move");
+  assert.match(movePlan.result.markdown, /^# Beta\n\nsource beta/);
+
+  git(repo, "switch", "-c", "target-delete", base.commit);
+  write(
+    repo,
+    "docs/spec.md",
+    "# Alpha\n\nbase alpha\n\n# Gamma\n\nbase gamma\n",
+  );
+  vlab(repo, "spec", "index", "docs/spec.md");
+  git(repo, "add", ".");
+  const deleted = JSON.parse(vlab(repo, "commit", "-m", "delete beta"));
+  const deletePlan = JSON.parse(
+    vlab(
+      repo,
+      "spec",
+      "merge-plan",
+      "docs/spec.md",
+      base.commit,
+      deleted.commit,
+      source.commit,
+      "--json",
+    ),
+  );
+  assert.equal(deletePlan.status, "blocked");
+  assert.equal(deletePlan.conflicts[0].type, "delete-vs-edit");
+});
+
+test("ordinary unindexed Markdown conflicts still produce a conservative forecast", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "docs.md", "base\n");
+  git(repo, "add", "docs.md");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base markdown"));
+  vlab(repo, "init");
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "docs.md", "source\n");
+  git(repo, "add", "docs.md");
+  vlab(repo, "commit", "-m", "source markdown");
+  git(repo, "switch", "main");
+  write(repo, "docs.md", "target\n");
+  git(repo, "add", "docs.md");
+  vlab(repo, "commit", "-m", "target markdown");
+
+  const forecast = JSON.parse(vlab(repo, "forecast", "feature", "--json"));
+  assert.equal(forecast.status, "blocked");
+  assert.equal(
+    forecast.blockedReason,
+    "semantic-spec-metadata-unavailable",
+  );
+  const semantic = forecast.steps[0].conflicts.find(
+    (conflict) => conflict.path === "docs.md",
+  ).semanticSpec;
+  assert.equal(semantic.conflicts[0].type, "semantic-metadata-unavailable");
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("a paused reconciliation can explicitly apply a deterministic spec merge", (t) => {
+  const { repo } = makeRepo(t);
+  createIndexedSpecDivergence(repo);
+  const attempt = vlabResult(repo, "reconcile", "feature");
+  assert.notEqual(attempt.status, 0);
+  assert.match(attempt.stderr, /deterministic spec merge/i);
+
+  const status = JSON.parse(vlab(repo, "spec", "status", "--json"));
+  assert.equal(status.active, true);
+  assert.equal(status.plans[0].status, "clean");
+  assert.deepEqual(status.plans[0].counts, {
+    "theirs-edit": 1,
+    "ours-edit": 1,
+  });
+  const applied = JSON.parse(
+    vlab(repo, "spec", "resolve", "--all", "--json"),
+  );
+  assert.equal(applied.applied.length, 1);
+  assert.doesNotMatch(git(repo, "status", "--porcelain=v1"), /^UU|^AA|^DU|^UD/m);
+
+  const result = JSON.parse(vlab(repo, "reconcile", "--continue", "--json"));
+  assert.equal(result.receipt.applied[0].resolutions.length, 0);
+  assert.equal(
+    result.receipt.applied[0].semanticMerges[0].selectionMethod,
+    "explicit-spec-merge",
+  );
+  assert.equal(result.receipt.applied[0].semanticMerges[0].decision, "accepted");
+  assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 0);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("an edited semantic suggestion requires reindexing and is audited as modified", (t) => {
+  const { repo } = makeRepo(t);
+  createIndexedSpecDivergence(repo);
+  assert.notEqual(vlabResult(repo, "reconcile", "feature").status, 0);
+  vlab(repo, "spec", "resolve", "--all", "--json");
+  write(
+    repo,
+    "docs/spec.md",
+    "# Alpha\n\nsource alpha\n\n# Beta\n\nhuman-adjusted beta\n",
+  );
+  git(repo, "add", "docs/spec.md");
+  const stale = vlabResult(repo, "reconcile", "--continue");
+  assert.notEqual(stale.status, 0);
+  assert.match(stale.stderr, /manifest.*stale/i);
+
+  vlab(repo, "spec", "index", "docs/spec.md", "--json");
+  git(repo, "add", "docs/spec.md", ".vcs-lab/specs/docs/spec.md.json");
+  const result = JSON.parse(vlab(repo, "reconcile", "--continue", "--json"));
+  const merge = result.receipt.applied[0].semanticMerges[0];
+  assert.equal(merge.decision, "modified");
+  assert.notEqual(merge.actualMarkdownHash, merge.resultMarkdownHash);
+  assert.notEqual(merge.actualManifestHash, merge.resultManifestHash);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("semantic spec forecasts are stable with checkout-time CRLF conversion", (t) => {
+  const { repo } = makeRepo(t);
+  git(repo, "config", "core.autocrlf", "true");
+  createIndexedSpecDivergence(repo);
+  const forecast = JSON.parse(vlab(repo, "forecast", "feature", "--json"));
+  assert.equal(forecast.status, "complete");
+  assert.equal(forecast.counts.semanticSpec, 1);
+  const result = JSON.parse(
+    vlab(
+      repo,
+      "reconcile",
+      "feature",
+      "--use-forecast",
+      forecast.id,
+      "--json",
+    ),
+  );
+  assert.equal(result.receipt.resultTree, forecast.predictedResultTree);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("batch spec indexing skips unchanged manifests and measures generated corpora", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "docs/one.md", "# One\n\nFirst body.\n");
+  write(repo, "docs/two.md", "# Two\n\nSecond body.\n");
+  const cold = JSON.parse(vlab(repo, "spec", "index", "--all", "--json"));
+  assert.equal(cold.files, 2);
+  assert.equal(cold.cacheHits, 0);
+  assert.equal(cold.manifestsWritten, 2);
+  const unchanged = JSON.parse(
+    vlab(repo, "spec", "index", "--all", "--json"),
+  );
+  assert.equal(unchanged.cacheHits, 2);
+  assert.equal(unchanged.manifestsWritten, 0);
+
+  write(repo, "docs/two.md", "# Two\n\nSecond body changed.\n");
+  const incremental = JSON.parse(
+    vlab(repo, "spec", "index", "--all", "--json"),
+  );
+  assert.equal(incremental.cacheHits, 1);
+  assert.equal(incremental.manifestsWritten, 1);
+  assert.equal(incremental.changes.changed, 1);
+
+  const benchmark = JSON.parse(
+    vlab(
+      repo,
+      "spec",
+      "benchmark",
+      "--documents",
+      "2",
+      "--blocks",
+      "3",
+      "--json",
+    ),
+  );
+  assert.equal(benchmark.documents, 2);
+  assert.equal(benchmark.blocksPerDocument, 3);
+  assert.equal(benchmark.unchanged.cacheHits, 2);
+  assert.equal(benchmark.unchanged.manifestsWritten, 0);
+  assert.equal(benchmark.oneBlockChanged.manifestsWritten, 1);
+  assert.ok(benchmark.manifestBytes > 0);
+  assert.ok(benchmark.manifestToSourceRatio > 0);
 });
 
 test("heuristic candidates require explicit acceptance", (t) => {
@@ -642,10 +998,14 @@ test("doctor benchmarks Git probes and trace mode reports subprocess timings", (
   write(repo, "base.txt", "base\n");
   git(repo, "add", "base.txt");
   git(repo, "commit", "-m", "base");
-  const doctor = JSON.parse(vlab(repo, "doctor", "--benchmark"));
+  const doctor = JSON.parse(
+    vlab(repo, "doctor", "--benchmark", "--samples", "5", "--warmup", "2"),
+  );
   assert.equal(doctor.ok, true);
   assert.equal(doctor.benchmark.length, 4);
-  assert.ok(doctor.benchmark.every((probe) => probe.samplesMs.length === 3));
+  assert.ok(doctor.benchmark.every((probe) => probe.samplesMs.length === 5));
+  assert.ok(doctor.benchmark.every((probe) => probe.warmup === 2));
+  assert.ok(doctor.benchmark.every((probe) => probe.p95Ms >= probe.medianMs));
 
   const traced = spawnSync(process.execPath, [cli, "doctor"], {
     cwd: repo,

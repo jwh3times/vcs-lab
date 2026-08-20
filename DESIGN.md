@@ -136,6 +136,14 @@ separately. Active time accumulates only during CLI processes that are applying
 changes; elapsed wall time remains available to expose human or agent wait time
 during a paused reconciliation.
 
+Version 0.5 adds structured command counts and aggregate duration by Git
+subcommand to each forecast. Forecast timings separate preflight, causal
+planning, temporary-worktree setup, application, cleanup, and caller-invariant
+checks. `doctor --benchmark` now supports warmup and sample counts and reports
+minimum, median, p95, average, and maximum latency. These measurements expose
+the number of compatibility-layer round trips rather than attributing aggregate
+latency to a synchronized directory without evidence.
+
 ## Workspace checkpoint
 
 The checkpoint command creates a temporary Git index, reads `HEAD` into it, adds the current working tree, writes a tree, and uses `git commit-tree` to create an immutable checkpoint. The real index and worktree are untouched. A hidden ref prevents garbage collection.
@@ -144,9 +152,40 @@ This is a useful approximation of the proposed native operation log and copy-on-
 
 ## Hybrid specifications
 
-The lab begins with annotated files, not native structured documents. Exact Markdown bytes remain authoritative. A portable sidecar assigns stable IDs to headings and `REQ-*:` records, demonstrating entity-aware history and review anchoring without requiring new editors.
+The lab begins with annotated files, not native structured documents. Exact Markdown bytes remain authoritative. A portable sidecar assigns stable IDs to the preamble, headings, and `REQ-*:` records, demonstrating entity-aware history and review anchoring without requiring new editors.
 
-The next step would be a deterministic three-way block merge using those IDs, followed by an opt-in structured specification whose canonical form renders deterministically to Markdown.
+Version 0.5 upgrades this to deterministic three-way block reconciliation. The
+sidecar has no generation timestamp, derives new entity IDs from the shared
+artifact ID and semantic key, and is not rewritten when its normalized source
+hash is unchanged. Batch indexing resolves the repository context once and
+skips unchanged manifests.
+
+Merge units are the preamble and non-overlapping heading-delimited sections.
+Requirements remain nested entities for identity and review, but are not a
+second overlapping byte-merge layer. For each stable block ID, the merge uses
+only base, target, and source presence, content hashes, and ordering:
+
+- one-sided edits, moves, additions, and deletions are deterministic;
+- identical concurrent results are deterministic;
+- divergent same-block edits are conflicts;
+- delete-versus-edit is a conflict;
+- incompatible moves or concurrent-add placements are conflicts.
+
+Clean results render canonically and regenerate the sidecar from the same
+stable IDs. A semantic signature pins all three document and manifest hashes.
+Forecast approval additionally pins the result Markdown and manifest hashes;
+real application recomputes them and must still reproduce the complete
+forecast tree before causal receipts are published. A paused non-forecast
+operation exposes the same plan through `vlab spec status` and requires an
+explicit `vlab spec resolve` action. Continuation validates that the staged
+sidecar still describes the staged Markdown. An unchanged suggestion is
+recorded as `accepted`; a reindexed human adjustment is recorded as `modified`.
+
+The generated-corpus benchmark measures raw and deflate-estimated sizes plus
+cold, unchanged, and one-block-change indexing. The readable JSON compatibility
+sidecar is intentionally not claimed as a final storage format: measurements
+will determine whether a compact index, object-level structural sharing, or a
+native content-addressed representation is justified.
 
 ## Exit criteria for a second prototype
 
@@ -159,6 +198,8 @@ Build a native store only if local trials show that:
 - pinned forecasts reproduce their predicted trees often enough to support
   batch application of exact decisions;
 - annotated spec entities remain stable enough under real editing;
+- deterministic spec forecasts eliminate independent-block conflicts without
+  hiding same-block ambiguity;
 - users value causal and semantic queries enough to justify metadata complexity;
 - exact resolution reuse removes repeated conflict work without encouraging
   unsafe automatic merges;

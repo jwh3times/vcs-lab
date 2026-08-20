@@ -2,9 +2,11 @@ import fs from "node:fs";
 import { performance } from "node:perf_hooks";
 import {
   assertClean,
+  beginGitMetrics,
   changeIdForCommit,
   commitMessage,
   currentHead,
+  endGitMetrics,
   extractTrailer,
   findCommitByChangeId,
   repoContext,
@@ -31,6 +33,12 @@ import {
   publishResolution,
 } from "./resolutions.js";
 import { forecastForPlan } from "./forecasts.js";
+import {
+  captureSpecMergeOutcomes,
+  compactSpecMerge,
+  materializeSpecMerge,
+  specMergePlansForOperation,
+} from "./specs.js";
 
 function resolveChangeOrCommit(value, cwd) {
   if (value.startsWith("ch_")) {
@@ -129,7 +137,7 @@ function requirePendingReconciliation(cwd) {
 
 function applicationRecord(operation, change, appliedCommit, relation, cwd) {
   return {
-    schema: "vcs-lab.application/v3",
+    schema: "vcs-lab.application/v4",
     type: "application",
     id: newId("apply"),
     reconciliationOperation: operation.id,
@@ -144,6 +152,7 @@ function applicationRecord(operation, change, appliedCommit, relation, cwd) {
     forecastId: operation.forecastId ?? null,
     conflictedPaths: operation.current.conflictedPaths ?? [],
     resolutions: operation.current.resolutionOutcomes ?? [],
+    semanticMerges: operation.current.semanticMerges ?? [],
     createdAt: new Date().toISOString(),
   };
 }
@@ -201,9 +210,10 @@ function finalizeReconciliation(operation, cwd) {
     relation: application.relation,
     conflictedPaths: application.conflictedPaths,
     resolutions: application.resolutions,
+    semanticMerges: application.semanticMerges,
   }));
   const receipt = {
-    schema: "vcs-lab.reconciliation/v5",
+    schema: "vcs-lab.reconciliation/v6",
     type: "reconciliation",
     id: newId("reconcile"),
     operationId: operation.id,
@@ -226,6 +236,7 @@ function finalizeReconciliation(operation, cwd) {
         (operation.timings?.activeApplicationMs ?? 0).toFixed(2),
       ),
       elapsedWallMs: Date.now() - Date.parse(operation.startedAt),
+      git: operation.timings?.git ?? null,
     },
     startedAt: operation.startedAt,
     createdAt: new Date().toISOString(),
@@ -242,7 +253,7 @@ function finalizeReconciliation(operation, cwd) {
   return { operationId: operation.id, plan: operation.plan, receipt };
 }
 
-function conflictError(operation, result) {
+function conflictError(operation, result, cwd) {
   const change = operation.queue[operation.nextIndex];
   const paths = operation.current.conflictedPaths;
   const pathSummary = paths.length
@@ -255,6 +266,17 @@ function conflictError(operation, result) {
   const suggestion = suggestionCount
     ? `${suggestionCount} prior resolution candidate${suggestionCount === 1 ? "" : "s"} found. Run 'vlab resolve status'.`
     : "No exact prior resolution was found.";
+  let specSuggestion = null;
+  try {
+    const semantic = specMergePlansForOperation(operation, cwd).filter(
+      (plan) => plan.status === "clean",
+    );
+    if (semantic.length) {
+      specSuggestion = `${semantic.length} deterministic spec merge${semantic.length === 1 ? "" : "s"} available. Run 'vlab spec status'.`;
+    }
+  } catch {
+    // An ordinary conflict remains actionable even if semantic metadata is stale.
+  }
   return new CliError(
     `Reconciliation paused while applying ${change.shortCommit}.`,
     {
@@ -262,6 +284,7 @@ function conflictError(operation, result) {
         result.output,
         pathSummary,
         suggestion,
+        specSuggestion,
         "Resolve and stage the files, then run 'vlab reconcile --continue'.",
         "Run 'vlab reconcile --status' for details or 'vlab reconcile --abort' to restore the starting state.",
       ]
@@ -274,6 +297,43 @@ function conflictError(operation, result) {
 function addActiveDuration(operation, phaseStarted) {
   operation.timings ??= { activeApplicationMs: 0 };
   operation.timings.activeApplicationMs += performance.now() - phaseStarted;
+}
+
+function accumulateGitMetrics(operation, metrics) {
+  operation.timings ??= { activeApplicationMs: 0 };
+  const existing = operation.timings.git ?? {
+    count: 0,
+    totalMs: 0,
+    failed: 0,
+    byCommand: [],
+  };
+  const byCommand = new Map(
+    existing.byCommand.map((item) => [item.command, { ...item }]),
+  );
+  for (const item of metrics.byCommand) {
+    const current = byCommand.get(item.command) ?? {
+      command: item.command,
+      count: 0,
+      totalMs: 0,
+      maxMs: 0,
+    };
+    current.count += item.count;
+    current.totalMs += item.totalMs;
+    current.maxMs = Math.max(current.maxMs, item.maxMs);
+    byCommand.set(item.command, current);
+  }
+  operation.timings.git = {
+    count: existing.count + metrics.count,
+    totalMs: Number((existing.totalMs + metrics.totalMs).toFixed(2)),
+    failed: existing.failed + metrics.failed,
+    byCommand: [...byCommand.values()]
+      .map((item) => ({
+        ...item,
+        totalMs: Number(item.totalMs.toFixed(2)),
+        maxMs: Number(item.maxMs.toFixed(2)),
+      }))
+      .sort((left, right) => right.totalMs - left.totalMs),
+  };
 }
 
 function forecastResolutionChoices(operation, change, conflicts) {
@@ -310,14 +370,68 @@ function forecastResolutionChoices(operation, change, conflicts) {
   });
 }
 
+function forecastSpecMergeChoices(operation, change, cwd) {
+  if (!operation.forecastApproval) return [];
+  const approvals = (operation.forecastApproval.approvedSpecMerges ?? []).filter(
+    (approval) => approval.sourceCommit === change.commit,
+  );
+  if (approvals.length === 0) return [];
+  const plans = specMergePlansForOperation(operation, cwd).filter(
+    (plan) => plan.status === "clean",
+  );
+  if (plans.length !== approvals.length) {
+    throw new CliError(
+      `Forecast '${operation.forecastId}' no longer matches the semantic spec conflicts.`,
+      { details: "Abort and generate a new forecast before batch application." },
+    );
+  }
+  return approvals.map((approval) => {
+    const plan = plans.find(
+      (candidate) =>
+        candidate.file === approval.path &&
+        candidate.signature === approval.signature &&
+        candidate.status === "clean" &&
+        candidate.result?.markdownHash === approval.resultMarkdownHash &&
+        candidate.result?.manifestHash === approval.resultManifestHash,
+    );
+    if (!plan) {
+      throw new CliError(
+        `Forecast '${operation.forecastId}' no longer matches '${approval.path}'.`,
+        { details: "Abort and generate a new forecast before batch application." },
+      );
+    }
+    return plan;
+  });
+}
+
 function applyForecastResolutions(operation, change, cwd) {
+  const specChoices = forecastSpecMergeChoices(operation, change, cwd);
+  const semanticallyResolved = new Set(
+    specChoices.flatMap((plan) => compactSpecMerge(plan).resolvedPaths),
+  );
+  const exactConflicts = (operation.current.conflicts ?? []).filter(
+    (conflict) => !semanticallyResolved.has(conflict.path),
+  );
   const choices = forecastResolutionChoices(
     operation,
     change,
-    operation.current.conflicts ?? [],
+    exactConflicts,
   );
-  if (!choices) return false;
-  for (const { conflict, candidate } of choices) {
+  if (!choices && specChoices.length === 0) return false;
+  if (!choices && exactConflicts.length > 0) return false;
+
+  const semanticMerges = specChoices.map((plan) => {
+    materializeSpecMerge(plan, cwd);
+    return compactSpecMerge(plan, "forecast-batch");
+  });
+  operation.current.semanticMerges = captureSpecMergeOutcomes(
+    semanticMerges,
+    cwd,
+  );
+  if (operation.current.semanticMerges.some((merge) => merge.decision !== "accepted")) {
+    throw new CliError("A forecasted semantic spec result changed while staging.");
+  }
+  for (const { conflict, candidate } of choices ?? []) {
     materializeResolutionCandidate(conflict, candidate, cwd);
     conflict.selectedResolutionId = candidate.id;
     conflict.decisionOverride = null;
@@ -325,7 +439,7 @@ function applyForecastResolutions(operation, change, cwd) {
     conflict.suggestionAppliedAt = new Date().toISOString();
   }
   operation.current.resolutionOutcomes = captureResolutionOutcomes(
-    operation.current.conflicts,
+    exactConflicts,
     cwd,
   );
   writeReconciliationState(operation, cwd);
@@ -343,10 +457,12 @@ function applyForecastResolutions(operation, change, cwd) {
 }
 
 function runReconciliationQueue(operation, cwd, phaseStarted = performance.now()) {
+  const gitMetrics = beginGitMetrics("reconciliation-application");
   let phaseRecorded = false;
   const finishPhase = (persist) => {
     if (phaseRecorded) return;
     addActiveDuration(operation, phaseStarted);
+    accumulateGitMetrics(operation, endGitMetrics(gitMetrics));
     phaseRecorded = true;
     if (persist) writeReconciliationState(operation, cwd);
   };
@@ -385,7 +501,7 @@ function runReconciliationQueue(operation, cwd, phaseStarted = performance.now()
         }
         finishPhase(false);
         writeReconciliationState(operation, cwd);
-        throw conflictError(operation, result);
+        throw conflictError(operation, result, cwd);
       }
       recordSuccessfulApplication(operation, "causal-reconciliation", cwd);
     }
@@ -400,7 +516,7 @@ function runReconciliationQueue(operation, cwd, phaseStarted = performance.now()
 function startOperation(sourceRef, plan, options, cwd) {
   const context = repoContext(cwd);
   return {
-    schema: "vcs-lab.reconciliation-operation/v3",
+    schema: "vcs-lab.reconciliation-operation/v4",
     id: newId("reconcile_op"),
     state: "running",
     worktree: context.root,
@@ -413,7 +529,8 @@ function startOperation(sourceRef, plan, options, cwd) {
       ? {
           id: options.forecast.id,
           planFingerprint: options.forecast.planFingerprint,
-          approvedResolutions: options.forecast.approvedResolutions,
+          approvedResolutions: options.forecast.approvedResolutions ?? [],
+          approvedSpecMerges: options.forecast.approvedSpecMerges ?? [],
           status: options.forecast.status,
           predictedResultTree: options.forecast.predictedResultTree,
         }
@@ -424,7 +541,10 @@ function startOperation(sourceRef, plan, options, cwd) {
     applied: [],
     current: null,
     startedAt: new Date().toISOString(),
-    timings: { activeApplicationMs: 0 },
+    timings: {
+      activeApplicationMs: 0,
+      git: { count: 0, totalMs: 0, failed: 0, byCommand: [] },
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -546,8 +666,19 @@ export function continueReconciliation(options = {}) {
     throw new CliError("Git's pending cherry-pick does not match the vlab operation.");
   }
 
+  operation.current.semanticMerges = captureSpecMergeOutcomes(
+    operation.current.semanticMerges ?? [],
+    cwd,
+  );
+  const semanticallyResolved = new Set(
+    (operation.current.semanticMerges ?? []).flatMap(
+      (merge) => merge.resolvedPaths ?? [],
+    ),
+  );
   operation.current.resolutionOutcomes = captureResolutionOutcomes(
-    operation.current.conflicts ?? [],
+    (operation.current.conflicts ?? []).filter(
+      (conflict) => !semanticallyResolved.has(conflict.path),
+    ),
     cwd,
   );
   writeReconciliationState(operation, cwd);
