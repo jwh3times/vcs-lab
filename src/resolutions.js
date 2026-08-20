@@ -152,6 +152,7 @@ export function captureResolutionOutcomes(conflicts, cwd = process.cwd()) {
       theirs: conflict.theirs,
       ...result,
       decision,
+      selectionMethod: conflict.selectionMethod ?? null,
       selectedResolutionId: selected?.id ?? null,
       reusedResolutionId: matching?.id ?? null,
     };
@@ -266,7 +267,7 @@ function chooseCandidate(conflict, resolutionId) {
   return conflict.candidates[0];
 }
 
-function materializeCandidate(conflict, candidate, cwd) {
+export function materializeResolutionCandidate(conflict, candidate, cwd) {
   const absolute = path.resolve(cwd, conflict.path);
   if (!candidate.resultBlob) {
     runGit(["rm", "--ignore-unmatch", "--", conflict.path], { cwd });
@@ -295,9 +296,10 @@ export function applyResolution(options = {}) {
   }));
   const applied = [];
   for (const { conflict, candidate } of choices) {
-    materializeCandidate(conflict, candidate, cwd);
+    materializeResolutionCandidate(conflict, candidate, cwd);
     conflict.selectedResolutionId = candidate.id;
     conflict.decisionOverride = null;
+    conflict.selectionMethod = "explicit";
     conflict.suggestionAppliedAt = new Date().toISOString();
     applied.push({ path: conflict.path, resolution: candidate });
   }
@@ -322,6 +324,7 @@ export function rejectResolution(options = {}) {
     }
     conflict.decisionOverride = "rejected";
     conflict.selectedResolutionId = candidate?.id ?? null;
+    conflict.selectionMethod = "explicit";
     rejected.push({ path: conflict.path, candidates: conflict.candidates.length });
   }
   writeReconciliationState(operation, cwd);

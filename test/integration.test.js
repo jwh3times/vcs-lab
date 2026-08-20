@@ -12,7 +12,7 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 test("CLI reports the package version", () => {
   assert.equal(
     exec(process.execPath, [cli, "--version"], projectRoot),
-    "vcs-lab 0.3.0",
+    "vcs-lab 0.4.0",
   );
 });
 
@@ -267,6 +267,16 @@ test("heuristic candidates require explicit acceptance", (t) => {
   });
   assert.notEqual(attempt.status, 0);
   assert.match(attempt.stderr, /heuristic patch-equivalence candidates/i);
+
+  const forecast = JSON.parse(vlab(repo, "forecast", "left", "--json"));
+  assert.equal(forecast.status, "review-required");
+  assert.equal(forecast.candidateDecisionRequired, true);
+  assert.equal(forecast.predictedResultTree, null);
+  const acceptedForecast = JSON.parse(
+    vlab(repo, "forecast", "left", "--accept-candidates", "--json"),
+  );
+  assert.equal(acceptedForecast.status, "complete");
+  assert.equal(acceptedForecast.candidateDecisionRequired, false);
 });
 
 test("conflicted reconciliation resumes across processes and records contextual application", (t) => {
@@ -644,4 +654,236 @@ test("doctor benchmarks Git probes and trace mode reports subprocess timings", (
   });
   assert.equal(traced.status, 0);
   assert.match(traced.stderr, /\[vlab trace\].*git --version/);
+});
+
+test("forecast previews and batch-applies pinned exact resolutions without mutation", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", "shared.txt");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "source-one", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "source one");
+  git(repo, "switch", "-c", "target-one", base.commit);
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "target one");
+  assert.notEqual(vlabResult(repo, "reconcile", "source-one").status, 0);
+  write(repo, "shared.txt", "remembered\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "reconcile", "--continue", "--json");
+
+  git(repo, "switch", "-c", "source-two", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "source two");
+  git(repo, "switch", "-c", "target-two", base.commit);
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "target two");
+
+  const before = {
+    head: git(repo, "rev-parse", "HEAD"),
+    status: git(repo, "status", "--porcelain=v1"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+  const forecast = JSON.parse(vlab(repo, "forecast", "source-two", "--json"));
+  assert.equal(forecast.status, "complete");
+  assert.equal(forecast.counts.exactResolution, 1);
+  assert.equal(forecast.approvedResolutions.length, 1);
+  assert.equal(forecast.steps[0].outcome, "exact-resolution");
+  assert.equal(forecast.steps[0].resolutions[0].decision, "accepted");
+  assert.equal(
+    forecast.steps[0].resolutions[0].selectionMethod,
+    "forecast-batch",
+  );
+  assert.ok(forecast.predictedResultTree);
+  assert.ok(forecast.timings.forecastMs > 0);
+  assert.equal(git(repo, "rev-parse", "HEAD"), before.head);
+  assert.equal(git(repo, "status", "--porcelain=v1"), before.status);
+  assert.equal(git(repo, "worktree", "list", "--porcelain"), before.worktrees);
+
+  const reconciled = JSON.parse(
+    vlab(
+      repo,
+      "reconcile",
+      "source-two",
+      "--use-forecast",
+      forecast.id,
+      "--json",
+    ),
+  );
+  assert.equal(reconciled.receipt.forecastId, forecast.id);
+  assert.equal(reconciled.receipt.resultTree, forecast.predictedResultTree);
+  assert.equal(
+    reconciled.receipt.applied[0].resolutions[0].selectionMethod,
+    "forecast-batch",
+  );
+  assert.equal(
+    reconciled.receipt.applied[0].resolutions[0].decision,
+    "accepted",
+  );
+  assert.ok(reconciled.receipt.timings.activeApplicationMs > 0);
+  assert.ok(reconciled.receipt.timings.elapsedWallMs >= 0);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(
+    JSON.parse(vlab(repo, "reconcile", "--status", "--json")).active,
+    false,
+  );
+});
+
+test("stale forecasts fail before starting a reconciliation", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", "base.txt");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "feature\n");
+  git(repo, "add", "feature.txt");
+  vlab(repo, "commit", "-m", "feature");
+  git(repo, "switch", "main");
+  const forecast = JSON.parse(vlab(repo, "forecast", "feature", "--json"));
+  assert.equal(forecast.status, "complete");
+
+  write(repo, "target.txt", "target moved\n");
+  git(repo, "add", "target.txt");
+  const moved = JSON.parse(vlab(repo, "commit", "-m", "move target"));
+  const attempt = vlabResult(
+    repo,
+    "reconcile",
+    "feature",
+    "--use-forecast",
+    forecast.id,
+  );
+  assert.notEqual(attempt.status, 0);
+  assert.match(attempt.stderr, /no longer matches this reconciliation/i);
+  assert.equal(git(repo, "rev-parse", "HEAD"), moved.commit);
+  assert.equal(
+    JSON.parse(vlab(repo, "reconcile", "--status", "--json")).active,
+    false,
+  );
+});
+
+test("forecast result mismatch blocks receipts and remains abortable", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", "base.txt");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "feature\n");
+  git(repo, "add", "feature.txt");
+  vlab(repo, "commit", "-m", "feature");
+  git(repo, "switch", "main");
+  const forecast = JSON.parse(vlab(repo, "forecast", "feature", "--json"));
+  const relativeForecastPath = git(
+    repo,
+    "rev-parse",
+    "--git-path",
+    `vcs-lab/forecasts/${forecast.id}.json`,
+  );
+  const savedPath = path.resolve(repo, relativeForecastPath);
+  const saved = JSON.parse(fs.readFileSync(savedPath, "utf8"));
+  saved.predictedResultTree = saved.plan.targetTree;
+  fs.writeFileSync(savedPath, `${JSON.stringify(saved, null, 2)}\n`);
+
+  const attempt = vlabResult(
+    repo,
+    "reconcile",
+    "feature",
+    "--use-forecast",
+    forecast.id,
+  );
+  assert.notEqual(attempt.status, 0);
+  assert.match(attempt.stderr, /result does not match forecast/i);
+  const status = JSON.parse(vlab(repo, "reconcile", "--status", "--json"));
+  assert.equal(status.active, true);
+  assert.equal(status.state, "forecast-mismatch");
+  assert.deepEqual(JSON.parse(vlab(repo, "receipts", "--json")), []);
+  const aborted = JSON.parse(vlab(repo, "reconcile", "--abort", "--json"));
+  assert.equal(aborted.restoredHead, base.commit);
+  assert.equal(fs.existsSync(path.join(repo, "feature.txt")), false);
+});
+
+test("workspace forecast compares committed agent heads without touching drafts", (t) => {
+  const { repo, parent } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+
+  const targetPath = path.join(parent, "target-agent");
+  const sourcePath = path.join(parent, "source-agent");
+  vlab(
+    repo,
+    "workspace",
+    "create",
+    "target-agent",
+    "--path",
+    targetPath,
+    "--json",
+  );
+  vlab(
+    repo,
+    "workspace",
+    "create",
+    "source-agent",
+    "--path",
+    sourcePath,
+    "--json",
+  );
+  write(targetPath, "shared.txt", "target\n");
+  git(targetPath, "add", "shared.txt");
+  vlab(targetPath, "commit", "-m", "target edit");
+  write(sourcePath, "shared.txt", "source\n");
+  git(sourcePath, "add", "shared.txt");
+  vlab(sourcePath, "commit", "-m", "source edit");
+  write(sourcePath, "draft.txt", "uncommitted agent draft\n");
+
+  const targetHead = git(targetPath, "rev-parse", "HEAD");
+  const sourceHead = git(sourcePath, "rev-parse", "HEAD");
+  const sourceStatus = git(sourcePath, "status", "--porcelain=v1");
+  const forecast = JSON.parse(
+    vlab(
+      repo,
+      "workspace",
+      "forecast",
+      "target-agent",
+      "source-agent",
+      "--json",
+    ),
+  );
+  assert.equal(forecast.status, "blocked");
+  assert.equal(forecast.blockedReason, "missing-exact-resolution");
+  assert.equal(forecast.steps[0].outcome, "blocked-conflict");
+  assert.deepEqual(
+    forecast.steps[0].conflicts.map((conflict) => conflict.path),
+    ["shared.txt"],
+  );
+  assert.equal(forecast.workspaceComparison.scope, "committed-heads");
+  assert.equal(
+    forecast.workspaceComparison.source.ignoredDirtyFiles,
+    1,
+  );
+  assert.equal(forecast.targetWorktree, targetPath);
+  assert.equal(git(targetPath, "rev-parse", "HEAD"), targetHead);
+  assert.equal(git(sourcePath, "rev-parse", "HEAD"), sourceHead);
+  assert.equal(git(sourcePath, "status", "--porcelain=v1"), sourceStatus);
+  assert.equal(
+    JSON.parse(
+      vlab(
+        targetPath,
+        "reconcile",
+        "--status",
+        "--json",
+      ),
+    ).active,
+    false,
+  );
 });

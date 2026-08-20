@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { performance } from "node:perf_hooks";
 import {
   assertClean,
   changeIdForCommit,
@@ -26,8 +27,10 @@ import {
 import {
   captureConflictDescriptors,
   captureResolutionOutcomes,
+  materializeResolutionCandidate,
   publishResolution,
 } from "./resolutions.js";
+import { forecastForPlan } from "./forecasts.js";
 
 function resolveChangeOrCommit(value, cwd) {
   if (value.startsWith("ch_")) {
@@ -126,7 +129,7 @@ function requirePendingReconciliation(cwd) {
 
 function applicationRecord(operation, change, appliedCommit, relation, cwd) {
   return {
-    schema: "vcs-lab.application/v2",
+    schema: "vcs-lab.application/v3",
     type: "application",
     id: newId("apply"),
     reconciliationOperation: operation.id,
@@ -138,6 +141,7 @@ function applicationRecord(operation, change, appliedCommit, relation, cwd) {
     sourceTree: treeId(change.commit, cwd),
     resultTree: treeId(appliedCommit, cwd),
     relation,
+    forecastId: operation.forecastId ?? null,
     conflictedPaths: operation.current.conflictedPaths ?? [],
     resolutions: operation.current.resolutionOutcomes ?? [],
     createdAt: new Date().toISOString(),
@@ -165,6 +169,21 @@ function recordSuccessfulApplication(operation, relation, cwd) {
 function finalizeReconciliation(operation, cwd) {
   const attachedTo = currentHead(cwd);
   const resultTree = treeId(attachedTo, cwd);
+  const predictedTree = operation.forecastApproval?.predictedResultTree;
+  if (predictedTree && predictedTree !== resultTree) {
+    operation.state = "forecast-mismatch";
+    writeReconciliationState(operation, cwd);
+    throw new CliError(
+      `Reconciliation result does not match forecast '${operation.forecastId}'.`,
+      {
+        details: [
+          `Forecast tree: ${predictedTree}`,
+          `Actual tree:   ${resultTree}`,
+          "Run 'vlab reconcile --abort' and generate a new forecast.",
+        ].join("\n"),
+      },
+    );
+  }
   const forkedOrigins = new Set(
     operation.applied
       .filter((application) => application.relation === "contextual-fork")
@@ -184,10 +203,11 @@ function finalizeReconciliation(operation, cwd) {
     resolutions: application.resolutions,
   }));
   const receipt = {
-    schema: "vcs-lab.reconciliation/v4",
+    schema: "vcs-lab.reconciliation/v5",
     type: "reconciliation",
     id: newId("reconcile"),
     operationId: operation.id,
+    forecastId: operation.forecastId ?? null,
     sourceRef: operation.sourceRef,
     sourceHead: operation.sourceHead,
     targetBefore: operation.targetBefore,
@@ -201,6 +221,12 @@ function finalizeReconciliation(operation, cwd) {
     resultTree,
     exactStateEqualityBefore: operation.plan.exactStateEquality,
     exactStateEqualityAfter: resultTree === operation.plan.sourceTree,
+    timings: {
+      activeApplicationMs: Number(
+        (operation.timings?.activeApplicationMs ?? 0).toFixed(2),
+      ),
+      elapsedWallMs: Date.now() - Date.parse(operation.startedAt),
+    },
     startedAt: operation.startedAt,
     createdAt: new Date().toISOString(),
   };
@@ -245,45 +271,136 @@ function conflictError(operation, result) {
   );
 }
 
-function runReconciliationQueue(operation, cwd) {
-  while (operation.nextIndex < operation.queue.length) {
-    const change = operation.queue[operation.nextIndex];
-    operation.state = "applying";
-    operation.current = {
-      sourceCommit: change.commit,
-      sourceChangeId: change.changeId,
-      targetBefore: currentHead(cwd),
-      conflictedPaths: [],
-      startedAt: new Date().toISOString(),
-    };
-    writeReconciliationState(operation, cwd);
+function addActiveDuration(operation, phaseStarted) {
+  operation.timings ??= { activeApplicationMs: 0 };
+  operation.timings.activeApplicationMs += performance.now() - phaseStarted;
+}
 
-    const result = runGit(["cherry-pick", "-x", change.commit], {
-      cwd,
-      allowFailure: true,
-    });
-    if (!result.ok) {
-      operation.current.conflictedPaths = unmergedPaths(cwd);
-      operation.current.conflicts = captureConflictDescriptors(
-        operation.current.conflictedPaths,
-        cwd,
-      );
-      operation.current.gitOutput = result.output;
-      operation.state = operation.current.conflictedPaths.length
-        ? "conflicted"
-        : "blocked";
-      writeReconciliationState(operation, cwd);
-      throw conflictError(operation, result);
-    }
-    recordSuccessfulApplication(operation, "causal-reconciliation", cwd);
+function forecastResolutionChoices(operation, change, conflicts) {
+  if (!operation.forecastApproval) return null;
+  const approvals = operation.forecastApproval.approvedResolutions.filter(
+    (approval) => approval.sourceCommit === change.commit,
+  );
+  if (approvals.length === 0) return null;
+  if (approvals.length !== conflicts.length) {
+    throw new CliError(
+      `Forecast '${operation.forecastId}' no longer matches the current conflicts.`,
+      { details: "Abort and generate a new forecast before batch application." },
+    );
   }
-  return finalizeReconciliation(operation, cwd);
+  return conflicts.map((conflict) => {
+    const approval = approvals.find(
+      (item) =>
+        item.path === conflict.path && item.signature === conflict.signature,
+    );
+    const candidate = approval
+      ? conflict.candidates.find(
+          (item) =>
+            item.id === approval.resolutionId &&
+            item.resultBlob === approval.resultBlob,
+        )
+      : null;
+    if (!approval || !candidate) {
+      throw new CliError(
+        `Forecast '${operation.forecastId}' no longer matches '${conflict.path}'.`,
+        { details: "Abort and generate a new forecast before batch application." },
+      );
+    }
+    return { conflict, candidate };
+  });
+}
+
+function applyForecastResolutions(operation, change, cwd) {
+  const choices = forecastResolutionChoices(
+    operation,
+    change,
+    operation.current.conflicts ?? [],
+  );
+  if (!choices) return false;
+  for (const { conflict, candidate } of choices) {
+    materializeResolutionCandidate(conflict, candidate, cwd);
+    conflict.selectedResolutionId = candidate.id;
+    conflict.decisionOverride = null;
+    conflict.selectionMethod = "forecast-batch";
+    conflict.suggestionAppliedAt = new Date().toISOString();
+  }
+  operation.current.resolutionOutcomes = captureResolutionOutcomes(
+    operation.current.conflicts,
+    cwd,
+  );
+  writeReconciliationState(operation, cwd);
+  const continued = runGit(
+    ["-c", "core.editor=true", "cherry-pick", "--continue"],
+    { cwd, allowFailure: true },
+  );
+  if (!continued.ok) {
+    throw new CliError("Git could not apply the forecasted resolutions.", {
+      details: continued.output,
+    });
+  }
+  recordSuccessfulApplication(operation, "contextual-application", cwd);
+  return true;
+}
+
+function runReconciliationQueue(operation, cwd, phaseStarted = performance.now()) {
+  let phaseRecorded = false;
+  const finishPhase = (persist) => {
+    if (phaseRecorded) return;
+    addActiveDuration(operation, phaseStarted);
+    phaseRecorded = true;
+    if (persist) writeReconciliationState(operation, cwd);
+  };
+  try {
+    while (operation.nextIndex < operation.queue.length) {
+      const change = operation.queue[operation.nextIndex];
+      operation.state = "applying";
+      operation.current = {
+        sourceCommit: change.commit,
+        sourceChangeId: change.changeId,
+        targetBefore: currentHead(cwd),
+        conflictedPaths: [],
+        startedAt: new Date().toISOString(),
+      };
+      writeReconciliationState(operation, cwd);
+
+      const result = runGit(["cherry-pick", "-x", change.commit], {
+        cwd,
+        allowFailure: true,
+      });
+      if (!result.ok) {
+        operation.current.conflictedPaths = unmergedPaths(cwd);
+        operation.current.conflicts = captureConflictDescriptors(
+          operation.current.conflictedPaths,
+          cwd,
+        );
+        operation.current.gitOutput = result.output;
+        operation.state = operation.current.conflictedPaths.length
+          ? "conflicted"
+          : "blocked";
+        if (
+          operation.current.conflictedPaths.length &&
+          applyForecastResolutions(operation, change, cwd)
+        ) {
+          continue;
+        }
+        finishPhase(false);
+        writeReconciliationState(operation, cwd);
+        throw conflictError(operation, result);
+      }
+      recordSuccessfulApplication(operation, "causal-reconciliation", cwd);
+    }
+    finishPhase(false);
+    return finalizeReconciliation(operation, cwd);
+  } catch (error) {
+    finishPhase(true);
+    throw error;
+  }
 }
 
 function startOperation(sourceRef, plan, options, cwd) {
   const context = repoContext(cwd);
   return {
-    schema: "vcs-lab.reconciliation-operation/v2",
+    schema: "vcs-lab.reconciliation-operation/v3",
     id: newId("reconcile_op"),
     state: "running",
     worktree: context.root,
@@ -291,12 +408,23 @@ function startOperation(sourceRef, plan, options, cwd) {
     sourceHead: plan.sourceHead,
     targetBefore: plan.targetHead,
     acceptCandidates: Boolean(options.acceptCandidates),
+    forecastId: options.forecast?.id ?? null,
+    forecastApproval: options.forecast
+      ? {
+          id: options.forecast.id,
+          planFingerprint: options.forecast.planFingerprint,
+          approvedResolutions: options.forecast.approvedResolutions,
+          status: options.forecast.status,
+          predictedResultTree: options.forecast.predictedResultTree,
+        }
+      : null,
     plan,
     queue: plan.changes.filter((change) => change.status === "new"),
     nextIndex: 0,
     applied: [],
     current: null,
     startedAt: new Date().toISOString(),
+    timings: { activeApplicationMs: 0 },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -311,10 +439,16 @@ export function reconcile(sourceRef, options = {}) {
   }
   assertClean(cwd);
   const plan = buildMergePlan(sourceRef, cwd);
+  const forecast = options.forecastId
+    ? forecastForPlan(options.forecastId, plan, cwd)
+    : null;
+  const acceptCandidates = Boolean(
+    options.acceptCandidates || forecast?.acceptCandidates,
+  );
   const candidates = plan.changes.filter(
     (change) => change.status === "candidate-equivalent",
   );
-  if (candidates.length && !options.acceptCandidates) {
+  if (candidates.length && !acceptCandidates) {
     throw new CliError(
       "The plan contains heuristic patch-equivalence candidates.",
       {
@@ -324,9 +458,14 @@ export function reconcile(sourceRef, options = {}) {
     );
   }
 
-  const operation = startOperation(sourceRef, plan, options, cwd);
+  const operation = startOperation(
+    sourceRef,
+    plan,
+    { ...options, acceptCandidates, forecast },
+    cwd,
+  );
   writeReconciliationState(operation, cwd);
-  return runReconciliationQueue(operation, cwd);
+  return runReconciliationQueue(operation, cwd, performance.now());
 }
 
 export function reconciliationStatus(options = {}) {
@@ -341,6 +480,7 @@ export function reconciliationStatus(options = {}) {
     sourceRef: operation.sourceRef,
     sourceHead: operation.sourceHead,
     targetBefore: operation.targetBefore,
+    forecastId: operation.forecastId ?? null,
     progress: {
       completed: operation.nextIndex,
       total: operation.queue.length,
@@ -354,6 +494,7 @@ export function reconciliationStatus(options = {}) {
         }
       : null,
     applied: operation.applied,
+    timings: operation.timings ?? null,
     startedAt: operation.startedAt,
     updatedAt: operation.updatedAt,
   };
@@ -380,6 +521,7 @@ function forkMergeMessage(operation, cwd) {
 
 export function continueReconciliation(options = {}) {
   const cwd = options.cwd ?? process.cwd();
+  const phaseStarted = performance.now();
   const operation = requirePendingReconciliation(cwd);
   if (!operation.current) {
     throw new CliError("The pending reconciliation has no current change.");
@@ -427,7 +569,7 @@ export function continueReconciliation(options = {}) {
     ? "contextual-fork"
     : "contextual-application";
   recordSuccessfulApplication(operation, relation, cwd);
-  return runReconciliationQueue(operation, cwd);
+  return runReconciliationQueue(operation, cwd, phaseStarted);
 }
 
 export function abortReconciliation(options = {}) {

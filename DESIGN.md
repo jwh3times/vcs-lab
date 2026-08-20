@@ -79,6 +79,49 @@ This is closer to exact `rerere` with explicit provenance than to an AI merge
 system. Later experiments can add semantic or learned candidates as a lower
 confidence tier without weakening the exact tier.
 
+## Forecasted reconciliation
+
+Version 0.4 moves exact resolution reuse from a reactive workflow into a
+reviewable preflight. A forecast builds the normal causal merge plan, creates a
+detached temporary worktree at the target head, and cherry-picks only changes
+classified as new. Clean changes advance the simulated tree. A conflict with
+exactly one known result per path is resolved only inside the simulation. A
+missing or ambiguous result blocks the forecast because later changes cannot be
+predicted safely without inventing a choice.
+
+Patch-equivalence candidates remain outside the exact tier. Unless the forecast
+is explicitly generated with `--accept-candidates`, their presence changes the
+forecast to `review-required` and suppresses the claimed final tree.
+
+Forecasting does not publish application receipts or new resolution records.
+The temporary worktree is removed even when Git stops in a conflict. The
+caller's HEAD, tree, and porcelain status are captured before and after; any
+change is treated as an invariant violation. The resulting forecast is stored
+under the caller's worktree-private Git directory.
+
+A forecast pins:
+
+- source and target commit IDs;
+- source and target tree IDs;
+- physical and effective bases;
+- reachable causal receipts;
+- every planned change's identity, status, and proof;
+- exact resolution record IDs, signatures, and result blobs;
+- the complete predicted result tree when simulation reaches the end.
+
+`--use-forecast` is the explicit approval event. Reconciliation rebuilds and
+fingerprints the plan before changing the target. During a real conflict it
+matches the source commit, path, exact three-way signature, resolution ID, and
+result blob before staging anything. All choices for that conflict are
+validated before the first file is changed. A complete run must reproduce the
+predicted tree before receipts are published.
+
+Workspace comparison runs the same algorithm using the target workspace as the
+forecast owner and the source workspace's compatibility branch as input. v0.4
+compares committed heads only. It surfaces ignored dirty-file counts because
+including private drafts requires a future checkpoint/overlay simulation
+rather than pretending uncommitted bytes have stable causal identity.
+
 ## Performance observation
 
 The prototype still invokes stock Git as subprocesses. `VLAB_TRACE=1` reports
@@ -87,6 +130,11 @@ the duration of each Git command without logging user content, and
 provide a baseline for deciding whether a native daemon, long-lived object
 service, or virtualized workspace layer is justified, especially in large
 OneDrive-hosted repositories.
+
+Forecast wall time and reconciliation active-application time are recorded
+separately. Active time accumulates only during CLI processes that are applying
+changes; elapsed wall time remains available to expose human or agent wait time
+during a paused reconciliation.
 
 ## Workspace checkpoint
 
@@ -108,6 +156,8 @@ Build a native store only if local trials show that:
 - causal receipts measurably prevent duplicate/conflicting back-merges;
 - stable Change IDs improve rebase, cherry-pick, and review continuity;
 - workspace checkpoints and conflict forecasts help parallel agents;
+- pinned forecasts reproduce their predicted trees often enough to support
+  batch application of exact decisions;
 - annotated spec entities remain stable enough under real editing;
 - users value causal and semantic queries enough to justify metadata complexity;
 - exact resolution reuse removes repeated conflict work without encouraging

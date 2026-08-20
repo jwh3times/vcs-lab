@@ -7,6 +7,7 @@
 - compact merges retain a real causal parent while displaying as one first-parent landing;
 - hard squashes record exactly what they absorbed in a causal landing receipt;
 - a merge planner subtracts proven prior work instead of relying only on Git topology;
+- reconciliation can be forecast in an isolated worktree and pinned before application;
 - conflicted reconciliation can pause, survive process exit, continue, or abort safely;
 - exact conflict resolutions can be suggested across branches and worktrees with explicit provenance;
 - workspaces use real Git worktrees but add path-independent logical metadata and non-disruptive checkpoints;
@@ -41,7 +42,7 @@ On Windows, use PowerShell, Git Bash, or a terminal where `git` and `node` are o
 This project now has its own Git history and should live in a normal development repository. The portable repository bundle retains the release commits and tags:
 
 ```bash
-git clone /path/to/causal-vcs-lab-0.3.0.bundle vcs-lab
+git clone /path/to/causal-vcs-lab-0.4.0.bundle vcs-lab
 cd vcs-lab
 git remote remove origin
 npm link
@@ -53,7 +54,7 @@ If you instead use the source ZIP, initialize its extracted directory with:
 ```bash
 git init -b main
 git add .
-git commit -m "Bootstrap causal-vcs-lab 0.3.0"
+git commit -m "Bootstrap causal-vcs-lab 0.4.0"
 npm link
 npm test
 ```
@@ -149,6 +150,48 @@ The planner uses three statuses:
 
 Similarity is deliberately advisory. Run `vlab reconcile <branch> --accept-candidates` only after reviewing candidate equivalence.
 
+## Forecasting reconciliation
+
+Version 0.4 can simulate the complete proven-new queue before touching the
+current worktree:
+
+```bash
+vlab forecast feature
+git status --short
+```
+
+The command creates a disposable detached Git worktree, applies clean changes,
+uses any single exact-resolution candidates in the simulation, and removes the
+temporary worktree. It reports each predicted causal decision, the partial or
+complete result tree, blocking conflicts, and forecast duration. The caller's
+HEAD, index, and working files are checked before and after and must be
+unchanged.
+
+Each forecast is pinned to exact source and target heads and a fingerprint of
+the causal merge plan. After reviewing it, explicitly authorize its exact
+resolution IDs as a batch:
+
+```bash
+vlab reconcile feature --use-forecast forecast_...
+```
+
+Heuristic patch-equivalence remains a separate trust decision. A forecast with
+unaccepted `?` candidates reports `review-required` and does not claim a final
+tree; review them and regenerate with `--accept-candidates` if appropriate.
+
+Application rechecks every conflict signature and resolution ID. If branch or
+causal metadata changed, the command stops before starting. A complete forecast
+also pins the predicted result tree; a mismatch prevents receipt publication
+and can be safely rolled back with `vlab reconcile --abort`.
+
+Forecasts operate on committed heads. Dirty files are left untouched and their
+count is reported rather than silently included. Run the prepared experiment
+with:
+
+```bash
+npm run demo:forecast
+```
+
 ## Resumable conflict reconciliation
 
 When a proven-new change conflicts, `vlab reconcile` leaves a durable operation in the current worktree instead of losing causal context:
@@ -218,6 +261,8 @@ vlab reconcile --continue
 
 The application receipt distinguishes `created`, `accepted`, `modified`, and
 `rejected` outcomes. `vlab resolve list` shows the repository-shared catalog.
+An exact result is still never selected implicitly: v0.4 may batch-apply it only
+when `--use-forecast` names the reviewed, pinned forecast.
 Run the prepared two-conflict experiment, whose second occurrence is in a
 linked worktree, with:
 
@@ -234,6 +279,16 @@ cd ../vlab-playground.workspaces/agent-auth
 echo draft > agent-plan.md
 vlab workspace checkpoint --label "agent handoff"
 ```
+
+Compare two workspace branches without disturbing either worktree:
+
+```bash
+vlab workspace forecast agent-auth agent-payments
+```
+
+The ordering is `target <= source`: this previews applying the committed head
+of `agent-payments` onto `agent-auth`. The forecast is stored privately in the
+target worktree, where its printed reconciliation command should be run.
 
 The checkpoint captures tracked, modified, and untracked non-ignored files in an immutable Git commit referenced under `refs/vcs-lab/checkpoints/...`. It does not alter `HEAD`, the index, or the working directory.
 
@@ -277,11 +332,12 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab merge --compact` | First-parent compression without causal loss |
 | `vlab merge --hard-squash` | Git-compatible strict squash plus sideband receipt |
 | `vlab merge-plan` | Proven coverage versus heuristic similarity |
+| `vlab forecast` | Non-mutating reconciliation simulation and pinned approval |
 | `vlab reconcile` | Apply only proven-new changes with resumable conflicts |
 | `vlab resolve ...` | Inspect, apply, reject, and audit exact resolution suggestions |
 | `vlab cherry-pick` | Preserve or deliberately fork a Change ID |
 | `vlab graph` | Branch history plus causal relationships, without metadata-ref noise |
-| `vlab workspace ...` | Worktree-backed logical workspaces and checkpoints |
+| `vlab workspace ...` | Worktree-backed workspaces, checkpoints, and committed-head forecasts |
 | `vlab spec ...` | Hybrid file/semantic-document representation |
 | `vlab receipts` | Inspect causal records as text or JSON |
 | `vlab doctor --benchmark` | Sample Git subprocess latency in the current repository |
@@ -290,6 +346,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 
 - Git notes: `refs/notes/vcs-lab`
 - Pending reconciliation: the current worktree Git directory under `vcs-lab/reconciliation.json`
+- Saved forecasts: the current worktree Git directory under `vcs-lab/forecasts/<forecast-id>.json`
 - Workspace registry: the common Git directory under `vcs-lab/workspaces.json`
 - Checkpoints: `refs/vcs-lab/checkpoints/<workspace-id>`
 - Reusable resolution blobs: `refs/vcs-lab/resolutions/<signature>/<result-blob>`
@@ -324,6 +381,11 @@ Trace output contains durations and Git command names, not file content or
 commit messages. These probes are intended to reveal when the compatibility
 layer or a synchronized filesystem becomes the bottleneck.
 
+Forecast output separately reports simulation wall time. Completed
+reconciliation receipts report active application time, excluding time spent
+waiting for a person between a conflict and `--continue`, plus total elapsed
+wall time.
+
 ## What this prototype intentionally does not solve
 
 - cryptographic signing or a trusted landing server;
@@ -332,6 +394,7 @@ layer or a synchronized filesystem becomes the bottleneck.
 - deterministic AST merge drivers;
 - server-side branch policy and atomic multi-ref landing;
 - virtual/lazy filesystem materialization;
+- forecasting uncommitted workspace drafts or checkpoints;
 - a complete Git protocol gateway;
 - safe automatic equivalence inference for independently created near-identical code.
 
@@ -343,8 +406,10 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The 15-test integration suite creates disposable Git repositories and exercises
+The 19-test integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
-independent worktree operations, checkpoints, annotated Markdown stability,
-conservative patch-equivalence handling, and Git timing probes.
+non-mutating and stale-safe forecasts, pinned batch application, committed-head
+workspace comparison, independent worktree operations, checkpoints, annotated
+Markdown stability, conservative patch-equivalence handling, and Git timing
+probes.

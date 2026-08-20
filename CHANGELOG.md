@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0
+
+- Add `vlab forecast <source>` to simulate proven-new changes in a disposable
+  detached worktree without changing the caller's HEAD, index, or files.
+- Predict clean applications, exact reusable resolutions, blocking conflicts,
+  partial trees, complete result trees, and final state equality.
+- Persist forecasts privately per worktree and pin them to source and target
+  heads plus a complete causal merge-plan fingerprint.
+- Add `vlab reconcile --use-forecast <id>` to batch-apply only the exact
+  resolution IDs reviewed in that forecast.
+- Recheck conflict signatures during application and verify a complete
+  reconciliation's final tree against its forecast before publishing receipts.
+- Add `vlab workspace forecast <target> <source>` for committed-head comparison
+  between agent worktrees while explicitly reporting ignored dirty drafts.
+- Record forecast IDs, exact-selection method, active application time, and
+  elapsed wall time in reconciliation metadata.
+- Add a proactive forecast demo and expand the integration suite to 19 tests.
+
 ## 0.3.0
 
 - Fingerprint conflicts with an exact, path-independent three-way signature

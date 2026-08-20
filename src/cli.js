@@ -22,6 +22,10 @@ import {
   pendingResolutionStatus,
   rejectResolution,
 } from "./resolutions.js";
+import {
+  forecastReconciliation,
+  forecastWorkspaces,
+} from "./forecasts.js";
 
 const HELP = `vcs-lab — Git-backed experiments for causal source control
 
@@ -33,7 +37,8 @@ Usage:
   vlab compact-merge <source> [-m <message>]
   vlab hard-squash <source> [-m <message>]
   vlab merge-plan <source> [--json]
-  vlab reconcile <source> [--accept-candidates] [--json]
+  vlab forecast <source> [--accept-candidates] [--json]
+  vlab reconcile <source> [--accept-candidates] [--use-forecast <id>] [--json]
   vlab reconcile --status [--json]
   vlab reconcile --continue [--fork] [--json]
   vlab reconcile --abort [--json]
@@ -47,6 +52,7 @@ Usage:
   vlab workspace create <name> [--from <ref>] [--path <directory>]
   vlab workspace list [--json]
   vlab workspace checkpoint [--label <text>] [--json]
+  vlab workspace forecast <target> <source> [--accept-candidates] [--json]
   vlab spec index <markdown-file> [--json]
   vlab spec show <markdown-file> [--json]
   vlab doctor [--benchmark]
@@ -58,7 +64,7 @@ Legend for merge-plan: '=' proven covered, '?' heuristic candidate, '+' new.
 function parseArgs(args) {
   const positionals = [];
   const options = {};
-  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--label", "--resolution"]);
+  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--label", "--resolution", "--use-forecast"]);
   for (let index = 0; index < args.length; index += 1) {
     const item = args[index];
     if (valueFlags.has(item)) {
@@ -143,6 +149,12 @@ function formatReceipt(record) {
       `  source      ${record.sourceRef ?? "-"} @ ${short(record.sourceHead)}`,
       `  covered     ${(record.absorbedChanges ?? []).length} changes; ${(record.applied ?? []).length} applied now`,
     );
+    if (record.forecastId) lines.push(`  forecast    ${record.forecastId}`);
+    if (record.timings?.activeApplicationMs !== undefined) {
+      lines.push(
+        `  active time ${record.timings.activeApplicationMs.toFixed(2)} ms`,
+      );
+    }
     if (record.exactStateEqualityAfter !== undefined) {
       lines.push(
         `  same before ${record.exactStateEqualityBefore ? "yes" : "no"}`,
@@ -237,10 +249,96 @@ function formatReconciliationResult(result) {
     `coverage     ${receipt.absorbedChanges.length} covered; ${receipt.applied.length} applied`,
     `contextual   ${contextual.length}`,
     `same state   ${receipt.exactStateEqualityAfter ? "yes" : "no"}`,
+    receipt.forecastId ? `forecast     ${receipt.forecastId}` : null,
+    receipt.timings
+      ? `active time  ${receipt.timings.activeApplicationMs.toFixed(2)} ms`
+      : null,
     decisionText ? `resolutions  ${decisionText}` : null,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function formatForecast(forecast) {
+  const counts = forecast.counts;
+  const lines = [
+    "Reconciliation forecast",
+    `forecast     ${forecast.id}`,
+    `status       ${forecast.status}`,
+    `target       ${short(forecast.targetHead)}`,
+    `source       ${forecast.sourceRef} @ ${short(forecast.sourceHead)}`,
+    "scope        committed heads only",
+    `plan         ${forecast.plan.counts.covered} covered, ${forecast.plan.counts["candidate-equivalent"]} candidate, ${forecast.plan.counts.new} new`,
+    `simulation   ${counts.clean} clean, ${counts.exactResolution} exact-resolved, ${counts.blocked} blocked`,
+    `predicted    ${short(forecast.predictedResultTree)}`,
+    `partial      ${short(forecast.partialResultTree)}`,
+    `same state   ${forecast.exactStateEqualityAfter === null ? "unknown" : forecast.exactStateEqualityAfter ? "yes" : "no"}`,
+    `forecast time ${forecast.timings.forecastMs.toFixed(2)} ms`,
+  ];
+  if (forecast.ignoredTargetDirtyFiles) {
+    lines.push(`target dirty ${forecast.ignoredTargetDirtyFiles} files ignored`);
+  }
+  if (forecast.workspaceComparison) {
+    const comparison = forecast.workspaceComparison;
+    lines.push(
+      `workspaces   ${comparison.target.name} <= ${comparison.source.name}`,
+    );
+    const dirty = [comparison.target, comparison.source].filter(
+      (workspace) => workspace.ignoredDirtyFiles,
+    );
+    if (dirty.length) {
+      lines.push(
+        `dirty ignored ${dirty.map((workspace) => `${workspace.name}:${workspace.ignoredDirtyFiles}`).join(", ")}`,
+      );
+    }
+  }
+  lines.push("");
+  if (forecast.steps.length === 0) {
+    lines.push("No new source changes require simulation.");
+  }
+  for (const step of forecast.steps) {
+    if (step.outcome === "clean") {
+      lines.push(`C ${short(step.sourceCommit)} ${step.subject} [clean]`);
+    } else if (step.outcome === "exact-resolution") {
+      lines.push(
+        `R ${short(step.sourceCommit)} ${step.subject} [${step.resolutions.length} exact resolution${step.resolutions.length === 1 ? "" : "s"}]`,
+      );
+      for (const resolution of step.resolutions) {
+        lines.push(
+          `  ${resolution.path} <= ${resolution.selectedResolutionId}`,
+        );
+      }
+    } else {
+      lines.push(`! ${short(step.sourceCommit)} ${step.subject} [blocked]`);
+      for (const conflict of step.conflicts ?? []) {
+        lines.push(
+          `  ${conflict.path}: ${conflict.candidates.length} exact candidate${conflict.candidates.length === 1 ? "" : "s"}`,
+        );
+      }
+    }
+  }
+  if (forecast.blockedReason) lines.push("", `blocked by   ${forecast.blockedReason}`);
+  lines.push(
+    "",
+    "The current HEAD, index, and working files were not changed.",
+  );
+  if (forecast.candidateDecisionRequired) {
+    lines.push(
+      "Review the heuristic candidates, then regenerate with:",
+      `  vlab forecast ${forecast.sourceRef} --accept-candidates`,
+    );
+    return lines.join("\n");
+  }
+  if (forecast.workspaceComparison) {
+    lines.push(
+      `Run from target worktree: ${forecast.workspaceComparison.target.path}`,
+    );
+  }
+  lines.push(
+    "Start the pinned reconciliation with:",
+    `  vlab reconcile ${forecast.sourceRef} --use-forecast ${forecast.id}`,
+  );
+  return lines.join("\n");
 }
 
 function formatResolutionStatus(status) {
@@ -335,7 +433,9 @@ function formatReconciliationStatus(status) {
     "",
     status.state === "conflicted"
       ? "Resolve and stage the conflicts, then run: vlab reconcile --continue"
-      : "The operation is resumable in this worktree.",
+      : status.state === "forecast-mismatch"
+        ? "The applied tree diverged from its forecast and cannot be published."
+        : "The operation is resumable in this worktree.",
     "Abort and restore the starting commit with: vlab reconcile --abort",
   );
   return lines.join("\n");
@@ -391,6 +491,14 @@ export async function main(rawArgs) {
       print(options.json ? plan : formatMergePlan(plan), options.json);
       return;
     }
+    case "forecast": {
+      const source = requireValue(positionals[0], "vlab forecast <source>");
+      const forecast = forecastReconciliation(source, {
+        acceptCandidates: options.acceptCandidates,
+      });
+      print(options.json ? forecast : formatForecast(forecast), options.json);
+      return;
+    }
     case "reconcile": {
       const actions = [options.status, options.continue, options.abort].filter(Boolean);
       if (actions.length > 1) {
@@ -414,6 +522,7 @@ export async function main(rawArgs) {
       const source = requireValue(positionals[0], "vlab reconcile <source>");
       const result = reconcile(source, {
         acceptCandidates: options.acceptCandidates,
+        forecastId: options.useForecast,
       });
       print(options.json ? result : formatReconciliationResult(result), options.json);
       return;
@@ -493,7 +602,24 @@ export async function main(rawArgs) {
         print(checkpoint, options.json);
         return;
       }
-      throw new CliError("Unknown workspace command. Use create, list, or checkpoint.");
+      if (subcommand === "forecast") {
+        const target = requireValue(
+          positionals[1],
+          "vlab workspace forecast <target> <source>",
+        );
+        const source = requireValue(
+          positionals[2],
+          "vlab workspace forecast <target> <source>",
+        );
+        const forecast = forecastWorkspaces(target, source, {
+          acceptCandidates: options.acceptCandidates,
+        });
+        print(options.json ? forecast : formatForecast(forecast), options.json);
+        return;
+      }
+      throw new CliError(
+        "Unknown workspace command. Use create, list, checkpoint, or forecast.",
+      );
     }
     case "spec": {
       const subcommand = positionals[0];
