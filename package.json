@@ -1,0 +1,17 @@
+{
+  "name": "causal-vcs-lab",
+  "version": "0.1.0",
+  "description": "A local Git-backed laboratory for stable changes, causal squash receipts, AI workspaces, and hybrid specs.",
+  "type": "module",
+  "bin": {
+    "vlab": "./bin/vlab.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "demo": "node ./scripts/demo.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
