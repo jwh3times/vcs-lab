@@ -10,6 +10,12 @@ export function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+export function gitBlobId(value, algorithm = "sha1") {
+  const content = Buffer.isBuffer(value) ? value : Buffer.from(String(value));
+  const header = Buffer.from(`blob ${content.length}\0`);
+  return createHash(algorithm).update(header).update(content).digest("hex");
+}
+
 export function slug(value) {
   return value
     .normalize("NFKD")

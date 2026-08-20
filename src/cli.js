@@ -115,7 +115,8 @@ function formatSpecResult(result) {
     `source       ${manifest.source}`,
     `manifest     ${path.relative(process.cwd(), manifestPath)}`,
     `blocks       ${manifest.blocks.length}`,
-    `index        ${result.cacheHit ? "cache hit; manifest unchanged" : "manifest written"}`,
+    `index        ${result.cacheHit ? `cache hit (${result.cacheMode}); manifest unchanged` : "manifest written"}`,
+    ...(result.migratedFrom ? [`migration    ${result.migratedFrom} -> ${manifest.schema}`] : []),
     `changes      ${changes.added.length} added, ${changes.changed.length} changed, ${changes.moved.length} moved, ${changes.removed.length} removed`,
   ].join("\n");
 }
@@ -126,9 +127,10 @@ function formatSpecBatch(result) {
     `files        ${result.files}`,
     `entities     ${result.blocks}`,
     `cache hits   ${result.cacheHits}`,
+    `blob hits    ${result.blobCacheHits}; ${result.contentReads} content reads`,
     `written      ${result.manifestsWritten}`,
     `changes      ${result.changes.added} added, ${result.changes.changed} changed, ${result.changes.moved} moved, ${result.changes.removed} removed`,
-    `duration     ${result.durationMs.toFixed(2)} ms`,
+    `duration     ${result.totalDurationMs.toFixed(2)} ms (${result.preparationMs.toFixed(2)} ms Git preparation)`,
   ].join("\n");
 }
 

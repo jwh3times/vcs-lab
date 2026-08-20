@@ -144,6 +144,13 @@ minimum, median, p95, average, and maximum latency. These measurements expose
 the number of compatibility-layer round trips rather than attributing aggregate
 latency to a synchronized directory without evidence.
 
+Version 0.6 removes avoidable round trips in the semantic path. A single
+`git cat-file --batch` process reads the Markdown and manifest objects for all
+three merge stages, and another batch verifies staged results. Applied commit
+and tree identities are resolved together. The integration suite caps the
+representative deterministic-spec reconciliation path at 10 Git subprocesses,
+down from the 19-call Windows v0.5 observation that motivated this work.
+
 ## Workspace checkpoint
 
 The checkpoint command creates a temporary Git index, reads `HEAD` into it, adds the current working tree, writes a tree, and uses `git commit-tree` to create an immutable checkpoint. The real index and worktree are untouched. A hidden ref prevents garbage collection.
@@ -186,6 +193,21 @@ cold, unchanged, and one-block-change indexing. The readable JSON compatibility
 sidecar is intentionally not claimed as a final storage format: measurements
 will determine whether a compact index, object-level structural sharing, or a
 native content-addressed representation is justified.
+
+Version 0.6 makes the compatibility sidecar sparse. A v3 manifest persists the
+artifact ID, source path and normalized hash, entity count, parser/identity
+algorithms, an optional Git source-blob ID, and only IDs that cannot be derived
+from `artifactId + semanticKey`. Blocks are reconstructed from Markdown when a
+query or merge needs them. This preserves the v0.5 API view without repeating
+titles, line positions, and hashes in every commit.
+
+Indexing a v1 or v2 manifest produces v3 while retaining every prior logical
+ID; exceptional old IDs become overrides. Repository-wide indexing compares
+the manifest's source blob with the Git index before opening a document.
+Unchanged tracked specs therefore take the zero-content-read path, while new or
+changed documents are blob-hashed together. In the default 25-document,
+2,025-entity benchmark, sparse metadata is 11,240 bytes versus 655,545 bytes for
+the equivalent v2 manifests, a 98.29% reduction.
 
 ## Exit criteria for a second prototype
 

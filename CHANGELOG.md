@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.0
+
+- Replace expanded v2 specification sidecars with sparse v3 manifests that
+  persist only artifact/source identity, entity count, parser identity, Git
+  blob identity when available, and exceptional stable-ID overrides.
+- Derive titles, positions, content hashes, and ordinary entity IDs directly
+  from canonical Markdown while keeping `vlab spec show` fully materialized.
+- Migrate v1/v2 manifests on the next index without changing their logical
+  entity IDs; only non-derived legacy IDs remain as compact overrides.
+- Use Git index blob identities for repository-wide incremental indexing, so
+  unchanged tracked documents need no filesystem read or content hash.
+- Batch all base/target/source Markdown and manifest reads through one
+  `git cat-file --batch` process and batch staged-result verification the same
+  way.
+- Batch applied commit/tree identity probes and raise the Git output ceiling for
+  large documentation objects.
+- Upgrade the corpus benchmark to compare sparse v3 metadata against an
+  equivalent v2 representation and report blob-cache hits, content reads,
+  bytes per entity, and raw/compressed reduction percentages.
+- Reduce the representative 25-document, 2,025-entity corpus from 655,545
+  equivalent v2 metadata bytes to 11,240 v3 bytes (98.29% less), while the
+  semantic reconciliation integration path uses at most 10 Git subprocesses.
+- Expand the integration suite to 28 tests, including v2 migration, sparse
+  persistence, zero-read unchanged indexing, and subprocess-count regression
+  coverage.
+
 ## 0.5.0
 
 - Add deterministic three-way reconciliation for indexed Markdown using stable

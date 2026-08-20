@@ -43,7 +43,7 @@ On Windows, use PowerShell, Git Bash, or a terminal where `git` and `node` are o
 This project now has its own Git history and should live in a normal development repository. The portable repository bundle retains the release commits and tags:
 
 ```bash
-git clone /path/to/causal-vcs-lab-0.5.0.bundle vcs-lab
+git clone /path/to/causal-vcs-lab-0.6.0.bundle vcs-lab
 cd vcs-lab
 git remote remove origin
 npm link
@@ -55,7 +55,7 @@ If you instead use the source ZIP, initialize its extracted directory with:
 ```bash
 git init -b main
 git add .
-git commit -m "Bootstrap causal-vcs-lab 0.5.0"
+git commit -m "Bootstrap causal-vcs-lab 0.6.0"
 npm link
 npm test
 ```
@@ -321,10 +321,18 @@ vlab spec index docs/checkout.md
 vlab spec show docs/checkout.md
 ```
 
-The exact Markdown remains canonical. The tracked `.vcs-lab/specs/docs/checkout.md.json` sidecar assigns stable IDs to the preamble, headings, and explicit `REQ-*:` entries. Version 0.5 manifests are deterministic: they do not contain generation timestamps, and new entity IDs derive from the shared artifact identity and semantic key.
+The exact Markdown remains canonical. The tracked
+`.vcs-lab/specs/docs/checkout.md.json` sidecar assigns stable IDs to the
+preamble, headings, and explicit `REQ-*:` entries. Version 0.6 manifests are
+sparse and deterministic: titles, positions, content hashes, and ordinary IDs
+are derived from Markdown rather than duplicated. The sidecar retains
+artifact/source identity, entity count, an optional Git blob identity, and only
+exceptional legacy ID overrides.
 
 An unchanged source hash is an incremental-index cache hit and does not rewrite
-the sidecar. Index every tracked or non-ignored Markdown document in one pass:
+the sidecar. Repository-wide indexing additionally compares tracked Git blob
+IDs first; unchanged documents are neither opened nor hashed. Index every
+tracked or non-ignored Markdown document in one pass:
 
 ```bash
 vlab spec index --all
@@ -332,7 +340,7 @@ vlab spec index --all
 
 ### Deterministic block reconciliation
 
-Version 0.5 uses heading-delimited sections as disjoint merge units. `REQ-*`
+Version 0.5 introduced heading-delimited sections as disjoint merge units. `REQ-*`
 records remain independently addressable entities, but their text is merged as
 part of the containing section so overlapping units cannot produce inconsistent
 bytes.
@@ -455,8 +463,11 @@ vlab spec benchmark --documents 25 --blocks 40
 ```
 
 The benchmark creates and removes a disposable repository. It reports cold,
-unchanged, and one-block-change indexing, cache hits, semantic entity counts,
-manifest bytes, and a deflate-based approximation of Git object compression.
+unchanged, and one-block-change indexing; Git-blob cache hits and actual content
+reads; semantic entity counts; sparse v3 bytes versus an equivalent expanded v2
+representation; and a deflate-based approximation of Git object compression.
+For the default 25-document, 2,025-entity corpus, v0.6 reduces the tracked
+manifest representation from 655,545 equivalent v2 bytes to 11,240 v3 bytes.
 
 ## What this prototype intentionally does not solve
 
@@ -465,7 +476,7 @@ manifest bytes, and a deflate-based approximation of Git object compression.
 - content-defined chunking;
 - semantic merge drivers for formats other than heading-oriented Markdown;
 - nested requirement-level byte merging within a section;
-- a compact binary or content-addressed native spec index;
+- a binary or content-addressed native structured-document object store;
 - server-side branch policy and atomic multi-ref landing;
 - virtual/lazy filesystem materialization;
 - forecasting uncommitted workspace drafts or checkpoints;
@@ -480,11 +491,12 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The 27-test integration suite creates disposable Git repositories and exercises
+The 28-test integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
 non-mutating and stale-safe forecasts, pinned batch application, committed-head
 workspace comparison, independent worktree operations, checkpoints, annotated
-Markdown stability, incremental indexing, clean and blocked deterministic block
-merges, forecasted and explicit semantic application, conservative
-patch-equivalence handling, corpus measurements, and Git timing probes.
+Markdown stability, sparse-manifest migration, zero-read incremental indexing,
+clean and blocked deterministic block merges, forecasted and explicit semantic
+application, conservative patch-equivalence handling, corpus measurements, and
+Git timing probes.

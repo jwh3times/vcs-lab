@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { deflateSync } from "node:zlib";
-import { newId, sha256, slug } from "./ids.js";
-import { repoContext, runGit } from "./git.js";
-import { readJson, writeJson } from "./store.js";
+import { gitBlobId, newId, sha256, slug } from "./ids.js";
+import { readGitObjects, repoContext, runGit } from "./git.js";
+import { readJson } from "./store.js";
 import {
   readReconciliationState,
   writeReconciliationState,
@@ -14,6 +14,8 @@ import { CliError } from "./errors.js";
 
 export const SPEC_PARSER = "stable-markdown-blocks/v1";
 export const SPEC_MERGE_ALGORITHM = "stable-markdown-three-way/v1";
+export const SPEC_MANIFEST_SCHEMA = "vcs-lab.spec-manifest/v3";
+export const SPEC_ID_ALGORITHM = "artifact-semantic-key-sha256/v1";
 
 export function normalizeMarkdown(text) {
   return String(text).replace(/\r\n?/g, "\n");
@@ -99,13 +101,75 @@ function parseBlocks(text) {
   );
 }
 
+function manifestOverrideMap(manifest) {
+  const overrides = new Map(Object.entries(manifest?.idOverrides ?? {}));
+  const artifactId = manifest?.artifactId;
+  if (!artifactId) return overrides;
+  for (const block of manifest?.blocks ?? []) {
+    if (
+      block?.semanticKey &&
+      block?.id &&
+      block.id !== deterministicEntityId(artifactId, block.semanticKey)
+    ) {
+      overrides.set(block.semanticKey, block.id);
+    }
+  }
+  return overrides;
+}
+
+function materializeManifest(raw, storedManifest) {
+  if (!storedManifest || typeof storedManifest !== "object") {
+    throw new CliError("Specification manifest is missing or invalid.");
+  }
+  if (
+    ![
+      "vcs-lab.spec-manifest/v1",
+      "vcs-lab.spec-manifest/v2",
+      SPEC_MANIFEST_SCHEMA,
+    ].includes(storedManifest.schema)
+  ) {
+    throw new CliError(`Unsupported specification manifest '${storedManifest.schema}'.`);
+  }
+  if (!storedManifest.artifactId || !storedManifest.source) {
+    throw new CliError("Specification manifest is missing artifact identity.");
+  }
+  if (
+    storedManifest.schema === SPEC_MANIFEST_SCHEMA &&
+    (storedManifest.parser !== SPEC_PARSER ||
+      storedManifest.idAlgorithm !== SPEC_ID_ALGORITHM)
+  ) {
+    throw new CliError("Specification manifest uses an unsupported parser or ID algorithm.");
+  }
+  const overrides = manifestOverrideMap(storedManifest);
+  const canonical = normalizeMarkdown(raw);
+  const blocks = parseBlocks(canonical).map((block) => ({
+    id:
+      overrides.get(block.semanticKey) ??
+      deterministicEntityId(storedManifest.artifactId, block.semanticKey),
+    ...block,
+  }));
+  return {
+    ...storedManifest,
+    schema: storedManifest.schema,
+    sourceBytes: Buffer.byteLength(canonical),
+    sourceLines: splitLines(canonical).length,
+    entityCount: blocks.length,
+    idAlgorithm: storedManifest.idAlgorithm ?? SPEC_ID_ALGORITHM,
+    idOverrides: Object.fromEntries(
+      [...overrides.entries()].sort(([left], [right]) => left.localeCompare(right)),
+    ),
+    blocks,
+  };
+}
+
 function buildManifest(source, raw, options = {}) {
   const canonical = normalizeMarkdown(raw);
   const oldManifest = options.oldManifest ?? null;
   const artifactId = options.artifactId ?? oldManifest?.artifactId ?? newId("artifact");
-  const priorIds = new Map(
-    (oldManifest?.blocks ?? []).map((block) => [block.semanticKey, block.id]),
-  );
+  const priorIds = manifestOverrideMap(oldManifest);
+  for (const block of oldManifest?.blocks ?? []) {
+    priorIds.set(block.semanticKey, block.id);
+  }
   for (const [semanticKey, id] of options.preferredIds ?? []) {
     priorIds.set(semanticKey, id);
   }
@@ -115,21 +179,52 @@ function buildManifest(source, raw, options = {}) {
       deterministicEntityId(artifactId, block.semanticKey),
     ...block,
   }));
+  const idOverrides = {};
+  for (const block of blocks) {
+    if (block.id !== deterministicEntityId(artifactId, block.semanticKey)) {
+      idOverrides[block.semanticKey] = block.id;
+    }
+  }
   return {
-    schema: "vcs-lab.spec-manifest/v2",
+    schema: SPEC_MANIFEST_SCHEMA,
     artifactId,
     source,
     sourceHash: sha256(canonical),
+    sourceBlob: options.sourceBlob ?? null,
     sourceBytes: Buffer.byteLength(canonical),
     sourceLines: splitLines(canonical).length,
+    entityCount: blocks.length,
     representation: "annotated-markdown",
     parser: SPEC_PARSER,
+    idAlgorithm: SPEC_ID_ALGORITHM,
+    idOverrides,
     blocks,
   };
 }
 
 export function serializeSpecManifest(manifest) {
-  return `${JSON.stringify(manifest, null, 2)}\n`;
+  const stored = {
+    schema: SPEC_MANIFEST_SCHEMA,
+    artifactId: manifest.artifactId,
+    source: manifest.source,
+    sourceHash: manifest.sourceHash,
+    ...(manifest.sourceBlob ? { sourceBlob: manifest.sourceBlob } : {}),
+    entityCount: manifest.entityCount ?? manifest.blocks?.length ?? 0,
+    representation: manifest.representation ?? "annotated-markdown",
+    parser: manifest.parser ?? SPEC_PARSER,
+    idAlgorithm: manifest.idAlgorithm ?? SPEC_ID_ALGORITHM,
+    idOverrides: Object.fromEntries(
+      Object.entries(manifest.idOverrides ?? {}).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ),
+  };
+  return `${JSON.stringify(stored, null, 2)}\n`;
+}
+
+function writeSpecManifest(file, manifest) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, serializeSpecManifest(manifest));
 }
 
 function manifestRelativePath(source) {
@@ -198,43 +293,125 @@ function changesBetween(oldManifest, manifest) {
   return changes;
 }
 
+function priorManifestView(storedManifest, currentRaw, cwd) {
+  if (!storedManifest) return null;
+  if (Array.isArray(storedManifest.blocks)) return storedManifest;
+  let priorRaw = null;
+  if (storedManifest.sourceBlob) {
+    const object = readGitObjects([storedManifest.sourceBlob], cwd)[0];
+    if (object.exists && object.type === "blob") {
+      priorRaw = normalizeMarkdown(object.content.toString("utf8"));
+    }
+  } else {
+    const candidates = readGitObjects(
+      [`:${storedManifest.source}`, `HEAD:${storedManifest.source}`],
+      cwd,
+    );
+    const matching = candidates.find(
+      (object) =>
+        object.exists &&
+        object.type === "blob" &&
+        sha256(normalizeMarkdown(object.content.toString("utf8"))) ===
+          storedManifest.sourceHash,
+    );
+    if (matching) priorRaw = normalizeMarkdown(matching.content.toString("utf8"));
+  }
+  if (priorRaw === null && sha256(currentRaw) === storedManifest.sourceHash) {
+    priorRaw = currentRaw;
+  }
+  if (priorRaw === null || sha256(priorRaw) !== storedManifest.sourceHash) {
+    return { ...storedManifest, blocks: [] };
+  }
+  return materializeManifest(priorRaw, storedManifest);
+}
+
+function hashSpecBlob(relative, raw, context, options = {}) {
+  if (options.sourceBlob !== undefined) return options.sourceBlob;
+  if (options.writeBlob === false) return null;
+  return runGit(["hash-object", "-w", `--path=${relative}`, "--stdin"], {
+    cwd: context.root,
+    input: raw,
+  }).stdout;
+}
+
+function unchangedChanges(manifest) {
+  return {
+    added: [],
+    removed: [],
+    changed: [],
+    moved: [],
+    unchanged: manifest.blocks?.map((block) => block.id) ?? [],
+  };
+}
+
 function indexSpecWithContext(file, context, cwd, options = {}) {
   const absolute = path.resolve(cwd, file);
   if (!fs.existsSync(absolute)) throw new CliError(`Spec not found: ${file}`);
   const relative = relativeSpecPath(file, context, cwd);
   const manifestPath = manifestPathFromRelative(relative, context);
-  const oldManifest = readJson(manifestPath, null);
-  const raw = normalizeMarkdown(fs.readFileSync(absolute, "utf8"));
-  const sourceHash = sha256(raw);
+  const storedManifest = readJson(manifestPath, null);
+
   if (
     !options.force &&
-    oldManifest?.schema === "vcs-lab.spec-manifest/v2" &&
-    oldManifest?.parser === SPEC_PARSER &&
-    oldManifest?.sourceHash === sourceHash
+    options.lazy &&
+    options.sourceBlob &&
+    storedManifest?.schema === SPEC_MANIFEST_SCHEMA &&
+    storedManifest?.parser === SPEC_PARSER &&
+    storedManifest?.idAlgorithm === SPEC_ID_ALGORITHM &&
+    storedManifest?.sourceBlob === options.sourceBlob
   ) {
+    const entityCount = storedManifest.entityCount ?? 0;
     return {
       manifestPath,
-      manifest: oldManifest,
-      changes: {
-        added: [],
-        removed: [],
-        changed: [],
-        moved: [],
-        unchanged: oldManifest.blocks.map((block) => block.id),
-      },
+      manifest: storedManifest,
+      changes: unchangedChanges(storedManifest),
+      changeCounts: { added: 0, removed: 0, changed: 0, moved: 0, unchanged: entityCount },
+      entityCount,
       cacheHit: true,
+      cacheMode: "git-index-blob",
+      contentRead: false,
       written: false,
     };
   }
 
-  const manifest = buildManifest(relative, raw, { oldManifest });
+  const raw = normalizeMarkdown(fs.readFileSync(absolute, "utf8"));
+  const sourceHash = sha256(raw);
+  if (
+    !options.force &&
+    storedManifest?.schema === SPEC_MANIFEST_SCHEMA &&
+    storedManifest?.parser === SPEC_PARSER &&
+    storedManifest?.idAlgorithm === SPEC_ID_ALGORITHM &&
+    storedManifest?.sourceHash === sourceHash
+  ) {
+    const manifest = materializeManifest(raw, storedManifest);
+    return {
+      manifestPath,
+      manifest,
+      changes: unchangedChanges(manifest),
+      entityCount: manifest.entityCount,
+      cacheHit: true,
+      cacheMode: "source-hash",
+      contentRead: true,
+      written: false,
+    };
+  }
+
+  const oldManifest = priorManifestView(storedManifest, raw, cwd);
+  const sourceBlob = hashSpecBlob(relative, raw, context, options);
+  const manifest = buildManifest(relative, raw, { oldManifest, sourceBlob });
   const changes = changesBetween(oldManifest, manifest);
-  writeJson(manifestPath, manifest);
+  writeSpecManifest(manifestPath, manifest);
   return {
     manifestPath,
     manifest,
     changes,
+    entityCount: manifest.entityCount,
     cacheHit: false,
+    cacheMode: null,
+    contentRead: true,
+    migratedFrom: storedManifest?.schema && storedManifest.schema !== SPEC_MANIFEST_SCHEMA
+      ? storedManifest.schema
+      : null,
     written: true,
   };
 }
@@ -244,20 +421,70 @@ export function indexSpec(file, cwd = process.cwd(), options = {}) {
   return indexSpecWithContext(file, context, cwd, options);
 }
 
-function markdownFiles(cwd) {
+function markdownInventory(cwd) {
   const output = runGit(
     [
       "ls-files",
       "-z",
+      "-t",
       "--cached",
+      "--modified",
       "--others",
       "--exclude-standard",
+      "--stage",
+      "--full-name",
       "--",
       "*.md",
     ],
     { cwd, trim: false },
   ).stdout;
-  return output.split("\0").filter(Boolean).sort();
+  const files = new Set();
+  const blobs = new Map();
+  const dirty = new Set();
+  for (const record of output.split("\0").filter(Boolean)) {
+    if (record.startsWith("? ")) {
+      const file = record.slice(2);
+      files.add(file);
+      dirty.add(file);
+      continue;
+    }
+    const tag = record[0];
+    const body = record.slice(2);
+    const tab = body.indexOf("\t");
+    if (tab < 0) continue;
+    const metadata = body.slice(0, tab).split(" ");
+    const file = body.slice(tab + 1);
+    files.add(file);
+    if (metadata[2] === "0") blobs.set(file, metadata[1]);
+    if (tag !== "H") dirty.add(file);
+  }
+  return {
+    files: [...files]
+      .filter((file) => fs.existsSync(path.join(cwd, file)))
+      .sort(),
+    blobs,
+    dirty,
+  };
+}
+
+function hashWorkingTreeSpecs(files, context) {
+  if (files.length === 0) return new Map();
+  if (files.some((file) => /[\r\n]/.test(file))) {
+    throw new CliError("Specification paths containing newlines are not supported.");
+  }
+  const output = runGit(["hash-object", "-w", "--stdin-paths"], {
+    cwd: context.root,
+    input: `${files.join("\n")}\n`,
+    trim: false,
+  }).stdout.split(/\r?\n/).filter(Boolean);
+  if (output.length !== files.length) {
+    throw new CliError("Git did not return a blob identity for every specification.");
+  }
+  return new Map(files.map((file, index) => [file, output[index]]));
+}
+
+function changeCount(result, name) {
+  return result.changeCounts?.[name] ?? result.changes[name].length;
 }
 
 function summarizeIndexResults(results, durationMs) {
@@ -265,14 +492,15 @@ function summarizeIndexResults(results, durationMs) {
     files: results.length,
     cacheHits: results.filter((result) => result.cacheHit).length,
     manifestsWritten: results.filter((result) => result.written).length,
-    blocks: results.reduce(
-      (total, result) => total + result.manifest.blocks.length,
-      0,
-    ),
+    blocks: results.reduce((total, result) => total + result.entityCount, 0),
+    contentReads: results.filter((result) => result.contentRead).length,
+    blobCacheHits: results.filter(
+      (result) => result.cacheMode === "git-index-blob",
+    ).length,
     changes: results.reduce(
       (summary, result) => {
         for (const name of ["added", "removed", "changed", "moved", "unchanged"]) {
-          summary[name] += result.changes[name].length;
+          summary[name] += changeCount(result, name);
         }
         return summary;
       },
@@ -283,34 +511,61 @@ function summarizeIndexResults(results, durationMs) {
 }
 
 export function indexAllSpecs(cwd = process.cwd(), options = {}) {
+  const totalStarted = performance.now();
   const context = repoContext(cwd);
-  const files = markdownFiles(cwd);
+  const inventory = markdownInventory(context.root);
+  const files = inventory.files;
+  const knownBlobs = new Map(
+    files
+      .filter((file) => inventory.blobs.has(file) && !inventory.dirty.has(file))
+      .map((file) => [file, inventory.blobs.get(file)]),
+  );
+  const rebuild = files.filter((file) => {
+    if (options.force) return true;
+    const stored = readJson(manifestPathFromRelative(file, context), null);
+    return !(
+      stored?.schema === SPEC_MANIFEST_SCHEMA &&
+      stored?.parser === SPEC_PARSER &&
+      stored?.idAlgorithm === SPEC_ID_ALGORITHM &&
+      stored?.sourceBlob &&
+      stored.sourceBlob === knownBlobs.get(file)
+    );
+  });
+  const workingBlobs = hashWorkingTreeSpecs(rebuild, context);
   const started = performance.now();
   const results = files.map((file) =>
-    indexSpecWithContext(file, context, context.root, options),
+    indexSpecWithContext(file, context, context.root, {
+      ...options,
+      lazy: true,
+      sourceBlob: knownBlobs.get(file) ?? workingBlobs.get(file),
+    }),
   );
+  const summary = summarizeIndexResults(results, performance.now() - started);
   return {
-    ...summarizeIndexResults(results, performance.now() - started),
+    ...summary,
+    preparationMs: Number((started - totalStarted).toFixed(2)),
+    totalDurationMs: Number((performance.now() - totalStarted).toFixed(2)),
     results,
   };
 }
 
 export function readSpecManifest(file, cwd = process.cwd()) {
+  const context = repoContext(cwd);
+  const relative = relativeSpecPath(file, context, cwd);
   const manifestPath = manifestPathFor(file, cwd);
-  const manifest = readJson(manifestPath, null);
-  if (!manifest) {
+  const storedManifest = readJson(manifestPath, null);
+  if (!storedManifest) {
     throw new CliError(`No manifest exists for '${file}'. Run 'vlab spec index ${file}'.`);
   }
-  return { manifestPath, manifest };
-}
-
-function revisionFile(revision, relative, cwd) {
-  const result = runGit(["show", `${revision}:${relative}`], {
-    cwd,
-    allowFailure: true,
-    trim: false,
-  });
-  return result.ok ? normalizeMarkdown(result.stdout) : null;
+  const absolute = path.join(context.root, relative);
+  if (!fs.existsSync(absolute)) throw new CliError(`Spec not found: ${file}`);
+  const raw = normalizeMarkdown(fs.readFileSync(absolute, "utf8"));
+  if (sha256(raw) !== storedManifest.sourceHash) {
+    throw new CliError(`Spec manifest for '${file}' is stale.`, {
+      details: `Re-index it with: vlab spec index ${file}`,
+    });
+  }
+  return { manifestPath, manifest: materializeManifest(raw, storedManifest) };
 }
 
 function primaryBlocks(raw, manifest) {
@@ -355,10 +610,13 @@ function primaryBlocks(raw, manifest) {
   return primary;
 }
 
-function revisionStage(file, revision, cwd) {
-  const raw = revisionFile(revision, file, cwd);
-  const manifestFile = manifestRelativePath(file);
-  const manifestRaw = revisionFile(revision, manifestFile, cwd);
+function revisionStageFromObjects(file, revision, sourceObject, manifestObject) {
+  const raw = sourceObject.exists
+    ? normalizeMarkdown(sourceObject.content.toString("utf8"))
+    : null;
+  const manifestRaw = manifestObject.exists
+    ? normalizeMarkdown(manifestObject.content.toString("utf8"))
+    : null;
   if (raw === null) {
     return {
       revision,
@@ -376,25 +634,26 @@ function revisionStage(file, revision, cwd) {
       { details: `Index and commit it with: vlab spec index ${file}` },
     );
   }
-  let manifest;
+  let storedManifest;
   try {
-    manifest = JSON.parse(manifestRaw);
+    storedManifest = JSON.parse(manifestRaw);
   } catch {
     throw new CliError(`Spec manifest for '${file}' at ${revision} is invalid JSON.`);
   }
-  if (manifest.source !== file) {
+  if (storedManifest.source !== file) {
     throw new CliError(`Spec manifest source does not match '${file}' at ${revision}.`);
   }
   const normalizedHash = sha256(raw);
   const compatibleHashes = [normalizedHash];
-  if (manifest.schema === "vcs-lab.spec-manifest/v1") {
+  if (storedManifest.schema === "vcs-lab.spec-manifest/v1") {
     compatibleHashes.push(sha256(raw.replace(/\n/g, "\r\n")));
   }
-  if (!compatibleHashes.includes(manifest.sourceHash)) {
+  if (!compatibleHashes.includes(storedManifest.sourceHash)) {
     throw new CliError(`Spec manifest for '${file}' is stale at ${revision}.`, {
       details: `Re-index and commit it with: vlab spec index ${file}`,
     });
   }
+  const manifest = materializeManifest(raw, storedManifest);
   return {
     revision,
     exists: true,
@@ -404,6 +663,23 @@ function revisionStage(file, revision, cwd) {
     manifestHash: sha256(manifestRaw),
     blocks: primaryBlocks(raw, manifest),
   };
+}
+
+function revisionStages(file, revisions, cwd) {
+  const manifestFile = manifestRelativePath(file);
+  const expressions = revisions.flatMap((revision) => [
+    `${revision}:${file}`,
+    `${revision}:${manifestFile}`,
+  ]);
+  const objects = readGitObjects(expressions, cwd);
+  return revisions.map((revision, index) =>
+    revisionStageFromObjects(
+      file,
+      revision,
+      objects[index * 2],
+      objects[index * 2 + 1],
+    ),
+  );
 }
 
 function sameArray(left, right) {
@@ -611,9 +887,11 @@ export function planSpecMerge(
   let ours;
   let theirs;
   try {
-    base = revisionStage(relative, baseRevision, cwd);
-    ours = revisionStage(relative, oursRevision, cwd);
-    theirs = revisionStage(relative, theirsRevision, cwd);
+    [base, ours, theirs] = revisionStages(
+      relative,
+      [baseRevision, oursRevision, theirsRevision],
+      cwd,
+    );
   } catch (error) {
     return {
       schema: "vcs-lab.spec-merge-plan/v1",
@@ -735,6 +1013,7 @@ export function planSpecMerge(
       const manifest = buildManifest(relative, markdown, {
         artifactId,
         preferredIds: preferredIdMap,
+        sourceBlob: gitBlobId(markdown, context.objectFormat),
       });
       const manifestText = serializeSpecManifest(manifest);
       result = {
@@ -780,7 +1059,7 @@ export function materializeSpecMerge(plan, cwd = process.cwd()) {
   fs.mkdirSync(path.dirname(markdownPath), { recursive: true });
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
   fs.writeFileSync(markdownPath, plan.result.markdown);
-  writeJson(manifestPath, plan.result.manifest);
+  writeSpecManifest(manifestPath, plan.result.manifest);
   runGit(["add", "--", plan.file, plan.manifestFile], { cwd });
 }
 
@@ -801,36 +1080,41 @@ export function compactSpecMerge(plan, selectionMethod = null) {
   };
 }
 
-function stagedFile(file, cwd) {
-  const result = runGit(["show", `:${file}`], {
-    cwd,
-    allowFailure: true,
-    trim: false,
-  });
-  return result.ok ? normalizeMarkdown(result.stdout) : null;
-}
-
 export function captureSpecMergeOutcomes(merges, cwd = process.cwd()) {
-  return merges.map((merge) => {
-    const markdown = stagedFile(merge.path, cwd);
-    const manifest = stagedFile(merge.manifestPath, cwd);
+  const objects = readGitObjects(
+    merges.flatMap((merge) => [`:${merge.path}`, `:${merge.manifestPath}`]),
+    cwd,
+  );
+  return merges.map((merge, index) => {
+    const markdownObject = objects[index * 2];
+    const manifestObject = objects[index * 2 + 1];
+    const markdown = markdownObject.exists
+      ? normalizeMarkdown(markdownObject.content.toString("utf8"))
+      : null;
+    const manifest = manifestObject.exists
+      ? normalizeMarkdown(manifestObject.content.toString("utf8"))
+      : null;
     if ((markdown === null) !== (manifest === null)) {
       throw new CliError(
         `Staged spec '${merge.path}' and its manifest must be added or deleted together.`,
       );
     }
     if (markdown !== null) {
-      let parsed;
+      let storedManifest;
       try {
-        parsed = JSON.parse(manifest);
+        storedManifest = JSON.parse(manifest);
       } catch {
         throw new CliError(`Staged manifest for '${merge.path}' is invalid JSON.`);
       }
-      if (parsed.source !== merge.path || parsed.sourceHash !== sha256(markdown)) {
+      if (
+        storedManifest.source !== merge.path ||
+        storedManifest.sourceHash !== sha256(markdown)
+      ) {
         throw new CliError(`Staged manifest for '${merge.path}' is stale.`, {
           details: `Run 'vlab spec index ${merge.path}', stage both files, and continue again.`,
         });
       }
+      const parsed = materializeManifest(markdown, storedManifest);
       primaryBlocks(markdown, parsed);
     }
     const actualMarkdownHash = markdown === null ? null : sha256(markdown);
@@ -951,15 +1235,30 @@ export function benchmarkSpecIndex(options = {}) {
       fs.writeFileSync(absolute, corpusDocument(index, blocksPerDocument));
       files.push(relative);
     }
-    const run = () => {
+    const blobStarted = performance.now();
+    const sourceBlobs = hashWorkingTreeSpecs(files, context);
+    const initialPreparationMs = performance.now() - blobStarted;
+    const run = (preparationMs = 0) => {
       const started = performance.now();
       const results = files.map((file) =>
-        indexSpecWithContext(file, context, temporary),
+        indexSpecWithContext(file, context, temporary, {
+          lazy: true,
+          sourceBlob: sourceBlobs.get(file),
+        }),
       );
-      return summarizeIndexResults(results, performance.now() - started);
+      const summary = summarizeIndexResults(results, performance.now() - started);
+      return {
+        results,
+        summary: {
+          ...summary,
+          preparationMs: Number(preparationMs.toFixed(2)),
+          totalDurationMs: Number((preparationMs + summary.durationMs).toFixed(2)),
+        },
+      };
     };
-    const cold = run();
-    const unchanged = run();
+    const coldRun = run(initialPreparationMs);
+    const cold = coldRun.summary;
+    const unchanged = run().summary;
     const changedFile = files[Math.floor(files.length / 2)];
     const changedPath = path.join(temporary, changedFile);
     const original = fs.readFileSync(changedPath, "utf8");
@@ -970,7 +1269,12 @@ export function benchmarkSpecIndex(options = {}) {
         "The capability must remain deterministic and auditable.",
       ),
     );
-    const oneBlockChanged = run();
+    const changedBlobStarted = performance.now();
+    sourceBlobs.set(
+      changedFile,
+      hashWorkingTreeSpecs([changedFile], context).get(changedFile),
+    );
+    const oneBlockChanged = run(performance.now() - changedBlobStarted).summary;
     const sourceFiles = files.map((file) =>
       fs.readFileSync(path.join(temporary, file)),
     );
@@ -987,8 +1291,31 @@ export function benchmarkSpecIndex(options = {}) {
       (total, value) => total + deflateSync(value).length,
       0,
     );
+    const legacyV2Files = coldRun.results.map((result) => {
+      const manifest = result.manifest;
+      return Buffer.from(`${JSON.stringify({
+        schema: "vcs-lab.spec-manifest/v2",
+        artifactId: manifest.artifactId,
+        source: manifest.source,
+        sourceHash: manifest.sourceHash,
+        sourceBytes: manifest.sourceBytes,
+        sourceLines: manifest.sourceLines,
+        representation: manifest.representation,
+        parser: manifest.parser,
+        blocks: manifest.blocks,
+      }, null, 2)}\n`);
+    });
+    const legacyV2EquivalentBytes = legacyV2Files.reduce(
+      (total, value) => total + value.length,
+      0,
+    );
+    const estimatedCompressedLegacyV2Bytes = legacyV2Files.reduce(
+      (total, value) => total + deflateSync(value).length,
+      0,
+    );
     return {
-      schema: "vcs-lab.spec-benchmark/v1",
+      schema: "vcs-lab.spec-benchmark/v2",
+      manifestSchema: SPEC_MANIFEST_SCHEMA,
       documents,
       blocksPerDocument,
       semanticEntities: cold.blocks,
@@ -1000,6 +1327,15 @@ export function benchmarkSpecIndex(options = {}) {
       estimatedCompressedManifestToSourceRatio: Number(
         (compressedManifestBytes / compressedSourceBytes).toFixed(3),
       ),
+      legacyV2EquivalentBytes,
+      metadataReductionPercent: Number(
+        ((1 - manifestBytes / legacyV2EquivalentBytes) * 100).toFixed(2),
+      ),
+      estimatedCompressedLegacyV2Bytes,
+      estimatedCompressedMetadataReductionPercent: Number(
+        ((1 - compressedManifestBytes / estimatedCompressedLegacyV2Bytes) * 100).toFixed(2),
+      ),
+      bytesPerEntity: Number((manifestBytes / cold.blocks).toFixed(2)),
       cold,
       unchanged,
       oneBlockChanged,

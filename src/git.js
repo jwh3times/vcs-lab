@@ -61,6 +61,7 @@ export function runGit(args, options = {}) {
     allowFailure = false,
     trim = true,
     binary = false,
+    maxBuffer = 256 * 1024 * 1024,
   } = options;
 
   const startedAt = performance.now();
@@ -73,6 +74,7 @@ export function runGit(args, options = {}) {
     },
     input,
     encoding: binary ? null : "utf8",
+    maxBuffer,
     windowsHide: true,
   });
 
@@ -133,6 +135,73 @@ export function readGitBlob(blob, cwd = process.cwd()) {
   }).stdout;
 }
 
+function readBatchLine(buffer, offset) {
+  const newline = buffer.indexOf(0x0a, offset);
+  if (newline < 0) {
+    throw new CliError("Git returned a truncated cat-file batch response.");
+  }
+  return {
+    line: buffer.subarray(offset, newline).toString("utf8"),
+    next: newline + 1,
+  };
+}
+
+/**
+ * Read several Git object expressions with one process. Expressions may be
+ * object IDs, revision:path pairs, or index expressions such as :path.
+ */
+export function readGitObjects(expressions, cwd = process.cwd()) {
+  if (!Array.isArray(expressions) || expressions.length === 0) return [];
+  for (const expression of expressions) {
+    if (String(expression).includes("\n") || String(expression).includes("\r")) {
+      throw new CliError("Git batch object expressions cannot contain newlines.");
+    }
+  }
+  const input = Buffer.from(`${expressions.join("\n")}\n`, "utf8");
+  const response = runGit(["cat-file", "--batch"], {
+    cwd,
+    input,
+    binary: true,
+    trim: false,
+  }).stdout;
+  const results = [];
+  let offset = 0;
+  for (const expression of expressions) {
+    const header = readBatchLine(response, offset);
+    offset = header.next;
+    if (header.line.endsWith(" missing")) {
+      results.push({
+        expression,
+        exists: false,
+        oid: null,
+        type: null,
+        size: 0,
+        content: null,
+      });
+      continue;
+    }
+    const match = header.line.match(/^([0-9a-f]+) (\S+) (\d+)$/);
+    if (!match) {
+      throw new CliError(`Unexpected git cat-file batch header: ${header.line}`);
+    }
+    const size = Number(match[3]);
+    const end = offset + size;
+    if (end >= response.length || response[end] !== 0x0a) {
+      throw new CliError("Git returned a malformed cat-file batch object.");
+    }
+    results.push({
+      expression,
+      exists: true,
+      oid: match[1],
+      type: match[2],
+      size,
+      content: response.subarray(offset, end),
+    });
+    offset = end + 1;
+  }
+  return results;
+}
+
 export function gitText(args, options = {}) {
   return runGit(args, options).stdout;
 }
@@ -141,13 +210,24 @@ export function repoContext(cwd = process.cwd()) {
   const cacheKey = path.resolve(cwd);
   const cached = repositoryContextCache.get(cacheKey);
   if (cached) return cached;
-  const root = gitText(["rev-parse", "--show-toplevel"], { cwd });
-  const gitDirRaw = gitText(["rev-parse", "--git-dir"], { cwd });
-  const commonDirRaw = gitText(["rev-parse", "--git-common-dir"], { cwd });
+  const [root, gitDirRaw, commonDirRaw, objectFormat] = gitText(
+    [
+      "rev-parse",
+      "--show-toplevel",
+      "--git-dir",
+      "--git-common-dir",
+      "--show-object-format",
+    ],
+    { cwd },
+  ).split(/\r?\n/);
+  if (!root || !gitDirRaw || !commonDirRaw || !["sha1", "sha256"].includes(objectFormat)) {
+    throw new CliError("Git did not return a complete repository context.");
+  }
   const context = {
     root: path.resolve(root),
     gitDir: path.resolve(cwd, gitDirRaw),
     commonDir: path.resolve(cwd, commonDirRaw),
+    objectFormat,
   };
   repositoryContextCache.set(cacheKey, context);
   return context;
@@ -155,6 +235,16 @@ export function repoContext(cwd = process.cwd()) {
 
 export function resolveRevision(revision, cwd = process.cwd()) {
   return gitText(["rev-parse", "--verify", `${revision}^{commit}`], { cwd });
+}
+
+export function resolveObjectIds(expressions, cwd = process.cwd()) {
+  if (!Array.isArray(expressions) || expressions.length === 0) return [];
+  const output = gitText(["rev-parse", ...expressions], { cwd });
+  const ids = output.split(/\r?\n/).filter(Boolean);
+  if (ids.length !== expressions.length) {
+    throw new CliError("Git did not resolve every requested object expression.");
+  }
+  return ids;
 }
 
 export function currentHead(cwd = process.cwd()) {

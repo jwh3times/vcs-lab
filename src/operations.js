@@ -10,6 +10,7 @@ import {
   extractTrailer,
   findCommitByChangeId,
   repoContext,
+  resolveObjectIds,
   resolveRevision,
   runGit,
   treeId,
@@ -135,7 +136,15 @@ function requirePendingReconciliation(cwd) {
   return operation;
 }
 
-function applicationRecord(operation, change, appliedCommit, relation, cwd) {
+function applicationRecord(
+  operation,
+  change,
+  appliedCommit,
+  sourceTree,
+  resultTree,
+  relation,
+  cwd,
+) {
   return {
     schema: "vcs-lab.application/v4",
     type: "application",
@@ -144,10 +153,13 @@ function applicationRecord(operation, change, appliedCommit, relation, cwd) {
     originCommit: change.commit,
     originChangeId: change.changeId,
     appliedCommit,
-    appliedChangeId: changeIdForCommit(appliedCommit, cwd),
+    appliedChangeId:
+      relation === "contextual-fork"
+        ? changeIdForCommit(appliedCommit, cwd)
+        : change.changeId,
     targetBefore: operation.current.targetBefore,
-    sourceTree: treeId(change.commit, cwd),
-    resultTree: treeId(appliedCommit, cwd),
+    sourceTree,
+    resultTree,
     relation,
     forecastId: operation.forecastId ?? null,
     conflictedPaths: operation.current.conflictedPaths ?? [],
@@ -159,11 +171,16 @@ function applicationRecord(operation, change, appliedCommit, relation, cwd) {
 
 function recordSuccessfulApplication(operation, relation, cwd) {
   const change = operation.queue[operation.nextIndex];
-  const appliedCommit = currentHead(cwd);
+  const [appliedCommit, sourceTree, resultTree] = resolveObjectIds(
+    ["HEAD", `${change.commit}^{tree}`, "HEAD^{tree}"],
+    cwd,
+  );
   const application = applicationRecord(
     operation,
     change,
     appliedCommit,
+    sourceTree,
+    resultTree,
     relation,
     cwd,
   );

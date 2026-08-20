@@ -12,7 +12,7 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 test("CLI reports the package version", () => {
   assert.equal(
     exec(process.execPath, [cli, "--version"], projectRoot),
-    "vcs-lab 0.5.0",
+    "vcs-lab 0.6.0",
   );
 });
 
@@ -272,16 +272,60 @@ test("annotated Markdown keeps stable block IDs across edits and moves", (t) => 
       assert.equal(block.id, ids.get(block.semanticKey));
     }
   }
-  assert.equal(second.manifest.schema, "vcs-lab.spec-manifest/v2");
+  assert.equal(second.manifest.schema, "vcs-lab.spec-manifest/v3");
   assert.equal(second.cacheHit, false);
   assert.ok(second.changes.changed.length >= 1);
   assert.ok(second.changes.moved.length >= 1);
 
   const manifestBefore = fs.readFileSync(second.manifestPath, "utf8");
+  const stored = JSON.parse(manifestBefore);
+  assert.equal(stored.schema, "vcs-lab.spec-manifest/v3");
+  assert.equal(Object.hasOwn(stored, "blocks"), false);
+  assert.equal(stored.entityCount, second.manifest.blocks.length);
   const third = JSON.parse(vlab(repo, "spec", "index", "docs/spec.md", "--json"));
   assert.equal(third.cacheHit, true);
   assert.equal(third.written, false);
   assert.equal(fs.readFileSync(second.manifestPath, "utf8"), manifestBefore);
+});
+
+test("v2 manifests migrate to sparse v3 without changing logical IDs", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "docs/legacy.md", "# Legacy\n\nREQ-LEGACY-1: Preserve this identity.\n");
+  const indexed = JSON.parse(
+    vlab(repo, "spec", "index", "docs/legacy.md", "--json"),
+  );
+  const legacyBlocks = indexed.manifest.blocks.map((block, index) => ({
+    ...block,
+    id: index === 0 ? "ent_legacy_preserved_identity" : block.id,
+  }));
+  const legacy = {
+    schema: "vcs-lab.spec-manifest/v2",
+    artifactId: indexed.manifest.artifactId,
+    source: indexed.manifest.source,
+    sourceHash: indexed.manifest.sourceHash,
+    sourceBytes: indexed.manifest.sourceBytes,
+    sourceLines: indexed.manifest.sourceLines,
+    representation: indexed.manifest.representation,
+    parser: indexed.manifest.parser,
+    blocks: legacyBlocks,
+  };
+  fs.writeFileSync(indexed.manifestPath, `${JSON.stringify(legacy, null, 2)}\n`);
+
+  const migrated = JSON.parse(
+    vlab(repo, "spec", "index", "docs/legacy.md", "--json"),
+  );
+  assert.equal(migrated.migratedFrom, "vcs-lab.spec-manifest/v2");
+  assert.deepEqual(
+    migrated.manifest.blocks.map((block) => block.id),
+    legacyBlocks.map((block) => block.id),
+  );
+  const stored = JSON.parse(fs.readFileSync(indexed.manifestPath, "utf8"));
+  assert.equal(stored.schema, "vcs-lab.spec-manifest/v3");
+  assert.equal(Object.hasOwn(stored, "blocks"), false);
+  assert.equal(
+    stored.idOverrides[legacyBlocks[0].semanticKey],
+    "ent_legacy_preserved_identity",
+  );
 });
 
 test("forecast deterministically merges independent specification blocks", (t) => {
@@ -331,14 +375,27 @@ test("forecast deterministically merges independent specification blocks", (t) =
     "forecast-batch",
   );
   assert.equal(result.receipt.applied[0].semanticMerges[0].decision, "accepted");
+  assert.ok(
+    result.receipt.timings.git.count <= 10,
+    JSON.stringify(result.receipt.timings.git, null, 2),
+  );
   assert.equal(
     readText(repo, "docs/spec.md"),
     "# Alpha\n\nsource alpha\n\n# Beta\n\ntarget beta\n",
   );
-  const indexed = JSON.parse(
-    vlab(repo, "spec", "index", "docs/spec.md", "--json"),
+  const storedResultManifest = JSON.parse(
+    fs.readFileSync(path.join(repo, ".vcs-lab/specs/docs/spec.md.json"), "utf8"),
   );
-  assert.equal(indexed.cacheHit, true);
+  assert.equal(
+    storedResultManifest.sourceBlob,
+    git(repo, "rev-parse", "HEAD:docs/spec.md"),
+  );
+  const indexedBatch = JSON.parse(
+    vlab(repo, "spec", "index", "--all", "--json"),
+  );
+  assert.equal(indexedBatch.blobCacheHits, 1);
+  assert.equal(indexedBatch.contentReads, 0);
+  const indexed = JSON.parse(vlab(repo, "spec", "show", "docs/spec.md", "--json"));
   for (const block of indexed.manifest.blocks) {
     assert.equal(block.id, idsBefore.get(block.semanticKey));
   }
@@ -565,6 +622,8 @@ test("batch spec indexing skips unchanged manifests and measures generated corpo
   );
   assert.equal(unchanged.cacheHits, 2);
   assert.equal(unchanged.manifestsWritten, 0);
+  assert.equal(unchanged.contentReads, 0);
+  assert.equal(unchanged.blobCacheHits, 2);
 
   write(repo, "docs/two.md", "# Two\n\nSecond body changed.\n");
   const incremental = JSON.parse(
@@ -572,6 +631,8 @@ test("batch spec indexing skips unchanged manifests and measures generated corpo
   );
   assert.equal(incremental.cacheHits, 1);
   assert.equal(incremental.manifestsWritten, 1);
+  assert.equal(incremental.contentReads, 1);
+  assert.equal(incremental.blobCacheHits, 1);
   assert.equal(incremental.changes.changed, 1);
 
   const benchmark = JSON.parse(
@@ -591,8 +652,12 @@ test("batch spec indexing skips unchanged manifests and measures generated corpo
   assert.equal(benchmark.unchanged.cacheHits, 2);
   assert.equal(benchmark.unchanged.manifestsWritten, 0);
   assert.equal(benchmark.oneBlockChanged.manifestsWritten, 1);
-  assert.ok(benchmark.manifestBytes > 0);
-  assert.ok(benchmark.manifestToSourceRatio > 0);
+  assert.equal(benchmark.schema, "vcs-lab.spec-benchmark/v2");
+  assert.equal(benchmark.manifestSchema, "vcs-lab.spec-manifest/v3");
+  assert.equal(benchmark.unchanged.contentReads, 0);
+  assert.equal(benchmark.unchanged.blobCacheHits, 2);
+  assert.ok(benchmark.manifestBytes < benchmark.legacyV2EquivalentBytes);
+  assert.ok(benchmark.metadataReductionPercent > 80);
 });
 
 test("heuristic candidates require explicit acceptance", (t) => {
