@@ -12,7 +12,7 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 test("CLI reports the package version", () => {
   assert.equal(
     exec(process.execPath, [cli, "--version"], projectRoot),
-    "vcs-lab 0.2.0",
+    "vcs-lab 0.2.1",
   );
 });
 
@@ -47,11 +47,19 @@ function write(repo, relative, content) {
   fs.writeFileSync(target, content);
 }
 
+function readText(repo, relative) {
+  return fs
+    .readFileSync(path.join(repo, relative), "utf8")
+    .replace(/\r\n/g, "\n");
+}
+
 function makeRepo(t) {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-test-"));
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);
   git(repo, "init", "-b", "main");
+  git(repo, "config", "core.autocrlf", "false");
+  git(repo, "config", "core.eol", "lf");
   git(repo, "config", "user.name", "VCS Lab Test");
   git(repo, "config", "user.email", "vcs-lab@example.test");
   t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
@@ -106,7 +114,7 @@ test("hard squash receipts suppress absorbed changes during reconciliation", (t)
   assert.equal(reconciled.receipt.applied.length, 1);
   assert.equal(reconciled.receipt.exactStateEqualityBefore, false);
   assert.equal(reconciled.receipt.exactStateEqualityAfter, true);
-  assert.equal(fs.readFileSync(path.join(repo, "continuation.txt"), "utf8"), "three\n");
+  assert.equal(readText(repo, "continuation.txt"), "three\n");
 
   const after = JSON.parse(vlab(repo, "merge-plan", "feature", "--json"));
   assert.equal(after.counts.new, 0);
@@ -309,8 +317,8 @@ test("conflicted reconciliation resumes across processes and records contextual 
   assert.equal(result.receipt.applied[1].sourceCommit, afterConflict.commit);
   assert.equal(result.receipt.applied[1].relation, "causal-reconciliation");
   assert.equal(result.receipt.exactStateEqualityAfter, false);
-  assert.equal(fs.readFileSync(path.join(repo, "shared.txt"), "utf8"), "contextual result\n");
-  assert.equal(fs.readFileSync(path.join(repo, "after.txt"), "utf8"), "after conflict\n");
+  assert.equal(readText(repo, "shared.txt"), "contextual result\n");
+  assert.equal(readText(repo, "after.txt"), "after conflict\n");
 
   const idle = JSON.parse(vlab(repo, "reconcile", "--status", "--json"));
   assert.equal(idle.active, false);

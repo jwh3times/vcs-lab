@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+- Make disposable test and demo repositories deterministic on Windows by
+  disabling checkout-time CRLF conversion locally.
+- Normalize line endings in assertions where exact newline bytes are not part
+  of the behavior under test.
+- Add repository line-ending policy through `.gitattributes`.
+
 ## 0.2.0
 
 - Add worktree-local, durable reconciliation operations.

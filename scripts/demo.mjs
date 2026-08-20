@@ -34,6 +34,8 @@ function write(relative, content) {
 
 console.log(`Creating demo repository at ${repo}\n`);
 git("init", "-b", "main");
+git("config", "core.autocrlf", "false");
+git("config", "core.eol", "lf");
 git("config", "user.name", "VCS Lab Demo");
 git("config", "user.email", "vcs-lab@example.test");
 vlab("init");
