@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+- Fingerprint conflicts with an exact, path-independent three-way signature
+  derived from Git's base, ours, and theirs blob identities.
+- Store completed conflict resolutions in repository-shared, garbage-collection
+  safe refs and suggest them when the same conflict recurs in another worktree.
+- Add `vlab resolve status`, `apply`, `reject`, and `list` with explicit handling
+  for ambiguous resolution variants.
+- Record whether a suggestion was created, accepted unchanged, modified, or
+  rejected in application and reconciliation receipts.
+- Keep resolution reuse conservative: suggestions are visible but never applied
+  until the user asks.
+- Make reconciliation output concise by default while retaining complete JSON
+  through `--json`.
+- Consolidate matching application and reconciliation edges in `vlab graph`.
+- Add opt-in Git subprocess timings with `VLAB_TRACE=1` and repeatable local
+  probes through `vlab doctor --benchmark`.
+- Add a reusable-resolution/worktree demo and expand the integration suite to
+  15 tests.
+
 ## 0.2.1
 
 - Make disposable test and demo repositories deterministic on Windows by

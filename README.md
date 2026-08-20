@@ -8,6 +8,7 @@
 - hard squashes record exactly what they absorbed in a causal landing receipt;
 - a merge planner subtracts proven prior work instead of relying only on Git topology;
 - conflicted reconciliation can pause, survive process exit, continue, or abort safely;
+- exact conflict resolutions can be suggested across branches and worktrees with explicit provenance;
 - workspaces use real Git worktrees but add path-independent logical metadata and non-disruptive checkpoints;
 - Markdown remains canonical while a sidecar gives sections and requirements stable entity IDs.
 
@@ -40,7 +41,7 @@ On Windows, use PowerShell, Git Bash, or a terminal where `git` and `node` are o
 This project now has its own Git history and should live in a normal development repository. The portable repository bundle retains the release commits and tags:
 
 ```bash
-git clone /path/to/causal-vcs-lab-0.2.1.bundle vcs-lab
+git clone /path/to/causal-vcs-lab-0.3.0.bundle vcs-lab
 cd vcs-lab
 git remote remove origin
 npm link
@@ -52,7 +53,7 @@ If you instead use the source ZIP, initialize its extracted directory with:
 ```bash
 git init -b main
 git add .
-git commit -m "Bootstrap causal-vcs-lab 0.2.1"
+git commit -m "Bootstrap causal-vcs-lab 0.3.0"
 npm link
 npm test
 ```
@@ -181,6 +182,49 @@ Run the prepared conflict experiment with:
 npm run demo:conflict
 ```
 
+## Reusing an exact conflict resolution
+
+Version 0.3 records an exact signature for the ordered base, target, and source
+blobs involved in each conflict. The signature excludes the path, so a prior
+resolution can be found on another branch or in another linked worktree when
+all three inputs are identical.
+
+When reconciliation pauses, inspect any matches:
+
+```bash
+vlab resolve status
+```
+
+No suggestion is applied automatically. Choose one explicitly, inspect the
+staged result, and continue:
+
+```bash
+vlab resolve apply shared.txt
+git diff --cached -- shared.txt
+vlab reconcile --continue
+```
+
+For several unambiguous conflicts, use `vlab resolve apply --all`. If the same
+signature has more than one known result, select one with
+`--resolution <id>`. To decline prior results while keeping the decision in the
+receipt, run:
+
+```bash
+vlab resolve reject shared.txt
+# Resolve shared.txt manually, then:
+git add shared.txt
+vlab reconcile --continue
+```
+
+The application receipt distinguishes `created`, `accepted`, `modified`, and
+`rejected` outcomes. `vlab resolve list` shows the repository-shared catalog.
+Run the prepared two-conflict experiment, whose second occurrence is in a
+linked worktree, with:
+
+```bash
+npm run demo:resolution
+```
+
 ## AI-oriented workspaces
 
 ```bash
@@ -234,11 +278,13 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab merge --hard-squash` | Git-compatible strict squash plus sideband receipt |
 | `vlab merge-plan` | Proven coverage versus heuristic similarity |
 | `vlab reconcile` | Apply only proven-new changes with resumable conflicts |
+| `vlab resolve ...` | Inspect, apply, reject, and audit exact resolution suggestions |
 | `vlab cherry-pick` | Preserve or deliberately fork a Change ID |
 | `vlab graph` | Branch history plus causal relationships, without metadata-ref noise |
 | `vlab workspace ...` | Worktree-backed logical workspaces and checkpoints |
 | `vlab spec ...` | Hybrid file/semantic-document representation |
 | `vlab receipts` | Inspect causal records as text or JSON |
+| `vlab doctor --benchmark` | Sample Git subprocess latency in the current repository |
 
 ## Metadata locations
 
@@ -246,13 +292,37 @@ Run `vlab --help` for the current command list. The most useful commands are:
 - Pending reconciliation: the current worktree Git directory under `vcs-lab/reconciliation.json`
 - Workspace registry: the common Git directory under `vcs-lab/workspaces.json`
 - Checkpoints: `refs/vcs-lab/checkpoints/<workspace-id>`
+- Reusable resolution blobs: `refs/vcs-lab/resolutions/<signature>/<result-blob>`
 - Portable spec manifests: `.vcs-lab/specs/**/*.json`
 
 For another clone to receive experimental causal metadata, explicitly fetch the notes ref:
 
 ```bash
 git fetch origin refs/notes/vcs-lab:refs/notes/vcs-lab
+git fetch origin 'refs/vcs-lab/resolutions/*:refs/vcs-lab/resolutions/*'
 ```
+
+Both refs are required to transfer reusable resolution data: notes carry the
+records and the hidden resolution refs retain the result blobs.
+
+## Measuring the compatibility layer
+
+The current lab starts a Git process for each storage or graph operation. Get a
+small repeatable baseline for the current repository with:
+
+```bash
+vlab doctor --benchmark
+```
+
+For command-by-command timings, enable tracing for one invocation:
+
+```bash
+VLAB_TRACE=1 vlab merge-plan feature
+```
+
+Trace output contains durations and Git command names, not file content or
+commit messages. These probes are intended to reveal when the compatibility
+layer or a synchronized filesystem becomes the bottleneck.
 
 ## What this prototype intentionally does not solve
 
@@ -273,4 +343,8 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The integration suite creates disposable Git repositories and exercises hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue abort, contextual identity forks, independent worktree operations, checkpoints, annotated Markdown stability, and conservative patch-equivalence handling.
+The 15-test integration suite creates disposable Git repositories and exercises
+hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
+abort, contextual identity forks, exact resolution reuse and provenance,
+independent worktree operations, checkpoints, annotated Markdown stability,
+conservative patch-equivalence handling, and Git timing probes.

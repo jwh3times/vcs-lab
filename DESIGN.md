@@ -31,7 +31,11 @@ Only proven-new changes are applied. Heuristic candidates force a user decision.
 
 ## Resumable reconciliation operation
 
-Version 0.2 writes an operation journal before applying the first change. The journal pins the source head, target-before commit, complete merge plan, ordered application queue, completed applications, and current conflict. It is stored in the current worktree's private Git directory rather than the common repository directory.
+Version 0.2 introduced an operation journal written before applying the first
+change. The journal pins the source head, target-before commit, complete merge
+plan, ordered application queue, completed applications, and current conflict.
+It is stored in the current worktree's private Git directory rather than the
+common repository directory.
 
 Clean applications remain provisional in the journal until the entire operation completes. This allows `--abort` to restore the original target without leaving receipts for commits that are no longer reachable. On completion, application records and a reconciliation receipt are published to Git notes.
 
@@ -41,6 +45,48 @@ A conflict resolution has two identities:
 - `contextual-fork` creates a derived Change ID and deliberately does not mark the original source intent as covered.
 
 This makes causal coverage and exact tree equality independent. A target can cover every source intent while realizing it differently, or it can derive a new intent while leaving the original source change unapplied.
+
+## Reusable conflict resolutions
+
+Version 0.3 adds a deliberately conservative resolution-memory layer. When a
+cherry-pick conflicts, the index contains up to three entries for each path:
+merge base, target (`ours`), and source (`theirs`). The lab hashes the ordered
+triplet of each entry's file mode and blob ID using
+`ordered-three-way-blobs/v1`. The file path is excluded, so an exact conflict
+can be recognized after a rename or in a separate worktree.
+
+This signature proves byte-for-byte equality of the three conflict inputs; it
+does not claim semantic equivalence. A matching resolution is therefore a safe
+candidate to present, but v0.3 never mutates the worktree automatically. The
+user must run `vlab resolve apply`, may edit the result before continuing, or
+may explicitly reject it. If multiple result blobs have been recorded for the
+same signature, selection requires a resolution ID.
+
+The completed application records one of four decisions:
+
+- `created` — this exact conflict had no prior candidate;
+- `accepted` — a prior result was staged unchanged;
+- `modified` — an applied suggestion was changed before continuation;
+- `rejected` — prior candidates were declined and another result was used.
+
+Resolution records are Git notes attached to small hidden commits under
+`refs/vcs-lab/resolutions/<signature>/<result-blob>`. Each commit retains the
+result blob in its tree, making it safe from normal Git garbage collection.
+The catalog is common to linked worktrees while each pending choice remains in
+that worktree's reconciliation journal.
+
+This is closer to exact `rerere` with explicit provenance than to an AI merge
+system. Later experiments can add semantic or learned candidates as a lower
+confidence tier without weakening the exact tier.
+
+## Performance observation
+
+The prototype still invokes stock Git as subprocesses. `VLAB_TRACE=1` reports
+the duration of each Git command without logging user content, and
+`vlab doctor --benchmark` samples common repository probes. These measurements
+provide a baseline for deciding whether a native daemon, long-lived object
+service, or virtualized workspace layer is justified, especially in large
+OneDrive-hosted repositories.
 
 ## Workspace checkpoint
 
@@ -63,4 +109,8 @@ Build a native store only if local trials show that:
 - stable Change IDs improve rebase, cherry-pick, and review continuity;
 - workspace checkpoints and conflict forecasts help parallel agents;
 - annotated spec entities remain stable enough under real editing;
-- users value causal and semantic queries enough to justify metadata complexity.
+- users value causal and semantic queries enough to justify metadata complexity;
+- exact resolution reuse removes repeated conflict work without encouraging
+  unsafe automatic merges;
+- subprocess and filesystem measurements identify a material performance limit
+  that a native layer can address.

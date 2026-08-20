@@ -16,6 +16,12 @@ import { indexSpec, readSpecManifest } from "./specs.js";
 import { listNoteRecords } from "./notes.js";
 import { CliError } from "./errors.js";
 import { VERSION } from "./version.js";
+import {
+  applyResolution,
+  listResolutionRecords,
+  pendingResolutionStatus,
+  rejectResolution,
+} from "./resolutions.js";
 
 const HELP = `vcs-lab — Git-backed experiments for causal source control
 
@@ -31,6 +37,10 @@ Usage:
   vlab reconcile --status [--json]
   vlab reconcile --continue [--fork] [--json]
   vlab reconcile --abort [--json]
+  vlab resolve status [--json]
+  vlab resolve apply [path] [--all] [--resolution <id>] [--json]
+  vlab resolve reject [path] [--all] [--resolution <id>] [--json]
+  vlab resolve list [--json]
   vlab cherry-pick <commit-or-change-id> [--fork] [--repeat] [--json]
   vlab graph
   vlab receipts [--json]
@@ -39,7 +49,7 @@ Usage:
   vlab workspace checkpoint [--label <text>] [--json]
   vlab spec index <markdown-file> [--json]
   vlab spec show <markdown-file> [--json]
-  vlab doctor
+  vlab doctor [--benchmark]
   vlab version
 
 Legend for merge-plan: '=' proven covered, '?' heuristic candidate, '+' new.
@@ -48,7 +58,7 @@ Legend for merge-plan: '=' proven covered, '?' heuristic candidate, '+' new.
 function parseArgs(args) {
   const positionals = [];
   const options = {};
-  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--label"]);
+  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--label", "--resolution"]);
   for (let index = 0; index < args.length; index += 1) {
     const item = args[index];
     if (valueFlags.has(item)) {
@@ -116,6 +126,17 @@ function formatReceipt(record) {
     if ((record.conflictedPaths ?? []).length) {
       lines.push(`  conflicts   ${record.conflictedPaths.join(", ")}`);
     }
+    if ((record.resolutions ?? []).length) {
+      const decisions = record.resolutions.map((item) => item.decision);
+      lines.push(`  resolutions ${decisions.join(", ")}`);
+    }
+  } else if (record.type === "resolution") {
+    lines.push(
+      `  signature   ${short(record.signature)}`,
+      `  result      ${short(record.resultBlob)}`,
+      `  path        ${record.originalPath ?? "-"}`,
+      `  decision    ${record.decision ?? "-"}`,
+    );
   } else if (record.type === "reconciliation") {
     lines.push(
       `  result      ${short(record.resultCommit ?? record.attachedTo)}`,
@@ -151,6 +172,21 @@ function formatReceipts(records) {
 
 function formatCausalEdges(records) {
   const lines = [];
+  const consumedReconciliations = new Set();
+  const reconciliationsByApplication = new Map();
+  for (const record of records) {
+    if (record.type !== "reconciliation" || record.applied?.length !== 1) continue;
+    const application = record.applied[0];
+    if (
+      application.sourceCommit === record.sourceHead &&
+      application.appliedCommit === record.resultCommit
+    ) {
+      reconciliationsByApplication.set(
+        `${record.resultCommit}:${record.sourceHead}`,
+        record,
+      );
+    }
+  }
   for (const record of records) {
     if (record.type === "landing") {
       lines.push(
@@ -158,10 +194,18 @@ function formatCausalEdges(records) {
       );
     } else if (record.type === "application") {
       const relation = record.relation ?? "application";
+      const reconciliation = reconciliationsByApplication.get(
+        `${record.appliedCommit ?? record.attachedTo}:${record.originCommit}`,
+      );
+      const suffix = reconciliation
+        ? `; reconciliation ${reconciliation.absorbedChanges?.length ?? 0} covered`
+        : "";
+      if (reconciliation) consumedReconciliations.add(reconciliation.id);
       lines.push(
-        `${short(record.appliedCommit ?? record.attachedTo)} <= ${short(record.originCommit)}  ${relation} ${record.appliedChangeId ?? record.originChangeId ?? "unknown"}`,
+        `${short(record.appliedCommit ?? record.attachedTo)} <= ${short(record.originCommit)}  ${relation} ${record.appliedChangeId ?? record.originChangeId ?? "unknown"}${suffix}`,
       );
     } else if (record.type === "reconciliation") {
+      if (consumedReconciliations.has(record.id)) continue;
       lines.push(
         `${short(record.resultCommit ?? record.attachedTo)} <= ${short(record.sourceHead)}  reconcile; ${(record.absorbedChanges ?? []).length} covered, ${(record.applied ?? []).length} applied`,
       );
@@ -169,6 +213,104 @@ function formatCausalEdges(records) {
   }
   if (lines.length === 0) return "  (none)";
   return lines.map((line) => `  ${line}`).join("\n");
+}
+
+function formatReconciliationResult(result) {
+  const { receipt } = result;
+  const contextual = receipt.applied.filter((item) =>
+    item.relation?.startsWith("contextual-"),
+  );
+  const decisions = receipt.applied
+    .flatMap((item) => item.resolutions ?? [])
+    .reduce((counts, item) => {
+      counts[item.decision] = (counts[item.decision] ?? 0) + 1;
+      return counts;
+    }, {});
+  const decisionText = Object.entries(decisions)
+    .map(([name, count]) => `${count} ${name}`)
+    .join(", ");
+  return [
+    "Reconciliation complete.",
+    `operation    ${result.operationId}`,
+    `result       ${short(receipt.resultCommit)}`,
+    `source       ${receipt.sourceRef} @ ${short(receipt.sourceHead)}`,
+    `coverage     ${receipt.absorbedChanges.length} covered; ${receipt.applied.length} applied`,
+    `contextual   ${contextual.length}`,
+    `same state   ${receipt.exactStateEqualityAfter ? "yes" : "no"}`,
+    decisionText ? `resolutions  ${decisionText}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatResolutionStatus(status) {
+  if (!status.active) return "No reusable conflict resolution is pending.";
+  const lines = [`operation    ${status.operationId}`];
+  for (const conflict of status.conflicts) {
+    lines.push(
+      "",
+      `path         ${conflict.path}`,
+      `signature    ${short(conflict.signature)}`,
+      `candidates   ${conflict.candidates.length}`,
+    );
+    for (const candidate of conflict.candidates) {
+      lines.push(
+        `  ${candidate.id} result ${short(candidate.resultBlob)} from ${candidate.originalPath ?? "unknown path"}`,
+      );
+    }
+  }
+  if (status.conflicts.some((conflict) => conflict.candidates.length)) {
+    lines.push("", "Apply a suggestion with: vlab resolve apply --all");
+  }
+  return lines.join("\n");
+}
+
+function formatResolutionAction(result, action) {
+  const items = result[action] ?? [];
+  return [
+    `${action === "applied" ? "Applied" : "Rejected"} ${items.length} resolution suggestion${items.length === 1 ? "" : "s"}.`,
+    ...items.map((item) => `  ${item.path}`),
+    action === "applied"
+      ? "Continue with: vlab reconcile --continue"
+      : "Resolve the files manually, stage them, then continue reconciliation.",
+  ].join("\n");
+}
+
+function formatResolutionCatalog(records) {
+  if (!records.length) return "No reusable resolutions have been recorded.";
+  return [
+    `${records.length} reusable resolution${records.length === 1 ? "" : "s"}`,
+    "",
+    ...records.flatMap((record) => [
+      `${record.id}  ${short(record.signature)} -> ${short(record.resultBlob)}`,
+      `  original path ${record.originalPath ?? "-"}; ${record.createdAt ?? "unknown time"}`,
+    ]),
+  ].join("\n");
+}
+
+function gitBenchmark() {
+  const probes = [
+    { name: "head", args: ["rev-parse", "HEAD"] },
+    { name: "status", args: ["status", "--porcelain=v1"] },
+    { name: "history", args: ["log", "-20", "--format=%H"] },
+    { name: "notes", args: ["notes", "--ref=vcs-lab", "list"], allowFailure: true },
+  ];
+  return probes.map((probe) => {
+    const samples = [];
+    for (let index = 0; index < 3; index += 1) {
+      samples.push(
+        runGit(probe.args, { allowFailure: probe.allowFailure }).durationMs,
+      );
+    }
+    return {
+      name: probe.name,
+      samplesMs: samples.map((sample) => Number(sample.toFixed(2))),
+      averageMs: Number(
+        (samples.reduce((sum, sample) => sum + sample, 0) / samples.length).toFixed(2),
+      ),
+      maxMs: Number(Math.max(...samples).toFixed(2)),
+    };
+  });
 }
 
 function formatReconciliationStatus(status) {
@@ -261,7 +403,7 @@ export async function main(rawArgs) {
       }
       if (options.continue) {
         const result = continueReconciliation({ fork: options.fork });
-        print(result, options.json);
+        print(options.json ? result : formatReconciliationResult(result), options.json);
         return;
       }
       if (options.abort) {
@@ -273,8 +415,40 @@ export async function main(rawArgs) {
       const result = reconcile(source, {
         acceptCandidates: options.acceptCandidates,
       });
-      print(result, options.json);
+      print(options.json ? result : formatReconciliationResult(result), options.json);
       return;
+    }
+    case "resolve": {
+      const subcommand = positionals[0] ?? "status";
+      if (subcommand === "status") {
+        const result = pendingResolutionStatus();
+        print(options.json ? result : formatResolutionStatus(result), options.json);
+        return;
+      }
+      if (subcommand === "apply") {
+        const result = applyResolution({
+          path: positionals[1],
+          all: options.all,
+          resolutionId: options.resolution,
+        });
+        print(options.json ? result : formatResolutionAction(result, "applied"), options.json);
+        return;
+      }
+      if (subcommand === "reject") {
+        const result = rejectResolution({
+          path: positionals[1],
+          all: options.all,
+          resolutionId: options.resolution,
+        });
+        print(options.json ? result : formatResolutionAction(result, "rejected"), options.json);
+        return;
+      }
+      if (subcommand === "list") {
+        const records = listResolutionRecords();
+        print(options.json ? records : formatResolutionCatalog(records), options.json);
+        return;
+      }
+      throw new CliError("Unknown resolve command. Use status, apply, reject, or list.");
     }
     case "cherry-pick": {
       const value = requireValue(positionals[0], "vlab cherry-pick <commit-or-change-id>");
@@ -336,7 +510,7 @@ export async function main(rawArgs) {
       throw new CliError("Unknown spec command. Use index or show.");
     }
     case "doctor": {
-      const git = runGit(["--version"]); 
+      const git = runGit(["--version"]);
       const context = initLab();
       print({
         ok: true,
@@ -344,6 +518,7 @@ export async function main(rawArgs) {
         node: process.version,
         repository: context.root,
         notesRef: "refs/notes/vcs-lab",
+        benchmark: options.benchmark ? gitBenchmark() : undefined,
       }, true);
       return;
     }

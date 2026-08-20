@@ -12,7 +12,7 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 test("CLI reports the package version", () => {
   assert.equal(
     exec(process.execPath, [cli, "--version"], projectRoot),
-    "vcs-lab 0.2.1",
+    "vcs-lab 0.3.0",
   );
 });
 
@@ -327,12 +327,16 @@ test("conflicted reconciliation resumes across processes and records contextual 
   assert.equal(plan.counts.covered, 2);
 
   const records = JSON.parse(vlab(repo, "receipts", "--json"));
-  assert.equal(records.length, 3);
+  assert.equal(records.length, 4);
   const contextual = records.find(
     (record) => record.relation === "contextual-application",
   );
   assert.equal(contextual.originChangeId, source.changeId);
   assert.deepEqual(contextual.conflictedPaths, ["shared.txt"]);
+  assert.equal(
+    records.find((record) => record.type === "resolution").originalPath,
+    "shared.txt",
+  );
   assert.match(vlab(repo, "graph"), /contextual-application/);
 });
 
@@ -467,4 +471,177 @@ test("pending reconciliations are isolated between linked worktrees", (t) => {
   );
   assert.match(vlab(pathB, "receipts"), /contextual-application/);
   assert.equal(JSON.parse(vlab(pathB, "reconcile", "--abort", "--json")).restoredHead, target.commit);
+});
+
+test("exact conflict resolutions are suggested and reused across worktrees", (t) => {
+  const { repo, parent } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", "shared.txt");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "source-one", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "source one");
+  git(repo, "switch", "-c", "target-one", base.commit);
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "target one");
+
+  assert.notEqual(vlabResult(repo, "reconcile", "source-one").status, 0);
+  const firstStatus = JSON.parse(
+    vlab(repo, "resolve", "status", "--json"),
+  );
+  assert.equal(firstStatus.conflicts[0].candidates.length, 0);
+  const signature = firstStatus.conflicts[0].signature;
+  write(repo, "shared.txt", "remembered resolution\n");
+  git(repo, "add", "shared.txt");
+  const firstResult = JSON.parse(
+    vlab(repo, "reconcile", "--continue", "--json"),
+  );
+  assert.equal(
+    firstResult.receipt.applied[0].resolutions[0].decision,
+    "created",
+  );
+  const catalog = JSON.parse(vlab(repo, "resolve", "list", "--json"));
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0].signature, signature);
+
+  git(repo, "switch", "-c", "renamed-base", base.commit);
+  git(repo, "mv", "shared.txt", "renamed.txt");
+  const renamedBase = JSON.parse(
+    vlab(repo, "commit", "-m", "rename shared file"),
+  );
+  git(repo, "switch", "-c", "source-two", renamedBase.commit);
+  write(repo, "renamed.txt", "source\n");
+  git(repo, "add", "renamed.txt");
+  const sourceTwo = JSON.parse(vlab(repo, "commit", "-m", "source two"));
+  git(repo, "switch", "-c", "target-two", renamedBase.commit);
+  write(repo, "renamed.txt", "target\n");
+  git(repo, "add", "renamed.txt");
+  vlab(repo, "commit", "-m", "target two");
+
+  const workspacePath = path.join(parent, "reuse-workspace");
+  vlab(
+    repo,
+    "workspace",
+    "create",
+    "reuse-agent",
+    "--from",
+    "target-two",
+    "--path",
+    workspacePath,
+    "--json",
+  );
+  assert.notEqual(
+    vlabResult(workspacePath, "reconcile", "source-two").status,
+    0,
+  );
+  const secondStatus = JSON.parse(
+    vlab(workspacePath, "resolve", "status", "--json"),
+  );
+  assert.equal(secondStatus.conflicts[0].signature, signature);
+  assert.equal(secondStatus.conflicts[0].path, "renamed.txt");
+  assert.equal(secondStatus.conflicts[0].candidates.length, 1);
+  assert.match(readText(workspacePath, "renamed.txt"), /<<<<<<< HEAD/);
+  assert.match(vlab(workspacePath, "resolve", "status"), /candidates\s+1/);
+
+  const applied = vlab(workspacePath, "resolve", "apply", "--all");
+  assert.match(applied, /Applied 1 resolution suggestion/);
+  assert.equal(readText(workspacePath, "renamed.txt"), "remembered resolution\n");
+  assert.doesNotMatch(git(workspacePath, "status", "--porcelain=v1"), /^UU/);
+  const summary = vlab(workspacePath, "reconcile", "--continue");
+  assert.match(summary, /Reconciliation complete/);
+  assert.match(summary, /1 accepted/);
+
+  const records = JSON.parse(vlab(workspacePath, "receipts", "--json"));
+  const reused = records.find(
+    (record) =>
+      record.type === "application" &&
+      record.originChangeId === sourceTwo.changeId,
+  );
+  assert.equal(reused.resolutions[0].decision, "accepted");
+  assert.equal(reused.resolutions[0].reusedResolutionId, catalog[0].id);
+  assert.equal(
+    JSON.parse(vlab(workspacePath, "resolve", "list", "--json")).length,
+    1,
+  );
+  const graph = vlab(workspacePath, "graph");
+  assert.match(graph, /contextual-application.*reconciliation 1 covered/);
+  assert.doesNotMatch(graph, /reconcile; 1 covered/);
+});
+
+test("modified and rejected suggestions create auditable resolution variants", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", "shared.txt");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  const createPair = (suffix) => {
+    const source = `source-${suffix}`;
+    const target = `target-${suffix}`;
+    git(repo, "switch", "-c", source, base.commit);
+    write(repo, "shared.txt", "source\n");
+    git(repo, "add", "shared.txt");
+    const sourceCommit = JSON.parse(
+      vlab(repo, "commit", "-m", `source ${suffix}`),
+    );
+    git(repo, "switch", "-c", target, base.commit);
+    write(repo, "shared.txt", "target\n");
+    git(repo, "add", "shared.txt");
+    vlab(repo, "commit", "-m", `target ${suffix}`);
+    return { source, sourceCommit };
+  };
+
+  const first = createPair("first");
+  assert.notEqual(vlabResult(repo, "reconcile", first.source).status, 0);
+  write(repo, "shared.txt", "resolution one\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "reconcile", "--continue", "--json");
+
+  const second = createPair("second");
+  assert.notEqual(vlabResult(repo, "reconcile", second.source).status, 0);
+  vlab(repo, "resolve", "apply", "--all");
+  write(repo, "shared.txt", "resolution two\n");
+  git(repo, "add", "shared.txt");
+  const modified = JSON.parse(
+    vlab(repo, "reconcile", "--continue", "--json"),
+  );
+  assert.equal(modified.receipt.applied[0].resolutions[0].decision, "modified");
+  assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 2);
+
+  const third = createPair("third");
+  assert.notEqual(vlabResult(repo, "reconcile", third.source).status, 0);
+  const ambiguous = vlabResult(repo, "resolve", "apply", "--all");
+  assert.notEqual(ambiguous.status, 0);
+  assert.match(ambiguous.stderr, /multiple resolutions match/i);
+  assert.match(vlab(repo, "resolve", "reject", "--all"), /Rejected 1/);
+  write(repo, "shared.txt", "resolution three\n");
+  git(repo, "add", "shared.txt");
+  const rejected = JSON.parse(
+    vlab(repo, "reconcile", "--continue", "--json"),
+  );
+  assert.equal(rejected.receipt.applied[0].resolutions[0].decision, "rejected");
+  assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 3);
+});
+
+test("doctor benchmarks Git probes and trace mode reports subprocess timings", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", "base.txt");
+  git(repo, "commit", "-m", "base");
+  const doctor = JSON.parse(vlab(repo, "doctor", "--benchmark"));
+  assert.equal(doctor.ok, true);
+  assert.equal(doctor.benchmark.length, 4);
+  assert.ok(doctor.benchmark.every((probe) => probe.samplesMs.length === 3));
+
+  const traced = spawnSync(process.execPath, [cli, "doctor"], {
+    cwd: repo,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_TRACE: "1" },
+  });
+  assert.equal(traced.status, 0);
+  assert.match(traced.stderr, /\[vlab trace\].*git --version/);
 });

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { CliError } from "./errors.js";
 
@@ -9,8 +10,10 @@ export function runGit(args, options = {}) {
     input,
     allowFailure = false,
     trim = true,
+    binary = false,
   } = options;
 
+  const startedAt = performance.now();
   const result = spawnSync("git", args, {
     cwd,
     env: {
@@ -19,7 +22,7 @@ export function runGit(args, options = {}) {
       ...env,
     },
     input,
-    encoding: "utf8",
+    encoding: binary ? null : "utf8",
     windowsHide: true,
   });
 
@@ -27,9 +30,27 @@ export function runGit(args, options = {}) {
     throw new CliError(`Could not run git: ${result.error.message}`);
   }
 
-  const stdout = trim ? result.stdout.trim() : result.stdout;
-  const stderr = result.stderr.trim();
-  const output = [stdout, stderr].filter(Boolean).join("\n");
+  const durationMs = performance.now() - startedAt;
+  const stdout = binary
+    ? result.stdout
+    : trim
+      ? result.stdout.trim()
+      : result.stdout;
+  const stderr = binary
+    ? result.stderr.toString("utf8").trim()
+    : result.stderr.trim();
+  const output = binary
+    ? stderr
+    : [stdout, stderr].filter(Boolean).join("\n");
+
+  if (process.env.VLAB_TRACE === "1") {
+    let commandIndex = 0;
+    while (args[commandIndex] === "-c") commandIndex += 2;
+    const command = args[commandIndex] ?? "unknown";
+    process.stderr.write(
+      `[vlab trace] ${durationMs.toFixed(1)}ms git ${command}\n`,
+    );
+  }
 
   if (result.status !== 0 && !allowFailure) {
     throw new CliError(`git ${args.join(" ")} failed`, {
@@ -44,7 +65,16 @@ export function runGit(args, options = {}) {
     stdout,
     stderr,
     output,
+    durationMs,
   };
+}
+
+export function readGitBlob(blob, cwd = process.cwd()) {
+  return runGit(["cat-file", "blob", blob], {
+    cwd,
+    binary: true,
+    trim: false,
+  }).stdout;
 }
 
 export function gitText(args, options = {}) {

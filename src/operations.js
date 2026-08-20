@@ -23,6 +23,11 @@ import {
   unmergedPaths,
   writeReconciliationState,
 } from "./reconcile-state.js";
+import {
+  captureConflictDescriptors,
+  captureResolutionOutcomes,
+  publishResolution,
+} from "./resolutions.js";
 
 function resolveChangeOrCommit(value, cwd) {
   if (value.startsWith("ch_")) {
@@ -134,6 +139,7 @@ function applicationRecord(operation, change, appliedCommit, relation, cwd) {
     resultTree: treeId(appliedCommit, cwd),
     relation,
     conflictedPaths: operation.current.conflictedPaths ?? [],
+    resolutions: operation.current.resolutionOutcomes ?? [],
     createdAt: new Date().toISOString(),
   };
 }
@@ -175,9 +181,10 @@ function finalizeReconciliation(operation, cwd) {
     changeId: application.appliedChangeId,
     relation: application.relation,
     conflictedPaths: application.conflictedPaths,
+    resolutions: application.resolutions,
   }));
   const receipt = {
-    schema: "vcs-lab.reconciliation/v3",
+    schema: "vcs-lab.reconciliation/v4",
     type: "reconciliation",
     id: newId("reconcile"),
     operationId: operation.id,
@@ -199,6 +206,9 @@ function finalizeReconciliation(operation, cwd) {
   };
 
   for (const application of operation.applied) {
+    for (const outcome of application.resolutions ?? []) {
+      publishResolution(outcome, application, cwd);
+    }
     appendNote(application.appliedCommit, application, cwd);
   }
   appendNote(attachedTo, receipt, cwd);
@@ -212,12 +222,20 @@ function conflictError(operation, result) {
   const pathSummary = paths.length
     ? `\nConflicted paths: ${paths.join(", ")}`
     : "";
+  const suggestionCount = (operation.current.conflicts ?? []).reduce(
+    (count, conflict) => count + conflict.candidates.length,
+    0,
+  );
+  const suggestion = suggestionCount
+    ? `${suggestionCount} prior resolution candidate${suggestionCount === 1 ? "" : "s"} found. Run 'vlab resolve status'.`
+    : "No exact prior resolution was found.";
   return new CliError(
     `Reconciliation paused while applying ${change.shortCommit}.`,
     {
       details: [
         result.output,
         pathSummary,
+        suggestion,
         "Resolve and stage the files, then run 'vlab reconcile --continue'.",
         "Run 'vlab reconcile --status' for details or 'vlab reconcile --abort' to restore the starting state.",
       ]
@@ -246,6 +264,10 @@ function runReconciliationQueue(operation, cwd) {
     });
     if (!result.ok) {
       operation.current.conflictedPaths = unmergedPaths(cwd);
+      operation.current.conflicts = captureConflictDescriptors(
+        operation.current.conflictedPaths,
+        cwd,
+      );
       operation.current.gitOutput = result.output;
       operation.state = operation.current.conflictedPaths.length
         ? "conflicted"
@@ -261,7 +283,7 @@ function runReconciliationQueue(operation, cwd) {
 function startOperation(sourceRef, plan, options, cwd) {
   const context = repoContext(cwd);
   return {
-    schema: "vcs-lab.reconciliation-operation/v1",
+    schema: "vcs-lab.reconciliation-operation/v2",
     id: newId("reconcile_op"),
     state: "running",
     worktree: context.root,
@@ -381,6 +403,12 @@ export function continueReconciliation(options = {}) {
   if (gitHead !== operation.current.sourceCommit) {
     throw new CliError("Git's pending cherry-pick does not match the vlab operation.");
   }
+
+  operation.current.resolutionOutcomes = captureResolutionOutcomes(
+    operation.current.conflicts ?? [],
+    cwd,
+  );
+  writeReconciliationState(operation, cwd);
 
   if (options.fork || operation.current.forkChangeId) {
     forkMergeMessage(operation, cwd);
