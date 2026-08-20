@@ -1,6 +1,6 @@
 {
   "name": "causal-vcs-lab",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local Git-backed laboratory for stable changes, causal squash receipts, AI workspaces, and hybrid specs.",
   "type": "module",
   "bin": {
@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "demo": "node ./scripts/demo.mjs"
+    "demo": "node ./scripts/demo.mjs",
+    "demo:conflict": "node ./scripts/conflict-demo.mjs"
   },
   "engines": {
     "node": ">=20"

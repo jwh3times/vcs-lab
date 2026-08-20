@@ -29,6 +29,19 @@ For every source commit outside the physical Git merge base:
 
 Only proven-new changes are applied. Heuristic candidates force a user decision. A production protocol would trust stable identity only when issued or attested by an authorized actor.
 
+## Resumable reconciliation operation
+
+Version 0.2 writes an operation journal before applying the first change. The journal pins the source head, target-before commit, complete merge plan, ordered application queue, completed applications, and current conflict. It is stored in the current worktree's private Git directory rather than the common repository directory.
+
+Clean applications remain provisional in the journal until the entire operation completes. This allows `--abort` to restore the original target without leaving receipts for commits that are no longer reachable. On completion, application records and a reconciliation receipt are published to Git notes.
+
+A conflict resolution has two identities:
+
+- `contextual-application` retains the source Change ID while recording a different result tree;
+- `contextual-fork` creates a derived Change ID and deliberately does not mark the original source intent as covered.
+
+This makes causal coverage and exact tree equality independent. A target can cover every source intent while realizing it differently, or it can derive a new intent while leaving the original source change unapplied.
+
 ## Workspace checkpoint
 
 The checkpoint command creates a temporary Git index, reads `HEAD` into it, adds the current working tree, writes a tree, and uses `git commit-tree` to create an immutable checkpoint. The real index and worktree are untouched. A hidden ref prevents garbage collection.

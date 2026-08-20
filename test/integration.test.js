@@ -9,6 +9,13 @@ import { fileURLToPath } from "node:url";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
 
+test("CLI reports the package version", () => {
+  assert.equal(
+    exec(process.execPath, [cli, "--version"], projectRoot),
+    "vcs-lab 0.2.0",
+  );
+});
+
 function exec(command, args, cwd, options = {}) {
   return execFileSync(command, args, {
     cwd,
@@ -24,6 +31,14 @@ function git(cwd, ...args) {
 
 function vlab(cwd, ...args) {
   return exec(process.execPath, [cli, ...args], cwd);
+}
+
+function vlabResult(cwd, ...args) {
+  return spawnSync(process.execPath, [cli, ...args], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
 }
 
 function write(repo, relative, content) {
@@ -42,6 +57,19 @@ function makeRepo(t) {
   t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
   return { repo, parent };
 }
+
+test("init keeps an existing worktree clean", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(
+    JSON.parse(vlab(repo, "reconcile", "--status", "--json")).active,
+    false,
+  );
+});
 
 test("hard squash receipts suppress absorbed changes during reconciliation", (t) => {
   const { repo } = makeRepo(t);
@@ -93,7 +121,7 @@ test("hard squash receipts suppress absorbed changes during reconciliation", (t)
   const readableReceipts = vlab(repo, "receipts");
   assert.match(readableReceipts, /3 causal records/);
   assert.match(readableReceipts, /LANDING land_/);
-  assert.match(readableReceipts, /same state\s+yes/);
+  assert.match(readableReceipts, /same after\s+yes/);
   assert.doesNotMatch(readableReceipts, /^\s*\[/);
 
   const jsonReceipts = JSON.parse(vlab(repo, "receipts", "--json"));
@@ -231,4 +259,204 @@ test("heuristic candidates require explicit acceptance", (t) => {
   });
   assert.notEqual(attempt.status, 0);
   assert.match(attempt.stderr, /heuristic patch-equivalence candidates/i);
+});
+
+test("conflicted reconciliation resumes across processes and records contextual application", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+
+  vlab(repo, "branch", "feature");
+  write(repo, "shared.txt", "feature\n");
+  git(repo, "add", "shared.txt");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "feature intent"));
+  write(repo, "after.txt", "after conflict\n");
+  git(repo, "add", "after.txt");
+  const afterConflict = JSON.parse(
+    vlab(repo, "commit", "-m", "feature follow-up"),
+  );
+
+  git(repo, "switch", "main");
+  write(repo, "shared.txt", "main\n");
+  git(repo, "add", "shared.txt");
+  const target = JSON.parse(vlab(repo, "commit", "-m", "main intent"));
+
+  const attempt = vlabResult(repo, "reconcile", "feature");
+  assert.notEqual(attempt.status, 0);
+  assert.match(attempt.stderr, /reconciliation paused/i);
+  assert.match(attempt.stderr, /vlab reconcile --continue/);
+
+  const status = JSON.parse(vlab(repo, "reconcile", "--status", "--json"));
+  assert.equal(status.active, true);
+  assert.equal(status.state, "conflicted");
+  assert.equal(status.targetBefore, target.commit);
+  assert.deepEqual(status.current.unresolvedPaths, ["shared.txt"]);
+  assert.deepEqual(JSON.parse(vlab(repo, "receipts", "--json")), []);
+
+  const premature = vlabResult(repo, "reconcile", "--continue");
+  assert.notEqual(premature.status, 0);
+  assert.match(premature.stderr, /unresolved paths/i);
+
+  write(repo, "shared.txt", "contextual result\n");
+  git(repo, "add", "shared.txt");
+  const result = JSON.parse(vlab(repo, "reconcile", "--continue", "--json"));
+  assert.equal(result.receipt.applied.length, 2);
+  assert.equal(result.receipt.applied[0].sourceCommit, source.commit);
+  assert.equal(result.receipt.applied[0].relation, "contextual-application");
+  assert.deepEqual(result.receipt.applied[0].conflictedPaths, ["shared.txt"]);
+  assert.equal(result.receipt.applied[1].sourceCommit, afterConflict.commit);
+  assert.equal(result.receipt.applied[1].relation, "causal-reconciliation");
+  assert.equal(result.receipt.exactStateEqualityAfter, false);
+  assert.equal(fs.readFileSync(path.join(repo, "shared.txt"), "utf8"), "contextual result\n");
+  assert.equal(fs.readFileSync(path.join(repo, "after.txt"), "utf8"), "after conflict\n");
+
+  const idle = JSON.parse(vlab(repo, "reconcile", "--status", "--json"));
+  assert.equal(idle.active, false);
+  const plan = JSON.parse(vlab(repo, "merge-plan", "feature", "--json"));
+  assert.equal(plan.counts.new, 0);
+  assert.equal(plan.counts.covered, 2);
+
+  const records = JSON.parse(vlab(repo, "receipts", "--json"));
+  assert.equal(records.length, 3);
+  const contextual = records.find(
+    (record) => record.relation === "contextual-application",
+  );
+  assert.equal(contextual.originChangeId, source.changeId);
+  assert.deepEqual(contextual.conflictedPaths, ["shared.txt"]);
+  assert.match(vlab(repo, "graph"), /contextual-application/);
+});
+
+test("aborting a mid-queue conflict restores the starting commit without receipts", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  vlab(repo, "branch", "feature");
+  write(repo, "clean.txt", "first change\n");
+  git(repo, "add", "clean.txt");
+  vlab(repo, "commit", "-m", "clean first change");
+  write(repo, "shared.txt", "feature\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "conflicting second change");
+
+  git(repo, "switch", "main");
+  write(repo, "shared.txt", "main\n");
+  git(repo, "add", "shared.txt");
+  const target = JSON.parse(vlab(repo, "commit", "-m", "main conflict"));
+  assert.notEqual(target.commit, base.commit);
+
+  const attempt = vlabResult(repo, "reconcile", "feature");
+  assert.notEqual(attempt.status, 0);
+  const pending = JSON.parse(vlab(repo, "reconcile", "--status", "--json"));
+  assert.equal(pending.progress.completed, 1);
+  assert.equal(pending.progress.total, 2);
+  assert.equal(fs.existsSync(path.join(repo, "clean.txt")), true);
+
+  const aborted = JSON.parse(vlab(repo, "reconcile", "--abort", "--json"));
+  assert.equal(aborted.aborted, true);
+  assert.equal(aborted.restoredHead, target.commit);
+  assert.equal(git(repo, "rev-parse", "HEAD"), target.commit);
+  assert.equal(fs.existsSync(path.join(repo, "clean.txt")), false);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.deepEqual(JSON.parse(vlab(repo, "receipts", "--json")), []);
+  assert.equal(
+    JSON.parse(vlab(repo, "reconcile", "--status", "--json")).active,
+    false,
+  );
+});
+
+test("conflict continuation can explicitly fork logical identity", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+
+  vlab(repo, "branch", "feature");
+  write(repo, "shared.txt", "feature\n");
+  git(repo, "add", "shared.txt");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source intent"));
+  git(repo, "switch", "main");
+  write(repo, "shared.txt", "main\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "target intent");
+
+  assert.notEqual(vlabResult(repo, "reconcile", "feature").status, 0);
+  write(repo, "shared.txt", "materially different intent\n");
+  git(repo, "add", "shared.txt");
+  const result = JSON.parse(
+    vlab(repo, "reconcile", "--continue", "--fork", "--json"),
+  );
+  const application = JSON.parse(vlab(repo, "receipts", "--json")).find(
+    (record) => record.type === "application",
+  );
+  assert.equal(application.relation, "contextual-fork");
+  assert.equal(application.originChangeId, source.changeId);
+  assert.notEqual(application.appliedChangeId, source.changeId);
+  assert.match(
+    git(repo, "show", "-s", "--format=%B", result.receipt.resultCommit),
+    new RegExp(`Derived-From: ${source.changeId}`),
+  );
+
+  const plan = JSON.parse(vlab(repo, "merge-plan", "feature", "--json"));
+  assert.equal(plan.counts.new, 1);
+  assert.equal(plan.counts.covered, 0);
+});
+
+test("pending reconciliations are isolated between linked worktrees", (t) => {
+  const { repo, parent } = makeRepo(t);
+  write(repo, "a.txt", "base a\n");
+  write(repo, "b.txt", "base b\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature-a");
+  write(repo, "a.txt", "feature a\n");
+  git(repo, "add", "a.txt");
+  vlab(repo, "commit", "-m", "feature a");
+  git(repo, "switch", "main");
+  git(repo, "switch", "-c", "feature-b");
+  write(repo, "b.txt", "feature b\n");
+  git(repo, "add", "b.txt");
+  vlab(repo, "commit", "-m", "feature b");
+  git(repo, "switch", "main");
+  write(repo, "a.txt", "main a\n");
+  write(repo, "b.txt", "main b\n");
+  git(repo, "add", ".");
+  const target = JSON.parse(vlab(repo, "commit", "-m", "main changes"));
+
+  const pathA = path.join(parent, "workspace-a");
+  const pathB = path.join(parent, "workspace-b");
+  vlab(repo, "workspace", "create", "agent-a", "--from", "main", "--path", pathA, "--json");
+  vlab(repo, "workspace", "create", "agent-b", "--from", "main", "--path", pathB, "--json");
+
+  assert.notEqual(vlabResult(pathA, "reconcile", "feature-a").status, 0);
+  assert.notEqual(vlabResult(pathB, "reconcile", "feature-b").status, 0);
+  const statusA = JSON.parse(vlab(pathA, "reconcile", "--status", "--json"));
+  const statusB = JSON.parse(vlab(pathB, "reconcile", "--status", "--json"));
+  assert.notEqual(statusA.operationId, statusB.operationId);
+  assert.deepEqual(statusA.current.unresolvedPaths, ["a.txt"]);
+  assert.deepEqual(statusB.current.unresolvedPaths, ["b.txt"]);
+
+  write(pathA, "a.txt", "contextual a\n");
+  git(pathA, "add", "a.txt");
+  const completedA = JSON.parse(
+    vlab(pathA, "reconcile", "--continue", "--json"),
+  );
+  assert.equal(completedA.receipt.applied[0].relation, "contextual-application");
+  assert.equal(
+    JSON.parse(vlab(pathA, "reconcile", "--status", "--json")).active,
+    false,
+  );
+  assert.equal(
+    JSON.parse(vlab(pathB, "reconcile", "--status", "--json")).active,
+    true,
+  );
+  assert.match(vlab(pathB, "receipts"), /contextual-application/);
+  assert.equal(JSON.parse(vlab(pathB, "reconcile", "--abort", "--json")).restoredHead, target.commit);
 });

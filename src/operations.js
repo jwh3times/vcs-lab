@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import {
   assertClean,
   changeIdForCommit,
@@ -5,13 +6,23 @@ import {
   currentHead,
   extractTrailer,
   findCommitByChangeId,
+  repoContext,
   resolveRevision,
   runGit,
+  treeId,
 } from "./git.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
 import { buildMergePlan } from "./merge-plan.js";
 import { CliError } from "./errors.js";
+import {
+  cherryPickHead,
+  clearReconciliationState,
+  mergeMessagePath,
+  readReconciliationState,
+  unmergedPaths,
+  writeReconciliationState,
+} from "./reconcile-state.js";
 
 function resolveChangeOrCommit(value, cwd) {
   if (value.startsWith("ch_")) {
@@ -100,8 +111,182 @@ export function cherryPick(value, options = {}) {
   return application;
 }
 
+function requirePendingReconciliation(cwd) {
+  const operation = readReconciliationState(cwd);
+  if (!operation) {
+    throw new CliError("No reconciliation is in progress in this worktree.");
+  }
+  return operation;
+}
+
+function applicationRecord(operation, change, appliedCommit, relation, cwd) {
+  return {
+    schema: "vcs-lab.application/v2",
+    type: "application",
+    id: newId("apply"),
+    reconciliationOperation: operation.id,
+    originCommit: change.commit,
+    originChangeId: change.changeId,
+    appliedCommit,
+    appliedChangeId: changeIdForCommit(appliedCommit, cwd),
+    targetBefore: operation.current.targetBefore,
+    sourceTree: treeId(change.commit, cwd),
+    resultTree: treeId(appliedCommit, cwd),
+    relation,
+    conflictedPaths: operation.current.conflictedPaths ?? [],
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function recordSuccessfulApplication(operation, relation, cwd) {
+  const change = operation.queue[operation.nextIndex];
+  const appliedCommit = currentHead(cwd);
+  const application = applicationRecord(
+    operation,
+    change,
+    appliedCommit,
+    relation,
+    cwd,
+  );
+  operation.applied.push(application);
+  operation.nextIndex += 1;
+  operation.current = null;
+  operation.state = "running";
+  writeReconciliationState(operation, cwd);
+  return application;
+}
+
+function finalizeReconciliation(operation, cwd) {
+  const attachedTo = currentHead(cwd);
+  const resultTree = treeId(attachedTo, cwd);
+  const forkedOrigins = new Set(
+    operation.applied
+      .filter((application) => application.relation === "contextual-fork")
+      .map((application) => application.originCommit),
+  );
+  const covered = operation.plan.changes.filter(
+    (change) =>
+      !forkedOrigins.has(change.commit) &&
+      (change.status !== "candidate-equivalent" || operation.acceptCandidates),
+  );
+  const applied = operation.applied.map((application) => ({
+    sourceCommit: application.originCommit,
+    appliedCommit: application.appliedCommit,
+    changeId: application.appliedChangeId,
+    relation: application.relation,
+    conflictedPaths: application.conflictedPaths,
+  }));
+  const receipt = {
+    schema: "vcs-lab.reconciliation/v3",
+    type: "reconciliation",
+    id: newId("reconcile"),
+    operationId: operation.id,
+    sourceRef: operation.sourceRef,
+    sourceHead: operation.sourceHead,
+    targetBefore: operation.targetBefore,
+    resultCommit: attachedTo,
+    absorbedCommits: covered.map((change) => change.commit),
+    absorbedChanges: covered.map((change) => change.changeId),
+    applied,
+    forkedSourceCommits: [...forkedOrigins],
+    targetTreeBefore: operation.plan.targetTree,
+    sourceTree: operation.plan.sourceTree,
+    resultTree,
+    exactStateEqualityBefore: operation.plan.exactStateEquality,
+    exactStateEqualityAfter: resultTree === operation.plan.sourceTree,
+    startedAt: operation.startedAt,
+    createdAt: new Date().toISOString(),
+  };
+
+  for (const application of operation.applied) {
+    appendNote(application.appliedCommit, application, cwd);
+  }
+  appendNote(attachedTo, receipt, cwd);
+  clearReconciliationState(cwd);
+  return { operationId: operation.id, plan: operation.plan, receipt };
+}
+
+function conflictError(operation, result) {
+  const change = operation.queue[operation.nextIndex];
+  const paths = operation.current.conflictedPaths;
+  const pathSummary = paths.length
+    ? `\nConflicted paths: ${paths.join(", ")}`
+    : "";
+  return new CliError(
+    `Reconciliation paused while applying ${change.shortCommit}.`,
+    {
+      details: [
+        result.output,
+        pathSummary,
+        "Resolve and stage the files, then run 'vlab reconcile --continue'.",
+        "Run 'vlab reconcile --status' for details or 'vlab reconcile --abort' to restore the starting state.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    },
+  );
+}
+
+function runReconciliationQueue(operation, cwd) {
+  while (operation.nextIndex < operation.queue.length) {
+    const change = operation.queue[operation.nextIndex];
+    operation.state = "applying";
+    operation.current = {
+      sourceCommit: change.commit,
+      sourceChangeId: change.changeId,
+      targetBefore: currentHead(cwd),
+      conflictedPaths: [],
+      startedAt: new Date().toISOString(),
+    };
+    writeReconciliationState(operation, cwd);
+
+    const result = runGit(["cherry-pick", "-x", change.commit], {
+      cwd,
+      allowFailure: true,
+    });
+    if (!result.ok) {
+      operation.current.conflictedPaths = unmergedPaths(cwd);
+      operation.current.gitOutput = result.output;
+      operation.state = operation.current.conflictedPaths.length
+        ? "conflicted"
+        : "blocked";
+      writeReconciliationState(operation, cwd);
+      throw conflictError(operation, result);
+    }
+    recordSuccessfulApplication(operation, "causal-reconciliation", cwd);
+  }
+  return finalizeReconciliation(operation, cwd);
+}
+
+function startOperation(sourceRef, plan, options, cwd) {
+  const context = repoContext(cwd);
+  return {
+    schema: "vcs-lab.reconciliation-operation/v1",
+    id: newId("reconcile_op"),
+    state: "running",
+    worktree: context.root,
+    sourceRef,
+    sourceHead: plan.sourceHead,
+    targetBefore: plan.targetHead,
+    acceptCandidates: Boolean(options.acceptCandidates),
+    plan,
+    queue: plan.changes.filter((change) => change.status === "new"),
+    nextIndex: 0,
+    applied: [],
+    current: null,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function reconcile(sourceRef, options = {}) {
   const cwd = options.cwd ?? process.cwd();
+  if (readReconciliationState(cwd)) {
+    throw new CliError(
+      "A reconciliation is already in progress in this worktree.",
+      { details: "Run 'vlab reconcile --status', '--continue', or '--abort'." },
+    );
+  }
   assertClean(cwd);
   const plan = buildMergePlan(sourceRef, cwd);
   const candidates = plan.changes.filter(
@@ -117,69 +302,123 @@ export function reconcile(sourceRef, options = {}) {
     );
   }
 
-  const selected = plan.changes.filter((change) => change.status === "new");
-  const targetBefore = plan.targetHead;
-  const applied = [];
-  for (const change of selected) {
-    const result = runGit(["cherry-pick", "-x", change.commit], {
-      cwd,
-      allowFailure: true,
+  const operation = startOperation(sourceRef, plan, options, cwd);
+  writeReconciliationState(operation, cwd);
+  return runReconciliationQueue(operation, cwd);
+}
+
+export function reconciliationStatus(options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  const operation = readReconciliationState(cwd);
+  if (!operation) return { active: false, state: "idle" };
+  return {
+    active: true,
+    operationId: operation.id,
+    state: operation.state,
+    worktree: operation.worktree,
+    sourceRef: operation.sourceRef,
+    sourceHead: operation.sourceHead,
+    targetBefore: operation.targetBefore,
+    progress: {
+      completed: operation.nextIndex,
+      total: operation.queue.length,
+      remaining: operation.queue.length - operation.nextIndex,
+    },
+    current: operation.current
+      ? {
+          ...operation.current,
+          gitCherryPickHead: cherryPickHead(cwd),
+          unresolvedPaths: unmergedPaths(cwd),
+        }
+      : null,
+    applied: operation.applied,
+    startedAt: operation.startedAt,
+    updatedAt: operation.updatedAt,
+  };
+}
+
+function forkMergeMessage(operation, cwd) {
+  const current = operation.current;
+  if (!current.forkChangeId) current.forkChangeId = newId("ch");
+  const filePath = mergeMessagePath(cwd);
+  const original = fs.readFileSync(filePath, "utf8");
+  const retained = original
+    .split(/\r?\n/)
+    .filter((line) => !/^Change-Id:\s*/i.test(line))
+    .join("\n")
+    .trimEnd();
+  const trailers = [
+    `Change-Id: ${current.forkChangeId}`,
+    `Derived-From: ${current.sourceChangeId}`,
+    `Origin-Commit: ${current.sourceCommit}`,
+  ];
+  fs.writeFileSync(filePath, `${retained}\n\n${trailers.join("\n")}\n`);
+  writeReconciliationState(operation, cwd);
+}
+
+export function continueReconciliation(options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  const operation = requirePendingReconciliation(cwd);
+  if (!operation.current) {
+    throw new CliError("The pending reconciliation has no current change.");
+  }
+  const unresolved = unmergedPaths(cwd);
+  if (unresolved.length) {
+    throw new CliError("Reconciliation still has unresolved paths.", {
+      details: unresolved.join("\n"),
     });
-    if (!result.ok) {
-      throw new CliError(
-        `Reconciliation stopped while applying ${change.shortCommit}.`,
-        {
-          details:
-            `${result.output}\nResolve with Git and continue manually, or run 'git cherry-pick --abort'.`,
-        },
-      );
-    }
-    const appliedCommit = currentHead(cwd);
-    applied.push({ sourceCommit: change.commit, appliedCommit, changeId: change.changeId });
-    appendNote(
-      appliedCommit,
+  }
+  const gitHead = cherryPickHead(cwd);
+  if (!gitHead) {
+    throw new CliError(
+      "Git no longer has a cherry-pick to continue.",
       {
-        schema: "vcs-lab.application/v1",
-        type: "application",
-        id: newId("apply"),
-        originCommit: change.commit,
-        originChangeId: change.changeId,
-        appliedCommit,
-        appliedChangeId: changeIdForCommit(appliedCommit, cwd),
-        targetBefore,
-        relation: "causal-reconciliation",
-        createdAt: new Date().toISOString(),
+        details:
+          "If Git was continued manually, abort this pending vlab operation and start a new reconciliation plan.",
       },
-      cwd,
     );
   }
+  if (gitHead !== operation.current.sourceCommit) {
+    throw new CliError("Git's pending cherry-pick does not match the vlab operation.");
+  }
 
-  const attachedTo = currentHead(cwd);
-  const resultTree = runGit(["rev-parse", `${attachedTo}^{tree}`], { cwd }).stdout;
-  const receipt = {
-    schema: "vcs-lab.reconciliation/v2",
-    type: "reconciliation",
-    id: newId("reconcile"),
-    sourceRef,
-    sourceHead: plan.sourceHead,
-    targetBefore,
-    resultCommit: attachedTo,
-    absorbedCommits: plan.changes
-      .filter((change) => change.status !== "candidate-equivalent" || options.acceptCandidates)
-      .map((change) => change.commit),
-    absorbedChanges: plan.changes
-      .filter((change) => change.status !== "candidate-equivalent" || options.acceptCandidates)
-      .map((change) => change.changeId),
-    applied,
-    targetTreeBefore: plan.targetTree,
-    sourceTree: plan.sourceTree,
-    resultTree,
-    exactStateEqualityBefore: plan.exactStateEquality,
-    exactStateEqualityAfter: resultTree === plan.sourceTree,
-    createdAt: new Date().toISOString(),
+  if (options.fork || operation.current.forkChangeId) {
+    forkMergeMessage(operation, cwd);
+  }
+  const result = runGit(
+    ["-c", "core.editor=true", "cherry-pick", "--continue"],
+    { cwd, allowFailure: true },
+  );
+  if (!result.ok) {
+    throw new CliError("Git could not continue the reconciliation.", {
+      details: result.output,
+    });
+  }
+
+  const relation = operation.current.forkChangeId
+    ? "contextual-fork"
+    : "contextual-application";
+  recordSuccessfulApplication(operation, relation, cwd);
+  return runReconciliationQueue(operation, cwd);
+}
+
+export function abortReconciliation(options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  const operation = requirePendingReconciliation(cwd);
+  if (cherryPickHead(cwd)) {
+    runGit(["cherry-pick", "--abort"], { cwd });
+  } else {
+    assertClean(cwd);
+  }
+  if (currentHead(cwd) !== operation.targetBefore) {
+    runGit(["reset", "--hard", operation.targetBefore], { cwd });
+  }
+  clearReconciliationState(cwd);
+  return {
+    aborted: true,
+    operationId: operation.id,
+    restoredHead: currentHead(cwd),
   };
-  appendNote(attachedTo, receipt, cwd);
-  return { plan, receipt };
 }
 
 export function createCommit(message, options = {}) {

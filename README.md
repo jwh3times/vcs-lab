@@ -7,6 +7,7 @@
 - compact merges retain a real causal parent while displaying as one first-parent landing;
 - hard squashes record exactly what they absorbed in a causal landing receipt;
 - a merge planner subtracts proven prior work instead of relying only on Git topology;
+- conflicted reconciliation can pause, survive process exit, continue, or abort safely;
 - workspaces use real Git worktrees but add path-independent logical metadata and non-disruptive checkpoints;
 - Markdown remains canonical while a sidecar gives sections and requirements stable entity IDs.
 
@@ -35,6 +36,26 @@ node /path/to/vcs-lab/bin/vlab.js --help
 ```
 
 On Windows, use PowerShell, Git Bash, or a terminal where `git` and `node` are on `PATH`.
+
+This project now has its own Git history and should live in a normal development repository. The portable repository bundle retains the release commits and tags:
+
+```bash
+git clone /path/to/causal-vcs-lab-0.2.0.bundle vcs-lab
+cd vcs-lab
+git remote remove origin
+npm link
+npm test
+```
+
+If you instead use the source ZIP, initialize its extracted directory with:
+
+```bash
+git init -b main
+git add .
+git commit -m "Bootstrap causal-vcs-lab 0.2.0"
+npm link
+npm test
+```
 
 ## Five-minute experiment
 
@@ -127,6 +148,39 @@ The planner uses three statuses:
 
 Similarity is deliberately advisory. Run `vlab reconcile <branch> --accept-candidates` only after reviewing candidate equivalence.
 
+## Resumable conflict reconciliation
+
+When a proven-new change conflicts, `vlab reconcile` leaves a durable operation in the current worktree instead of losing causal context:
+
+```bash
+vlab reconcile feature
+vlab reconcile --status
+
+# Resolve and stage conflicted files.
+git add <resolved-files>
+vlab reconcile --continue
+```
+
+The completed application receipt links the source commit and Change ID to the context-specific result commit and records the conflicted paths. If the resolution changes the logical intent rather than adapting it to the target context, fork the identity explicitly:
+
+```bash
+vlab reconcile --continue --fork
+```
+
+Abort restores the exact target commit from which the complete reconciliation began, including when earlier changes in the queue applied cleanly:
+
+```bash
+vlab reconcile --abort
+```
+
+Pending state is stored under the current worktree's private Git directory. Two agents can therefore pause independent reconciliations in separate worktrees without overwriting each other's operation state. Completed receipts remain shared repository metadata.
+
+Run the prepared conflict experiment with:
+
+```bash
+npm run demo:conflict
+```
+
 ## AI-oriented workspaces
 
 ```bash
@@ -179,7 +233,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab merge --compact` | First-parent compression without causal loss |
 | `vlab merge --hard-squash` | Git-compatible strict squash plus sideband receipt |
 | `vlab merge-plan` | Proven coverage versus heuristic similarity |
-| `vlab reconcile` | Apply only proven-new changes |
+| `vlab reconcile` | Apply only proven-new changes with resumable conflicts |
 | `vlab cherry-pick` | Preserve or deliberately fork a Change ID |
 | `vlab graph` | Branch history plus causal relationships, without metadata-ref noise |
 | `vlab workspace ...` | Worktree-backed logical workspaces and checkpoints |
@@ -189,6 +243,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 ## Metadata locations
 
 - Git notes: `refs/notes/vcs-lab`
+- Pending reconciliation: the current worktree Git directory under `vcs-lab/reconciliation.json`
 - Workspace registry: the common Git directory under `vcs-lab/workspaces.json`
 - Checkpoints: `refs/vcs-lab/checkpoints/<workspace-id>`
 - Portable spec manifests: `.vcs-lab/specs/**/*.json`
@@ -218,4 +273,4 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The integration suite creates disposable Git repositories and exercises hard-squash reconciliation, compact ancestry, worktree checkpoints, annotated Markdown stability, and conservative patch-equivalence handling.
+The integration suite creates disposable Git repositories and exercises hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue abort, contextual identity forks, independent worktree operations, checkpoints, annotated Markdown stability, and conservative patch-equivalence handling.

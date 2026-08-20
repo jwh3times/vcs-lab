@@ -1,8 +1,11 @@
 import path from "node:path";
 import {
+  abortReconciliation,
+  continueReconciliation,
   createCommit,
   cherryPick,
   reconcile,
+  reconciliationStatus,
 } from "./operations.js";
 import { buildMergePlan, formatMergePlan } from "./merge-plan.js";
 import { land } from "./landings.js";
@@ -12,6 +15,7 @@ import { createWorkspace, checkpointWorkspace, listWorkspaces } from "./workspac
 import { indexSpec, readSpecManifest } from "./specs.js";
 import { listNoteRecords } from "./notes.js";
 import { CliError } from "./errors.js";
+import { VERSION } from "./version.js";
 
 const HELP = `vcs-lab — Git-backed experiments for causal source control
 
@@ -24,6 +28,9 @@ Usage:
   vlab hard-squash <source> [-m <message>]
   vlab merge-plan <source> [--json]
   vlab reconcile <source> [--accept-candidates] [--json]
+  vlab reconcile --status [--json]
+  vlab reconcile --continue [--fork] [--json]
+  vlab reconcile --abort [--json]
   vlab cherry-pick <commit-or-change-id> [--fork] [--repeat] [--json]
   vlab graph
   vlab receipts [--json]
@@ -33,6 +40,7 @@ Usage:
   vlab spec index <markdown-file> [--json]
   vlab spec show <markdown-file> [--json]
   vlab doctor
+  vlab version
 
 Legend for merge-plan: '=' proven covered, '?' heuristic candidate, '+' new.
 `;
@@ -105,14 +113,28 @@ function formatReceipt(record) {
       `  change      ${record.appliedChangeId ?? record.originChangeId ?? "-"}`,
       `  relation    ${record.relation ?? "-"}`,
     );
+    if ((record.conflictedPaths ?? []).length) {
+      lines.push(`  conflicts   ${record.conflictedPaths.join(", ")}`);
+    }
   } else if (record.type === "reconciliation") {
-    const equality = record.exactStateEqualityAfter ?? record.exactStateEquality;
     lines.push(
       `  result      ${short(record.resultCommit ?? record.attachedTo)}`,
       `  source      ${record.sourceRef ?? "-"} @ ${short(record.sourceHead)}`,
       `  covered     ${(record.absorbedChanges ?? []).length} changes; ${(record.applied ?? []).length} applied now`,
-      `  same state  ${equality === undefined ? "not recorded" : equality ? "yes" : "no"}`,
     );
+    if (record.exactStateEqualityAfter !== undefined) {
+      lines.push(
+        `  same before ${record.exactStateEqualityBefore ? "yes" : "no"}`,
+        `  same after  ${record.exactStateEqualityAfter ? "yes" : "no"}`,
+      );
+    } else if (record.exactStateEquality !== undefined) {
+      lines.push(
+        `  same before ${record.exactStateEquality ? "yes" : "no"}`,
+        "  same after  not recorded by v1 receipt",
+      );
+    } else {
+      lines.push("  same state  not recorded");
+    }
   } else {
     lines.push(`  attached    ${short(record.attachedTo)}`);
   }
@@ -135,8 +157,9 @@ function formatCausalEdges(records) {
         `${short(record.landingCommit ?? record.attachedTo)} <= ${short(record.sourceHead)}  ${record.mode}; ${(record.absorbedChanges ?? []).length} changes absorbed`,
       );
     } else if (record.type === "application") {
+      const relation = record.relation ?? "application";
       lines.push(
-        `${short(record.appliedCommit ?? record.attachedTo)} <= ${short(record.originCommit)}  apply ${record.appliedChangeId ?? record.originChangeId ?? "unknown"}`,
+        `${short(record.appliedCommit ?? record.attachedTo)} <= ${short(record.originCommit)}  ${relation} ${record.appliedChangeId ?? record.originChangeId ?? "unknown"}`,
       );
     } else if (record.type === "reconciliation") {
       lines.push(
@@ -148,10 +171,42 @@ function formatCausalEdges(records) {
   return lines.map((line) => `  ${line}`).join("\n");
 }
 
+function formatReconciliationStatus(status) {
+  if (!status.active) return "No reconciliation is in progress in this worktree.";
+  const lines = [
+    `operation    ${status.operationId}`,
+    `state        ${status.state}`,
+    `source       ${status.sourceRef} @ ${short(status.sourceHead)}`,
+    `target start ${short(status.targetBefore)}`,
+    `progress     ${status.progress.completed}/${status.progress.total} applied`,
+  ];
+  if (status.current) {
+    lines.push(
+      `current      ${short(status.current.sourceCommit)} ${status.current.sourceChangeId}`,
+    );
+    const paths = status.current.unresolvedPaths?.length
+      ? status.current.unresolvedPaths
+      : status.current.conflictedPaths;
+    if (paths?.length) lines.push(`conflicts    ${paths.join(", ")}`);
+  }
+  lines.push(
+    "",
+    status.state === "conflicted"
+      ? "Resolve and stage the conflicts, then run: vlab reconcile --continue"
+      : "The operation is resumable in this worktree.",
+    "Abort and restore the starting commit with: vlab reconcile --abort",
+  );
+  return lines.join("\n");
+}
+
 export async function main(rawArgs) {
   const [command, ...rest] = rawArgs;
   if (!command || command === "help" || command === "--help" || command === "-h") {
     console.log(HELP);
+    return;
+  }
+  if (command === "version" || command === "--version" || command === "-V") {
+    console.log(`vcs-lab ${VERSION}`);
     return;
   }
 
@@ -195,8 +250,29 @@ export async function main(rawArgs) {
       return;
     }
     case "reconcile": {
+      const actions = [options.status, options.continue, options.abort].filter(Boolean);
+      if (actions.length > 1) {
+        throw new CliError("Choose only one of --status, --continue, or --abort.");
+      }
+      if (options.status) {
+        const status = reconciliationStatus();
+        print(options.json ? status : formatReconciliationStatus(status), options.json);
+        return;
+      }
+      if (options.continue) {
+        const result = continueReconciliation({ fork: options.fork });
+        print(result, options.json);
+        return;
+      }
+      if (options.abort) {
+        const result = abortReconciliation();
+        print(result, options.json);
+        return;
+      }
       const source = requireValue(positionals[0], "vlab reconcile <source>");
-      const result = reconcile(source, { acceptCandidates: options.acceptCandidates });
+      const result = reconcile(source, {
+        acceptCandidates: options.acceptCandidates,
+      });
       print(result, options.json);
       return;
     }

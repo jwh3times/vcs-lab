@@ -17,23 +17,6 @@ export function initLab(cwd = process.cwd()) {
   const context = repoContext(cwd);
   ensureLabRuntime(cwd);
 
-  const metadataDir = path.join(context.root, ".vcs-lab");
-  fs.mkdirSync(path.join(metadataDir, "specs"), { recursive: true });
-
-  const readmePath = path.join(metadataDir, "README.md");
-  if (!fs.existsSync(readmePath)) {
-    fs.writeFileSync(
-      readmePath,
-      [
-        "# vcs-lab metadata",
-        "",
-        "This directory contains portable semantic manifests produced by `vlab spec index`.",
-        "Runtime workspace state and causal receipts live in Git metadata and Git notes.",
-        "",
-      ].join("\n"),
-    );
-  }
-
   runGit(["config", "notes.displayRef", "refs/notes/vcs-lab"], {
     cwd: context.root,
   });
