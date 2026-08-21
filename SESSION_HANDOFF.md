@@ -385,6 +385,13 @@ lineage rejection, non-mutating conflict preview, atomic/idempotent import,
 identical causal classifications, the same resolution blob and spec IDs, and
 absence of source-local/private state at the destination.
 
+The user independently repeated the Windows flow against a real clean
+repository and disposable clones. Empty and non-empty exports were byte
+deterministic; dry-run left refs unchanged; the first non-empty import changed
+the causal plan from two new changes to two covered changes; the second import
+was a no-op; and a tampered bundle failed with exit code 1 while refs and the
+worktree remained unchanged.
+
 ### 10.1 Deliberate v0.8 limits
 
 - no signing, actor identity, authorization, or server policy;
@@ -396,13 +403,20 @@ absence of source-local/private state at the destination.
 
 ### 10.2 Recommended next release decision
 
-The strongest next core-product candidate is a first-class causal rebase plan
-and forecast. Start with a Proposed ADR that defines whether rebase is modeled
-as a sequence of target-context applications, which IDs/receipts survive, how
-forks are expressed, what exact tree is predicted, and how abort/recovery maps
-to ordinary Git. Do not begin broad implementation until that user model is
-accepted. Workspace lifecycle/draft-overlay forecasting and large-scale
-metadata benchmarks remain viable alternative bounded tracks.
+[ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md)
+is Proposed for the next core-product increment. It models causal rebase as a
+non-interactive linear sequence of target-context applications, reuses the
+coverage lattice and forecast guarantees, preserves same-intent IDs, requires
+an explicit fork for changed intent, delays shared receipts until complete
+success, and maps recovery to an exact worktree-private replay journal plus
+ordinary Git cherry-pick state.
+
+This is a design gate, not accepted or implemented architecture. Review the
+command model, linear-v1 boundary, identity/receipt behavior, unexpected-empty
+policy, forecast pins, and Git recovery tradeoff before broad implementation.
+If accepted, begin with the read-only `rebase-plan` vertical slice. Workspace
+lifecycle/draft-overlay forecasting and large-scale metadata benchmarks remain
+viable alternative bounded tracks.
 
 ## 11. Test and release discipline
 
@@ -514,11 +528,11 @@ the current version/tag and run the relevant baseline tests before editing.
 
 The v0.8 metadata integrity and portability work is implemented and ADR-0010 is
 Accepted. Verify its deterministic status/validation and two-clone envelope
-tests before changing its contracts. The recommended next decision is a
-Proposed ADR for first-class causal rebase planning/forecasting as described in
-section 10.2; define the user model, identity/receipt behavior, tree pinning,
-and Git recovery mapping before broad implementation. Preserve all invariants
-listed in section 8.
+tests before changing its contracts. ADR-0011 is Proposed for first-class
+causal rebase planning/forecasting as described in section 10.2. Review and
+accept or revise its command model, linear-v1 scope, identity/receipt behavior,
+unexpected-empty policy, tree pinning, and Git recovery mapping before broad
+implementation. Preserve all invariants listed in section 8.
 
 Implement the agreed increment, add disposable-repository integration tests,
 run the suite with the persistent Git session both disabled and enabled, update

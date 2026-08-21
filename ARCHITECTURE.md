@@ -775,9 +775,13 @@ New capabilities should enter through versioned contracts:
 
 ## 22. Candidate next architectural increment
 
-Metadata portability is now implemented without a server. The next increment
-should choose one bounded product gap—first-class rebase planning or workspace
-lifecycle/draft-overlay forecasting—through a new proposed ADR. In parallel,
-larger note/resolution/worktree fixtures should measure when inventory scans or
-explicit envelopes need an index or remote capability negotiation. A server or
-native database still requires the PRD's measured exit criteria.
+Metadata portability is now implemented without a server. [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md)
+proposes the next bounded product increment: first-class causal rebase planning
+and forecasting. It is a design gate, not implemented architecture; the user
+model and scope must be accepted before code depends on it.
+
+Workspace lifecycle/draft-overlay forecasting remains the strongest alternate
+bounded track. In parallel, larger note/resolution/worktree fixtures should
+measure when inventory scans or explicit envelopes need an index or remote
+capability negotiation. A server or native database still requires the PRD's
+measured exit criteria.

@@ -312,7 +312,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-LAND-06 | P1 | Exact target/source tree equality shall be visible even when history differs. | Implemented | Merge plan reports `same state`. |
 | FR-LAND-07 | P1 | Landing messages shall retain portable trailers for mode, source revision, and absorbed logical changes. | Implemented | Git commit message is useful even when notes are not fetched. |
 | FR-LAND-08 | P1 | A landing that conflicts before commit shall publish no false receipt. | Implemented | Conflict exits without receipt creation. |
-| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Planned | A forecastable `vlab rebase-plan/rebase` flow passes squash/rewrite scenarios. |
+| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Planned | [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Proposed; an accepted, forecastable rebase flow must pass squash/rewrite scenarios. |
 | FR-LAND-10 | P2 | A higher-level landing transaction shall eventually support policy checks and atomic publication. | Deferred | Requires a trusted coordinator or protocol gateway. |
 
 ### 9.4 Causal merge planning

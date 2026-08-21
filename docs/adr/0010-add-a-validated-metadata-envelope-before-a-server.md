@@ -118,3 +118,10 @@ vlab metadata export <directory> [--json]
 vlab metadata import <directory> --dry-run [--json]
 vlab metadata import <directory> --apply [--json]
 ```
+
+The user independently verified the Windows flow against a clean clone of a
+real repository and a disposable metadata-bearing fork. The checks covered
+read-only zero-state inventory, deterministic empty and non-empty envelopes,
+non-mutating preview, same-lineage import, repeated-import no-op behavior, a
+causal plan changing from two new changes to two receipt-covered changes, and
+fail-closed payload-tamper rejection with unchanged refs and worktree.
