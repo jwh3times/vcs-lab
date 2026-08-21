@@ -9,9 +9,17 @@
   switching the caller.
 - Add deterministic rebase-plan fingerprints, explicit heuristic-review state,
   ordered replay queues, and unsupported merge-topology diagnostics.
+- Add non-mutating `vlab rebase-forecast <onto> [<source>]` with an isolated
+  replay worktree, exact target-before/result trees, predicted-tree pinning,
+  caller-state digests, and worktree-private `vcs-lab.rebase-forecast/v1`
+  artifacts.
+- Keep patch-equivalent candidates fail-closed until `--accept-candidates`
+  records an explicit omission decision; expose conflicts and unsupported
+  merge topology without changing the caller.
 - Add disposable-repository tests for hard-squash continuation selection,
   repeatable caller non-mutation, advisory patch equivalence, and the linear-v1
-  merge boundary in ordinary and persistent Git-session modes.
+  merge boundary, plus deterministic rebase forecasts, candidate pinning, and
+  conflict cleanup in ordinary and persistent Git-session modes.
 
 ## 0.8.0
 

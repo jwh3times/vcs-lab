@@ -273,7 +273,8 @@ ADR that explains why.
 
 Priorities use **P0** (required invariant), **P1** (core product), **P2**
 (important expansion), and **P3** (exploratory). Status is **Implemented**,
-**Partial**, **Planned**, or **Deferred** at the v0.8 baseline.
+**Partial**, **Planned**, or **Deferred** at the current v0.9 development
+baseline after v0.8.0.
 
 ### 9.1 Git compatibility and repository adoption
 
@@ -293,7 +294,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | ID | Pri | Requirement | Status | Acceptance signal |
 | --- | --- | --- | --- | --- |
 | FR-ID-01 | P0 | A new logical change shall receive a stable unique `Change-Id`. | Implemented | `vlab commit` writes a `ch_*` trailer. |
-| FR-ID-02 | P0 | Rebase and same-intent cherry-pick shall preserve the logical ID. | Implemented | Rewritten commits remain recognized as covered by stable identity. |
+| FR-ID-02 | P0 | Rebase and same-intent cherry-pick shall preserve the logical ID. | Partial | Cherry-pick preserves identity; causal rebase planning/forecasting pins source IDs, while branch application remains to prove rewritten IDs. |
 | FR-ID-03 | P0 | An intentional semantic divergence shall create a new logical ID and record its origin. | Implemented | `vlab cherry-pick --fork` and conflict continuation `--fork` record derived identity. |
 | FR-ID-04 | P1 | Reapplying a covered logical change shall default to a no-op unless repetition is explicitly requested. | Implemented | `vlab cherry-pick` detects coverage; `--repeat` overrides. |
 | FR-ID-05 | P1 | Commits without a `Change-Id` shall remain addressable without inventing an unverifiable stable identity. | Implemented | Fallback identity is `git:<commit-oid>`. |
@@ -312,7 +313,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-LAND-06 | P1 | Exact target/source tree equality shall be visible even when history differs. | Implemented | Merge plan reports `same state`. |
 | FR-LAND-07 | P1 | Landing messages shall retain portable trailers for mode, source revision, and absorbed logical changes. | Implemented | Git commit message is useful even when notes are not fetched. |
 | FR-LAND-08 | P1 | A landing that conflicts before commit shall publish no false receipt. | Implemented | Conflict exits without receipt creation. |
-| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Partial | [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted and `rebase-plan` passes read-only squash/rewrite selection; forecast, application, and completed provenance remain. |
+| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Partial | [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted; `rebase-plan` and isolated `rebase-forecast` prove selection, candidate policy, conflicts, caller invariants, and predicted trees. Application and completed provenance remain. |
 | FR-LAND-10 | P2 | A higher-level landing transaction shall eventually support policy checks and atomic publication. | Deferred | Requires a trusted coordinator or protocol gateway. |
 
 ### 9.4 Causal merge planning
@@ -559,7 +560,7 @@ stable IDs, or auditability.
 | Stable change identity | Complete for local prototype | Commit/cherry-pick/fork integration tests |
 | Compact and hard-squash landing | Complete for local prototype | Parent-shape and receipt tests |
 | Causal planning | Complete for current proof types | Hard-squash and candidate tests |
-| Causal rebase | Read-only plan implemented; forecast/apply planned | Exact omission/replay, heuristic review, merge-topology, and non-mutation tests |
+| Causal rebase | Read-only plan and isolated pinned forecast implemented; apply planned | Exact omission/replay, heuristic decisions, merge-topology, deterministic tree, conflict, private persistence, and non-mutation tests |
 | Resumable reconciliation | Complete for current queue model | Continue, abort, fork, multi-worktree tests |
 | Exact resolution reuse | Complete locally | Cross-path/worktree and provenance tests |
 | Forecast and pinned batch application | Complete locally | Non-mutation, stale, mismatch, batch tests |
@@ -646,8 +647,9 @@ scope is accepted in an issue, plan, or ADR.
   reduction.
 - **v0.8:** metadata inventory/validation, quarantine-safe coverage, and
   deterministic Git-bundle export/import between clones.
-- **v0.9 (in development):** accepted causal rebase model and deterministic
-  read-only omission/review/replay planning for linear history.
+- **v0.9 (in development):** accepted causal rebase model, deterministic
+  omission/review/replay planning, and isolated pinned forecasting for linear
+  history.
 
 ### Completed theme: metadata integrity and portability
 
@@ -667,8 +669,8 @@ manifest. It is not a signing or authorization layer.
 ### Subsequent candidate themes
 
 - Workspace lifecycle, private draft stacks, and checkpoint-overlay forecasts.
-- Causal rebase forecasting, supervised application, recovery, and portable
-  completed receipts under accepted ADR-0011.
+- Causal rebase supervised application, recovery, and portable completed
+  receipts under accepted ADR-0011.
 - Large-repository scale fixtures and incremental metadata indexes.
 - A repository-local service only if cross-command process and scan costs remain
   material after batching.

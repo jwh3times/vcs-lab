@@ -10,6 +10,10 @@ import {
 } from "./operations.js";
 import { buildMergePlan, formatMergePlan } from "./merge-plan.js";
 import { buildRebasePlan, formatRebasePlan } from "./rebase-plan.js";
+import {
+  forecastRebase,
+  formatRebaseForecast,
+} from "./rebase-forecast.js";
 import { land } from "./landings.js";
 import { initLab } from "./store.js";
 import {
@@ -59,6 +63,7 @@ Usage:
   vlab hard-squash <source> [-m <message>]
   vlab merge-plan <source> [--json]
   vlab rebase-plan <onto> [<source>] [--json]
+  vlab rebase-forecast <onto> [<source>] [--accept-candidates] [--json]
   vlab forecast <source> [--accept-candidates] [--json]
   vlab reconcile <source> [--accept-candidates] [--use-forecast <id>] [--json]
   vlab reconcile --status [--json]
@@ -749,6 +754,25 @@ export async function main(rawArgs) {
       }
       const plan = buildRebasePlan(onto, positionals[1]);
       print(options.json ? plan : formatRebasePlan(plan), options.json);
+      return;
+    }
+    case "rebase-forecast": {
+      const onto = requireValue(
+        positionals[0],
+        "vlab rebase-forecast <onto> [<source>]",
+      );
+      if (positionals.length > 2) {
+        throw new CliError(
+          "Usage: vlab rebase-forecast <onto> [<source>]",
+        );
+      }
+      const forecast = forecastRebase(onto, positionals[1], {
+        acceptCandidates: options.acceptCandidates,
+      });
+      print(
+        options.json ? forecast : formatRebaseForecast(forecast),
+        options.json,
+      );
       return;
     }
     case "forecast": {

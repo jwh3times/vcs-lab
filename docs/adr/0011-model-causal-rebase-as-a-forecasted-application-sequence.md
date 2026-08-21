@@ -201,14 +201,19 @@ full interoperability with Git's native rebase sequencer in v1.
 The user accepted this model and bounded scope on 2026-08-21. The first
 read-only vertical slice implements deterministic `rebase-plan` classification,
 receipt-backed omission, heuristic review, linear-history diagnostics, and
-caller non-mutation. The remaining forecast/application slices must prove:
+caller non-mutation. The second vertical slice implements
+`vcs-lab.rebase-forecast/v1`: it reuses isolated exact/spec-aware replay,
+persists private plan/candidate approval evidence, pins target-before and result
+trees, verifies caller branch/HEAD/index/status/worktree-list invariants, and
+fails closed on unaccepted candidates, conflicts, and unsupported topology.
+Repeated integration forecasts produce the same fingerprint, step trees, and
+predicted tree. The remaining application slices must prove:
 
 1. clean replay preserves stable IDs and publishes exact application/summary
    mappings only after complete success;
-2. unaccepted candidates and unexpected empty applications block rather than
-   disappear;
-3. forecasts preserve caller invariants, pin a final tree, and reject moved
-   source/target inputs before mutation;
+2. unexpected empty applications block rather than disappear;
+3. application rejects moved source/target inputs before mutation and exactly
+   reproduces an approved forecast tree;
 4. conflict continuation distinguishes contextual application from explicit
    fork and revalidates exact/deterministic resolutions;
 5. mid-queue abort restores the exact original branch tip and publishes no

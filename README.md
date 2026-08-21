@@ -7,7 +7,9 @@
 - compact merges retain a real causal parent while displaying as one first-parent landing;
 - hard squashes record exactly what they absorbed in a causal landing receipt;
 - a merge planner subtracts proven prior work instead of relying only on Git topology;
-- a causal rebase planner previews exact omissions, heuristic reviews, and the replay queue without switching branches;
+- causal rebase planning and forecasting preview exact omissions, heuristic
+  reviews, replay steps, conflicts, and the predicted tree without switching
+  branches;
 - Windows planning and forecasting reuse a worktree-scoped Git object process instead of spawning once per read;
 - reconciliation can be forecast in an isolated worktree and pinned before application;
 - indexed Markdown can be merged deterministically by stable block identity;
@@ -169,7 +171,7 @@ The planner uses three statuses:
 
 Similarity is deliberately advisory. Run `vlab reconcile <branch> --accept-candidates` only after reviewing candidate equivalence.
 
-## Planning a causal rebase
+## Planning and forecasting a causal rebase
 
 Preview how a linear source branch would be rewritten onto another commit or
 branch without switching or modifying the caller:
@@ -178,6 +180,8 @@ branch without switching or modifying the caller:
 git switch hard-feature
 vlab rebase-plan main
 vlab rebase-plan main hard-feature --json
+vlab rebase-forecast main
+vlab rebase-forecast main hard-feature --json
 git status --short
 ```
 
@@ -186,9 +190,24 @@ are marked `omit`, heuristic patch candidates remain `review`, and new changes
 enter the ordered `replay` queue. It also emits a deterministic fingerprint and
 marks source ranges containing merge commits unsupported by linear v1.
 
-This development slice is planning-only. Continue using ordinary Git rebase
-for mutation until the forecast and supervised-application slices are
-implemented.
+`rebase-forecast` saves a worktree-private
+`vcs-lab.rebase-forecast/v1` artifact. It simulates only the ordered replay
+queue in a disposable detached worktree, records every target-before and
+result tree, pins the plan fingerprint and candidate policy, and reports a
+complete predicted tree or a fail-closed conflict/unsupported reason. Dirty
+caller files are counted but excluded from the committed-head simulation;
+caller branch, `HEAD`, index, status, file bytes, and worktree list remain
+unchanged.
+
+Heuristic candidates still block a final prediction until explicitly accepted:
+
+```bash
+vlab rebase-forecast main hard-feature --accept-candidates
+```
+
+Branch application is not part of this development slice. Continue using
+ordinary Git rebase for mutation until the supervised-application and recovery
+slices are implemented.
 
 ## Forecasting reconciliation
 
@@ -440,6 +459,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab merge --hard-squash` | Git-compatible strict squash plus sideband receipt |
 | `vlab merge-plan` | Proven coverage versus heuristic similarity |
 | `vlab rebase-plan` | Read-only causal omission/review/replay planning for a linear rebase |
+| `vlab rebase-forecast` | Non-mutating simulation and private pinning of a causal rebase plan |
 | `vlab forecast` | Non-mutating reconciliation simulation and pinned approval |
 | `vlab reconcile` | Apply only proven-new changes with resumable conflicts |
 | `vlab resolve ...` | Inspect, apply, reject, and audit exact resolution suggestions |
@@ -600,7 +620,7 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The 34-test integration suite creates disposable Git repositories and exercises
+The 37-test integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
 non-mutating and stale-safe forecasts, pinned batch application, committed-head
@@ -611,6 +631,7 @@ application, conservative patch-equivalence handling, corpus measurements,
 batched history planning, persistent-session fallback, worktree isolation, Git
 timing probes, damaged metadata quarantine, deterministic envelope export,
 tamper/lineage/conflict rejection, idempotent two-clone parity, and read-only
-causal rebase planning with heuristic and merge-topology blockers. The complete
-suite is also run with
+causal rebase planning plus deterministic/non-mutating rebase forecasts with
+explicit candidate decisions, predicted trees, private persistence, and
+conflict blockers. The complete suite is also run with
 `VLAB_GIT_SESSION=1` to exercise the Windows-default path.

@@ -190,9 +190,15 @@ function blockedReason(conflicts) {
   return "unresolved-conflict";
 }
 
-function simulatePlan(plan, cwd) {
-  const simulated = withTemporaryWorktree(plan.targetHead, cwd, (temporaryWorktree) => {
-    const queue = plan.changes.filter((change) => change.status === "new");
+function simulatePlan(plan, cwd, options = {}) {
+  const targetHead = options.targetHead ?? plan.targetHead;
+  const expectedResultTree = options.expectedResultTree ?? plan.sourceTree;
+  const cleanRelation = options.cleanRelation ?? "causal-reconciliation";
+  const contextualRelation =
+    options.contextualRelation ?? "contextual-application";
+  const queue =
+    options.queue ?? plan.changes.filter((change) => change.status === "new");
+  const simulated = withTemporaryWorktree(targetHead, cwd, (temporaryWorktree) => {
     const steps = [];
     const approvedResolutions = [];
     const approvedSpecMerges = [];
@@ -201,6 +207,7 @@ function simulatePlan(plan, cwd) {
 
     for (const change of queue) {
       const targetBefore = currentHead(temporaryWorktree);
+      const targetBeforeTree = treeId(targetBefore, temporaryWorktree);
       const picked = runGit(["cherry-pick", "-x", change.commit], {
         cwd: temporaryWorktree,
         allowFailure: true,
@@ -211,7 +218,8 @@ function simulatePlan(plan, cwd) {
           changeId: change.changeId,
           subject: change.subject,
           outcome: "clean",
-          relation: "causal-reconciliation",
+          relation: cleanRelation,
+          targetBeforeTree,
           resultTree: treeId("HEAD", temporaryWorktree),
         });
         continue;
@@ -226,6 +234,7 @@ function simulatePlan(plan, cwd) {
           changeId: change.changeId,
           subject: change.subject,
           outcome: "blocked-git-error",
+          targetBeforeTree,
           gitOutput: picked.output,
         });
         break;
@@ -281,6 +290,7 @@ function simulatePlan(plan, cwd) {
           changeId: change.changeId,
           subject: change.subject,
           outcome: "blocked-conflict",
+          targetBeforeTree,
           conflicts,
           semanticMerges,
         });
@@ -309,6 +319,7 @@ function simulatePlan(plan, cwd) {
           changeId: change.changeId,
           subject: change.subject,
           outcome: "blocked-resolution-application",
+          targetBeforeTree,
           conflicts,
           semanticMerges,
           resolutions,
@@ -336,7 +347,8 @@ function simulatePlan(plan, cwd) {
             : semanticMerges.length
               ? "semantic-spec-merge"
               : "exact-resolution",
-        relation: "contextual-application",
+        relation: contextualRelation,
+        targetBeforeTree,
         conflicts,
         resolutions,
         semanticMerges,
@@ -357,13 +369,23 @@ function simulatePlan(plan, cwd) {
       partialResultTree,
       predictedResultTree: status === "complete" ? partialResultTree : null,
       exactStateEqualityAfter:
-        status === "complete" ? partialResultTree === plan.sourceTree : null,
+        status === "complete" ? partialResultTree === expectedResultTree : null,
     };
   });
   return {
     ...simulated.value,
     worktreeTimings: simulated.timings,
   };
+}
+
+export function simulateCausalRebasePlan(plan, cwd = process.cwd()) {
+  return simulatePlan(plan, cwd, {
+    targetHead: plan.ontoHead,
+    expectedResultTree: plan.sourceTree,
+    queue: plan.changes.filter((change) => change.action === "replay"),
+    cleanRelation: "causal-rebase",
+    contextualRelation: "contextual-rebase",
+  });
 }
 
 function forecastReconciliationInSession(sourceRef, options, cwd) {

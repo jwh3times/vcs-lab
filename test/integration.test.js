@@ -307,8 +307,210 @@ test("causal rebase planning marks merge topology unsupported in linear v1", (t)
   assert.deepEqual(plan.constraints.mergeCommits, [mergeCommit]);
   assert.equal(plan.executableWithoutReview, false);
   assert.match(vlab(repo, "rebase-plan", "main", "feature"), /unsupported/i);
+  const worktreesBefore = git(repo, "worktree", "list", "--porcelain");
+  const forecast = JSON.parse(
+    vlab(repo, "rebase-forecast", "main", "feature", "--json"),
+  );
+  assert.equal(forecast.status, "unsupported");
+  assert.equal(forecast.blockedReason, "merge-topology-unsupported");
+  assert.equal(forecast.predictedResultTree, null);
+  assert.deepEqual(forecast.steps, []);
+  assert.equal(forecast.remainingChanges, forecast.plan.replayQueue.length);
+  assert.match(
+    vlab(repo, "rebase-forecast", "main", "feature"),
+    /Linear v1 cannot forecast source history containing merge commits/,
+  );
+  assert.equal(git(repo, "worktree", "list", "--porcelain"), worktreesBefore);
   assert.equal(git(repo, "branch", "--show-current"), "main");
   assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("causal rebase forecasts are deterministic and preserve a dirty caller", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "one\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature one");
+  write(repo, "feature.txt", "one\ntwo\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature two");
+
+  git(repo, "switch", "main");
+  vlab(repo, "hard-squash", "feature", "--json");
+  git(repo, "switch", "feature");
+  write(repo, "continuation.txt", "three\n");
+  git(repo, "add", ".");
+  const continuation = JSON.parse(
+    vlab(repo, "commit", "-m", "feature continuation"),
+  );
+  git(repo, "mv", "base.txt", "caller-base-draft.txt");
+  write(repo, "caller-draft.txt", "uncommitted caller bytes\n");
+
+  const callerBefore = {
+    head: git(repo, "rev-parse", "HEAD"),
+    branch: git(repo, "branch", "--show-current"),
+    status: git(repo, "status", "--porcelain=v1"),
+    renamedBase: readText(repo, "caller-base-draft.txt"),
+    draft: readText(repo, "caller-draft.txt"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+  const first = JSON.parse(
+    vlab(repo, "rebase-forecast", "main", "--json"),
+  );
+  const repeated = JSON.parse(
+    vlab(repo, "rebase-forecast", "main", "--json"),
+  );
+
+  assert.equal(first.schema, "vcs-lab.rebase-forecast/v1");
+  assert.equal(first.status, "complete");
+  assert.equal(first.sourceRef, "feature");
+  assert.equal(first.scope, "committed-heads");
+  assert.equal(first.ignoredCallerDirtyFiles, 2);
+  assert.equal(first.candidatePolicy, "none");
+  assert.equal(first.callerInvariants.preserved, true);
+  assert.equal(first.planFingerprint, first.plan.fingerprint);
+  assert.deepEqual(
+    first.plan.replayQueue.map((item) => item.changeId),
+    [continuation.changeId],
+  );
+  assert.equal(first.steps.length, 1);
+  assert.equal(first.steps[0].relation, "causal-rebase");
+  assert.equal(first.steps[0].targetBeforeTree, first.ontoTree);
+  assert.equal(first.steps[0].resultTree, first.sourceTree);
+  assert.equal(first.predictedResultTree, first.sourceTree);
+  assert.equal(first.exactStateEqualityAfter, true);
+  assert.notEqual(first.id, repeated.id);
+  assert.equal(first.planFingerprint, repeated.planFingerprint);
+  assert.deepEqual(first.steps, repeated.steps);
+  assert.equal(first.predictedResultTree, repeated.predictedResultTree);
+  assert.match(vlab(repo, "rebase-forecast", "main"), /status\s+complete/);
+
+  const metadata = JSON.parse(vlab(repo, "metadata", "status", "--json"));
+  assert.equal(metadata.scopes.worktreePrivate.forecastCount, 3);
+  const callerAfter = {
+    head: git(repo, "rev-parse", "HEAD"),
+    branch: git(repo, "branch", "--show-current"),
+    status: git(repo, "status", "--porcelain=v1"),
+    renamedBase: readText(repo, "caller-base-draft.txt"),
+    draft: readText(repo, "caller-draft.txt"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+  assert.deepEqual(callerAfter, callerBefore);
+});
+
+test("causal rebase forecasts require and pin candidate acceptance", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "equivalent.txt", "same patch\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source patch"));
+
+  git(repo, "switch", "main");
+  write(repo, "equivalent.txt", "same patch\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "independent target patch");
+  const callerBefore = {
+    head: git(repo, "rev-parse", "HEAD"),
+    branch: git(repo, "branch", "--show-current"),
+    status: git(repo, "status", "--porcelain=v1"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+
+  const review = JSON.parse(
+    vlab(repo, "rebase-forecast", "main", "feature", "--json"),
+  );
+  assert.equal(review.status, "review-required");
+  assert.equal(review.candidateDecisionRequired, true);
+  assert.equal(review.candidatePolicy, "review-required");
+  assert.equal(review.blockedReason, "heuristic-candidate-decision-required");
+  assert.equal(review.predictedResultTree, null);
+  assert.deepEqual(review.acceptedCandidates, []);
+
+  const accepted = JSON.parse(
+    vlab(
+      repo,
+      "rebase-forecast",
+      "main",
+      "feature",
+      "--accept-candidates",
+      "--json",
+    ),
+  );
+  assert.equal(accepted.status, "complete");
+  assert.equal(accepted.candidateDecisionRequired, false);
+  assert.equal(accepted.candidatePolicy, "accepted");
+  assert.equal(accepted.acceptedCandidates.length, 1);
+  assert.equal(accepted.acceptedCandidates[0].changeId, source.changeId);
+  assert.equal(accepted.acceptedCandidates[0].decision, "omit");
+  assert.equal(accepted.steps.length, 0);
+  assert.equal(accepted.predictedResultTree, accepted.ontoTree);
+  assert.equal(accepted.exactStateEqualityAfter, true);
+  assert.equal(accepted.planFingerprint, review.planFingerprint);
+  assert.deepEqual(
+    {
+      head: git(repo, "rev-parse", "HEAD"),
+      branch: git(repo, "branch", "--show-current"),
+      status: git(repo, "status", "--porcelain=v1"),
+      worktrees: git(repo, "worktree", "list", "--porcelain"),
+    },
+    callerBefore,
+  );
+});
+
+test("causal rebase forecasts expose conflicts without mutating the caller", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source changes shared file");
+
+  git(repo, "switch", "main");
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target changes shared file");
+  const callerBefore = {
+    head: git(repo, "rev-parse", "HEAD"),
+    status: git(repo, "status", "--porcelain=v1"),
+    content: readText(repo, "shared.txt"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+
+  const forecast = JSON.parse(
+    vlab(repo, "rebase-forecast", "main", "feature", "--json"),
+  );
+  assert.equal(forecast.status, "blocked");
+  assert.equal(forecast.blockedReason, "missing-exact-resolution");
+  assert.equal(forecast.predictedResultTree, null);
+  assert.equal(forecast.steps.length, 1);
+  assert.equal(forecast.steps[0].outcome, "blocked-conflict");
+  assert.equal(forecast.steps[0].targetBeforeTree, forecast.ontoTree);
+  assert.deepEqual(
+    forecast.steps[0].conflicts.map((item) => item.path),
+    ["shared.txt"],
+  );
+  assert.equal(forecast.steps[0].conflicts[0].candidates.length, 0);
+  assert.deepEqual(
+    {
+      head: git(repo, "rev-parse", "HEAD"),
+      status: git(repo, "status", "--porcelain=v1"),
+      content: readText(repo, "shared.txt"),
+      worktrees: git(repo, "worktree", "list", "--porcelain"),
+    },
+    callerBefore,
+  );
 });
 
 test("compact landing is one first-parent unit with a real causal parent", (t) => {

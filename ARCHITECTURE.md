@@ -121,6 +121,7 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/landings.js` | Compact and hard-squash landing mechanics and receipts | Git adapter, notes |
 | `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
 | `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
+| `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation | Rebase plan, forecast simulator, Git adapter |
 | `src/forecasts.js` | Plan fingerprint, temporary-worktree simulation, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
@@ -221,6 +222,7 @@ use at the current development baseline:
 | `vcs-lab.reconciliation-operation/v4` | Private resumable operation journal | `operations.js` |
 | `vcs-lab.merge-plan/v1` | Source/target coverage plan | `merge-plan.js` |
 | `vcs-lab.rebase-plan/v1` | Read-only causal rebase selection and constraints | `rebase-plan.js` |
+| `vcs-lab.rebase-forecast/v1` | Private pinned causal-rebase simulation and caller invariants | `rebase-forecast.js` |
 | `vcs-lab.forecast/v2` | Pinned simulation and approvals | `forecasts.js` |
 | `vcs-lab.resolution/v1` | Exact resolution result and provenance | `resolutions.js` |
 | `vcs-lab.workspaces/v1` | Workspace registry container | `workspaces.js` |
@@ -300,8 +302,30 @@ classification as `vcs-lab.rebase-plan/v1`:
 
 The command performs only Git/object/metadata reads. Integration tests compare
 the caller branch, HEAD, tree, porcelain status, notes ref, and worktree list
-before and after repeated planning. Forecast and branch mutation are not yet
-implemented.
+before and after repeated planning.
+
+### 7.4 Causal rebase forecast
+
+`forecastRebase` builds the exact rebase plan, refuses merge topology outside
+linear v1, and adapts the shared forecast simulator to start at `ontoHead` and
+apply only `action: replay` entries. Clean steps are labeled `causal-rebase`;
+conflict adaptations retain the exact/spec-aware simulation logic and are
+labeled `contextual-rebase`. Each attempted step records its target-before
+tree, conflict evidence when present, and result tree when complete.
+
+`vcs-lab.rebase-forecast/v1` pins source/onto heads and trees, the full plan and
+fingerprint, explicit candidate policy/omissions, automated resolution/spec
+decisions, step trees, and the predicted final tree. Caller evidence includes
+the exact branch, HEAD/tree, plus SHA-256 digests of index entries, porcelain
+status, and the worktree list. Forecasting compares the complete snapshots
+before saving under the caller's worktree Git directory. Dirty bytes are
+reported but deliberately excluded because the scope is committed heads.
+
+Unaccepted heuristic candidates convert an otherwise complete simulation to
+`review-required` and remove its predicted-tree claim. A Git application error
+without conflict paths—including an unexpected empty replay—blocks instead of
+being silently skipped. Branch mutation and use/staleness validation of a
+saved rebase forecast remain in the next application slice.
 
 ## 8. Landing flows
 
@@ -736,7 +760,7 @@ CLI and Git executable. This tests filesystem state, refs, notes, worktrees,
 process boundaries, line endings, and recovery behavior that unit mocks would
 hide.
 
-The current development baseline contains 34 scenarios covering:
+The current development baseline contains 37 scenarios covering:
 
 - initialization and versioning;
 - compact/hard-squash landing and causal suppression;
@@ -752,6 +776,9 @@ The current development baseline contains 34 scenarios covering:
   two-clone causal/resolution/spec parity.
 - causal rebase plan determinism/non-mutation, hard-squash continuation
   selection, heuristic review, and linear-history enforcement.
+- causal rebase forecast determinism, caller/worktree preservation, private
+  persistence, explicit candidate acceptance, predicted trees, and conflict
+  blocking/cleanup.
 
 The same suite is run with the session forced on. Demos complement tests by
 providing user-inspectable repositories and commands.
@@ -786,8 +813,9 @@ New capabilities should enter through versioned contracts:
 - Workspace registry stores local absolute paths and has limited lifecycle
   repair.
 - Forecasts cannot yet consume checkpoint/draft overlays.
-- Rebase has a first-class read-only causal plan, but forecast, supervised
-  application, recovery, and completed receipts are not implemented.
+- Rebase has a first-class causal plan and isolated pinned forecast, but
+  supervised application, forecast staleness enforcement during mutation,
+  recovery, and completed receipts are not implemented.
 - Notes lookup still scales with the notes namespace and reachable history;
   large-repository indexes are not implemented.
 - Crash boundaries have integration coverage for process-separated pauses but
@@ -801,10 +829,11 @@ New capabilities should enter through versioned contracts:
 ## 22. Candidate next architectural increment
 
 Metadata portability is implemented without a server. [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md)
-is Accepted, and its read-only causal `rebase-plan` slice is implemented. The
-next bounded increment is `rebase-forecast`: reuse isolated simulation and
-pinning while keeping every caller invariant and leaving branch mutation for a
-later supervised-application slice.
+is Accepted, and its causal `rebase-plan` and isolated `rebase-forecast` slices
+are implemented. The next bounded increment is supervised application:
+revalidate a saved forecast before mutation, create an exact worktree-private
+rebase journal, replay the clean queue with stable identity, and provide a safe
+status/abort boundary before any shared receipt schema is published.
 
 Workspace lifecycle/draft-overlay forecasting remains the strongest alternate
 bounded track. In parallel, larger note/resolution/worktree fixtures should
