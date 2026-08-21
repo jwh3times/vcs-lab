@@ -1,25 +1,50 @@
 import {
-  changeIdForCommit,
-  commitSubject,
-  currentHead,
   isAncestor,
-  listCommits,
   mergeBase,
-  resolveRevision,
+  resolveObjectIds,
   runGit,
-  treeId,
+  withGitObjectSession,
 } from "./git.js";
 import { recordsReachableFrom } from "./notes.js";
 
-function directChangeCoverage(ref, cwd) {
-  const output = runGit(["rev-list", ref], { cwd }).stdout;
-  const commits = output ? output.split(/\r?\n/).filter(Boolean) : [];
-  const changeIds = new Set(commits.map((commit) => changeIdForCommit(commit, cwd)));
-  return { commits: new Set(commits), changeIds };
+function parseHistory(output) {
+  const records = [];
+  const fields = output.split("\0");
+  for (let index = 0; index + 2 < fields.length; index += 3) {
+    const commit = fields[index].trim();
+    if (!commit) continue;
+    records.push({
+      commit,
+      subject: fields[index + 1],
+      message: fields[index + 2],
+    });
+  }
+  return records;
 }
 
-function receiptCoverage(ref, cwd) {
-  const receipts = recordsReachableFrom(ref, cwd).filter((record) =>
+function directChangeCoverage(ref, cwd) {
+  const output = runGit(
+    ["log", "-z", ref, "--format=%H%x00%s%x00%B"],
+    { cwd, trim: false },
+  ).stdout;
+  const history = parseHistory(output);
+  return {
+    commits: new Set(history.map((item) => item.commit)),
+    changeIds: new Set(
+      history.map((item) =>
+        extractChangeId(item.commit, item.message),
+      ),
+    ),
+  };
+}
+
+function extractChangeId(commit, message) {
+  const match = message.match(/^Change-Id:\s*(.+?)\s*$/im);
+  return match?.[1]?.trim() ?? `git:${commit}`;
+}
+
+function receiptCoverage(ref, directCommits, cwd) {
+  const receipts = recordsReachableFrom(ref, cwd, directCommits).filter((record) =>
     ["landing", "reconciliation"].includes(record.type),
   );
   const commits = new Set();
@@ -29,6 +54,17 @@ function receiptCoverage(ref, cwd) {
     for (const changeId of receipt.absorbedChanges ?? []) changeIds.add(changeId);
   }
   return { receipts, commits, changeIds };
+}
+
+function sourceChanges(base, source, cwd) {
+  const output = runGit(
+    ["log", "-z", "--reverse", "--format=%H%x00%s%x00%B", `${base}..${source}`],
+    { cwd, trim: false },
+  ).stdout;
+  return parseHistory(output).map((item) => ({
+    ...item,
+    changeId: extractChangeId(item.commit, item.message),
+  }));
 }
 
 function patchCandidates(target, source, base, cwd) {
@@ -59,18 +95,22 @@ function chooseEffectiveBase(physicalBase, receipts, sourceHead, cwd) {
   return { commit: effective, reason };
 }
 
-export function buildMergePlan(sourceRef, cwd = process.cwd()) {
-  const targetHead = currentHead(cwd);
-  const sourceHead = resolveRevision(sourceRef, cwd);
+function buildMergePlanInSession(sourceRef, cwd) {
+  const [targetHead, sourceHead] = resolveObjectIds(
+    ["HEAD^{commit}", `${sourceRef}^{commit}`],
+    cwd,
+  );
   const physicalBase = mergeBase(targetHead, sourceHead, cwd);
-  const targetTree = treeId(targetHead, cwd);
-  const sourceTree = treeId(sourceHead, cwd);
+  const [targetTree, sourceTree] = resolveObjectIds(
+    [`${targetHead}^{tree}`, `${sourceHead}^{tree}`],
+    cwd,
+  );
   const exactStateEquality = targetTree === sourceTree;
 
   const direct = directChangeCoverage(targetHead, cwd);
-  const receipt = receiptCoverage(targetHead, cwd);
+  const receipt = receiptCoverage(targetHead, direct.commits, cwd);
   const candidates = patchCandidates(targetHead, sourceHead, physicalBase, cwd);
-  const sourceCommits = listCommits(physicalBase, sourceHead, cwd);
+  const sourceHistory = sourceChanges(physicalBase, sourceHead, cwd);
   const effectiveBase = chooseEffectiveBase(
     physicalBase,
     receipt.receipts,
@@ -78,8 +118,7 @@ export function buildMergePlan(sourceRef, cwd = process.cwd()) {
     cwd,
   );
 
-  const changes = sourceCommits.map((commit) => {
-    const changeId = changeIdForCommit(commit, cwd);
+  const changes = sourceHistory.map(({ commit, changeId, subject }) => {
     let status = "new";
     let proof = null;
     if (direct.commits.has(commit)) {
@@ -102,7 +141,7 @@ export function buildMergePlan(sourceRef, cwd = process.cwd()) {
       commit,
       shortCommit: commit.slice(0, 12),
       changeId,
-      subject: commitSubject(commit, cwd),
+      subject,
       status,
       proof,
     };
@@ -130,6 +169,10 @@ export function buildMergePlan(sourceRef, cwd = process.cwd()) {
     counts,
     changes,
   };
+}
+
+export function buildMergePlan(sourceRef, cwd = process.cwd()) {
+  return withGitObjectSession(cwd, () => buildMergePlanInSession(sourceRef, cwd));
 }
 
 export function formatMergePlan(plan) {

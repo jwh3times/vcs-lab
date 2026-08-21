@@ -1,4 +1,5 @@
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import {
   abortReconciliation,
   continueReconciliation,
@@ -10,7 +11,16 @@ import {
 import { buildMergePlan, formatMergePlan } from "./merge-plan.js";
 import { land } from "./landings.js";
 import { initLab } from "./store.js";
-import { runGit } from "./git.js";
+import {
+  beginGitMetrics,
+  commitSubject,
+  currentHead,
+  endGitMetrics,
+  gitObjectSessionEnabled,
+  runGit,
+  treeId,
+  withGitObjectSession,
+} from "./git.js";
 import { createWorkspace, checkpointWorkspace, listWorkspaces } from "./workspaces.js";
 import {
   applyPendingSpecMerges,
@@ -72,6 +82,11 @@ Usage:
   vlab version
 
 Legend for merge-plan: '=' proven covered, '?' heuristic candidate, '+' new.
+
+Global diagnostics:
+  --trace-git        print per-command process/session timings to stderr
+  --git-session      force persistent Git object plumbing for this command
+  --no-git-session  use ordinary one-process-per-command Git plumbing
 `;
 
 function parseArgs(args) {
@@ -247,9 +262,8 @@ function formatReceipt(record) {
       );
     }
     if (record.timings?.git?.count !== undefined) {
-      lines.push(
-        `  git calls   ${record.timings.git.count} (${record.timings.git.totalMs.toFixed(2)} ms)`,
-      );
+      const activity = formatGitActivity(record.timings.git);
+      lines.push(`  ${activity}`);
     }
     if (record.exactStateEqualityAfter !== undefined) {
       lines.push(
@@ -276,6 +290,12 @@ function formatReceipts(records) {
   return `${records.length} causal record${records.length === 1 ? "" : "s"}\n\n${records
     .map(formatReceipt)
     .join("\n\n")}`;
+}
+
+function formatGitActivity(git, label = "git work") {
+  if (!git) return null;
+  const processes = git.processes ?? git.count;
+  return `${label.padEnd(12)} ${processes} processes; ${git.count} queries (${git.totalMs.toFixed(2)} ms)`;
 }
 
 function formatCausalEdges(records) {
@@ -354,7 +374,7 @@ function formatReconciliationResult(result) {
       ? `active time  ${receipt.timings.activeApplicationMs.toFixed(2)} ms`
       : null,
     receipt.timings?.git
-      ? `git calls    ${receipt.timings.git.count} (${receipt.timings.git.totalMs.toFixed(2)} ms)`
+      ? formatGitActivity(receipt.timings.git)
       : null,
     semanticMerges ? `spec merges  ${semanticMerges} deterministic` : null,
     decisionText ? `resolutions  ${decisionText}` : null,
@@ -379,7 +399,7 @@ function formatForecast(forecast) {
     `same state   ${forecast.exactStateEqualityAfter === null ? "unknown" : forecast.exactStateEqualityAfter ? "yes" : "no"}`,
     `forecast time ${forecast.timings.forecastMs.toFixed(2)} ms`,
     forecast.timings.git
-      ? `git calls    ${forecast.timings.git.count} (${forecast.timings.git.totalMs.toFixed(2)} ms)`
+      ? formatGitActivity(forecast.timings.git)
       : null,
   ].filter(Boolean);
   if (forecast.ignoredTargetDirtyFiles) {
@@ -555,6 +575,26 @@ function gitBenchmark(options = {}) {
   });
 }
 
+function gitObjectSessionBenchmark(options = {}, cwd = process.cwd()) {
+  const sampleCount = positiveInteger(options.samples, 3, "--samples");
+  const collector = beginGitMetrics("doctor-object-session");
+  const started = performance.now();
+  withGitObjectSession(cwd, () => {
+    for (let index = 0; index < sampleCount; index += 1) {
+      const head = currentHead(cwd);
+      treeId(head, cwd);
+      commitSubject(head, cwd);
+    }
+  });
+  return {
+    enabled: gitObjectSessionEnabled(),
+    rounds: sampleCount,
+    logicalReads: sampleCount * 3,
+    durationMs: Number((performance.now() - started).toFixed(2)),
+    git: endGitMetrics(collector),
+  };
+}
+
 function formatReconciliationStatus(status) {
   if (!status.active) return "No reconciliation is in progress in this worktree.";
   const lines = [
@@ -586,7 +626,18 @@ function formatReconciliationStatus(status) {
 }
 
 export async function main(rawArgs) {
-  const [command, ...rest] = rawArgs;
+  const forceSession = rawArgs.includes("--git-session");
+  const disableSession = rawArgs.includes("--no-git-session");
+  if (forceSession && disableSession) {
+    throw new CliError("Choose only one of --git-session or --no-git-session.");
+  }
+  if (rawArgs.includes("--trace-git")) process.env.VLAB_TRACE = "1";
+  if (forceSession) process.env.VLAB_GIT_SESSION = "1";
+  if (disableSession) process.env.VLAB_GIT_SESSION = "0";
+  const args = rawArgs.filter(
+    (item) => !["--trace-git", "--git-session", "--no-git-session"].includes(item),
+  );
+  const [command, ...rest] = args;
   if (!command || command === "help" || command === "--help" || command === "-h") {
     console.log(HELP);
     return;
@@ -828,6 +879,9 @@ export async function main(rawArgs) {
         repository: context.root,
         notesRef: "refs/notes/vcs-lab",
         benchmark: options.benchmark ? gitBenchmark(options) : undefined,
+        objectSession: options.benchmark
+          ? gitObjectSessionBenchmark(options, context.root)
+          : undefined,
       }, true);
       return;
     }

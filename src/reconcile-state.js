@@ -34,14 +34,18 @@ export function unmergedPaths(cwd = process.cwd()) {
 }
 
 export function cherryPickHead(cwd = process.cwd()) {
-  const result = runGit(["rev-parse", "--verify", "-q", "CHERRY_PICK_HEAD"], {
-    cwd,
-    allowFailure: true,
-  });
-  return result.ok ? result.stdout : null;
+  try {
+    const value = fs.readFileSync(
+      path.join(repoContext(cwd).gitDir, "CHERRY_PICK_HEAD"),
+      "utf8",
+    ).trim();
+    return /^[0-9a-f]+$/i.test(value) ? value : null;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 export function mergeMessagePath(cwd = process.cwd()) {
-  const raw = runGit(["rev-parse", "--git-path", "MERGE_MSG"], { cwd }).stdout;
-  return path.resolve(cwd, raw);
+  return path.join(repoContext(cwd).gitDir, "MERGE_MSG");
 }

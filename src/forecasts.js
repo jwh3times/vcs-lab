@@ -7,8 +7,10 @@ import {
   currentHead,
   endGitMetrics,
   repoContext,
+  resolveObjectIds,
   runGit,
   treeId,
+  withGitObjectSession,
 } from "./git.js";
 import { newId, sha256 } from "./ids.js";
 import { buildMergePlan } from "./merge-plan.js";
@@ -18,6 +20,7 @@ import {
   materializeResolutionCandidate,
 } from "./resolutions.js";
 import {
+  cherryPickHead,
   readReconciliationState,
   unmergedPaths,
 } from "./reconcile-state.js";
@@ -99,14 +102,16 @@ function withTemporaryWorktree(targetHead, cwd, callback) {
     added = true;
     setupMs = performance.now() - setupStarted;
     const callbackStarted = performance.now();
-    value = callback(temporaryWorktree);
+    value = withGitObjectSession(temporaryWorktree, () =>
+      callback(temporaryWorktree),
+    );
     callbackMs = performance.now() - callbackStarted;
   } catch (error) {
     callbackError = error;
   } finally {
     const cleanupStarted = performance.now();
     if (added) {
-      if (fs.existsSync(temporaryWorktree)) {
+      if (fs.existsSync(temporaryWorktree) && cherryPickHead(temporaryWorktree)) {
         runGit(["cherry-pick", "--abort"], {
           cwd: temporaryWorktree,
           allowFailure: true,
@@ -361,8 +366,7 @@ function simulatePlan(plan, cwd) {
   };
 }
 
-export function forecastReconciliation(sourceRef, options = {}) {
-  const cwd = options.cwd ?? process.cwd();
+function forecastReconciliationInSession(sourceRef, options, cwd) {
   if (readReconciliationState(cwd)) {
     throw new CliError(
       "Finish or abort the current reconciliation before forecasting another.",
@@ -373,9 +377,13 @@ export function forecastReconciliation(sourceRef, options = {}) {
   const gitMetrics = beginGitMetrics("forecast");
   const phases = {};
   const preflightStarted = performance.now();
+  const [beforeHead, beforeTree] = resolveObjectIds(
+    ["HEAD^{commit}", "HEAD^{tree}"],
+    cwd,
+  );
   const before = {
-    head: currentHead(cwd),
-    tree: treeId("HEAD", cwd),
+    head: beforeHead,
+    tree: beforeTree,
     status: runGit(["status", "--porcelain=v1"], { cwd }).stdout,
   };
   phases.preflightMs = performance.now() - preflightStarted;
@@ -394,9 +402,13 @@ export function forecastReconciliation(sourceRef, options = {}) {
     simulation.exactStateEqualityAfter = null;
   }
   const invariantStarted = performance.now();
+  const [afterHead, afterTree] = resolveObjectIds(
+    ["HEAD^{commit}", "HEAD^{tree}"],
+    cwd,
+  );
   const after = {
-    head: currentHead(cwd),
-    tree: treeId("HEAD", cwd),
+    head: afterHead,
+    tree: afterTree,
     status: runGit(["status", "--porcelain=v1"], { cwd }).stdout,
   };
   if (
@@ -441,6 +453,13 @@ export function forecastReconciliation(sourceRef, options = {}) {
     createdAt: new Date().toISOString(),
   };
   return saveForecast(forecast, cwd);
+}
+
+export function forecastReconciliation(sourceRef, options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  return withGitObjectSession(cwd, () =>
+    forecastReconciliationInSession(sourceRef, options, cwd),
+  );
 }
 
 export function forecastForPlan(id, plan, cwd = process.cwd()) {

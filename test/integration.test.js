@@ -12,7 +12,7 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 test("CLI reports the package version", () => {
   assert.equal(
     exec(process.execPath, [cli, "--version"], projectRoot),
-    "vcs-lab 0.6.0",
+    "vcs-lab 0.7.0",
   );
 });
 
@@ -340,7 +340,9 @@ test("forecast deterministically merges independent specification blocks", (t) =
       .manifest.blocks.map((block) => [block.semanticKey, block.id]),
   );
 
-  const forecast = JSON.parse(vlab(repo, "forecast", "feature", "--json"));
+  const forecast = JSON.parse(
+    vlab(repo, "forecast", "feature", "--git-session", "--json"),
+  );
   assert.equal(forecast.schema, "vcs-lab.forecast/v2");
   assert.equal(forecast.status, "complete");
   assert.equal(forecast.counts.semanticSpec, 1);
@@ -354,8 +356,19 @@ test("forecast deterministically merges independent specification blocks", (t) =
   assert.ok(forecast.timings.phases.planningMs >= 0);
   assert.ok(forecast.timings.worktree.applicationMs >= 0);
   assert.ok(forecast.timings.git.count > 0);
+  assert.ok(forecast.timings.git.sessionQueries > 0);
+  assert.ok(forecast.timings.git.processes < forecast.timings.git.count);
   assert.equal(git(repo, "rev-parse", "HEAD"), before.head);
   assert.equal(git(repo, "status", "--porcelain=v1"), before.status);
+
+  const fallback = JSON.parse(
+    vlab(repo, "forecast", "feature", "--no-git-session", "--json"),
+  );
+  assert.equal(fallback.predictedResultTree, forecast.predictedResultTree);
+  assert.deepEqual(fallback.plan.changes, forecast.plan.changes);
+  assert.equal(fallback.timings.git.sessionQueries, 0);
+  assert.equal(fallback.timings.git.processes, fallback.timings.git.count);
+  assert.ok(forecast.timings.git.processes < fallback.timings.git.processes);
 
   const result = JSON.parse(
     vlab(
@@ -364,6 +377,7 @@ test("forecast deterministically merges independent specification blocks", (t) =
       "feature",
       "--use-forecast",
       forecast.id,
+      "--git-session",
       "--json",
     ),
   );
@@ -377,6 +391,10 @@ test("forecast deterministically merges independent specification blocks", (t) =
   assert.equal(result.receipt.applied[0].semanticMerges[0].decision, "accepted");
   assert.ok(
     result.receipt.timings.git.count <= 10,
+    JSON.stringify(result.receipt.timings.git, null, 2),
+  );
+  assert.ok(
+    result.receipt.timings.git.processes < result.receipt.timings.git.count,
     JSON.stringify(result.receipt.timings.git, null, 2),
   );
   assert.equal(
@@ -1064,13 +1082,27 @@ test("doctor benchmarks Git probes and trace mode reports subprocess timings", (
   git(repo, "add", "base.txt");
   git(repo, "commit", "-m", "base");
   const doctor = JSON.parse(
-    vlab(repo, "doctor", "--benchmark", "--samples", "5", "--warmup", "2"),
+    vlab(
+      repo,
+      "doctor",
+      "--benchmark",
+      "--samples",
+      "5",
+      "--warmup",
+      "2",
+      "--git-session",
+    ),
   );
   assert.equal(doctor.ok, true);
   assert.equal(doctor.benchmark.length, 4);
   assert.ok(doctor.benchmark.every((probe) => probe.samplesMs.length === 5));
   assert.ok(doctor.benchmark.every((probe) => probe.warmup === 2));
   assert.ok(doctor.benchmark.every((probe) => probe.p95Ms >= probe.medianMs));
+  assert.equal(doctor.objectSession.enabled, true);
+  assert.equal(doctor.objectSession.logicalReads, 15);
+  assert.equal(doctor.objectSession.git.processes, 1);
+  assert.ok(doctor.objectSession.git.sessionQueries >= 3);
+  assert.ok(doctor.objectSession.git.cacheHits >= 8);
 
   const traced = spawnSync(process.execPath, [cli, "doctor"], {
     cwd: repo,
@@ -1079,6 +1111,75 @@ test("doctor benchmarks Git probes and trace mode reports subprocess timings", (
   });
   assert.equal(traced.status, 0);
   assert.match(traced.stderr, /\[vlab trace\].*git --version/);
+
+  const tracedOption = spawnSync(
+    process.execPath,
+    [cli, "--trace-git", "--git-session", "merge-plan", "HEAD", "--json"],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    },
+  );
+  assert.equal(tracedOption.status, 0);
+  assert.match(tracedOption.stderr, /persistent process|cache hit/);
+});
+
+test("merge planning batches commit metadata instead of spawning per commit", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "history.txt", "base\n");
+  git(repo, "add", "history.txt");
+  git(repo, "commit", "-m", "base");
+  git(repo, "switch", "-c", "feature");
+  for (let index = 1; index <= 12; index += 1) {
+    write(repo, "history.txt", `${index}\n`);
+    git(repo, "add", "history.txt");
+    git(
+      repo,
+      "commit",
+      "-m",
+      `feature ${index}\n\nChange-Id: ch_bulk_${index}`,
+    );
+  }
+  git(repo, "switch", "main");
+
+  const planned = spawnSync(
+    process.execPath,
+    [cli, "merge-plan", "feature", "--git-session", "--trace-git", "--json"],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    },
+  );
+  assert.equal(planned.status, 0);
+  const plan = JSON.parse(planned.stdout);
+  assert.equal(plan.changes.length, 12);
+  assert.equal(plan.counts.new, 12);
+  assert.equal((planned.stderr.match(/git log /g) ?? []).length, 2);
+  assert.equal((planned.stderr.match(/git show /g) ?? []).length, 0);
+
+  const fallback = JSON.parse(
+    vlab(repo, "merge-plan", "feature", "--no-git-session", "--json"),
+  );
+  assert.deepEqual(fallback, plan);
+
+  const failedSession = spawnSync(
+    process.execPath,
+    [cli, "merge-plan", "feature", "--git-session", "--trace-git", "--json"],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        VLAB_TEST_GIT_SESSION_FAILURE: "1",
+      },
+    },
+  );
+  assert.equal(failedSession.status, 0);
+  assert.deepEqual(JSON.parse(failedSession.stdout), plan);
+  assert.match(failedSession.stderr, /using ordinary processes/i);
 });
 
 test("forecast previews and batch-applies pinned exact resolutions without mutation", (t) => {
@@ -1281,6 +1382,7 @@ test("workspace forecast compares committed agent heads without touching drafts"
       "forecast",
       "target-agent",
       "source-agent",
+      "--git-session",
       "--json",
     ),
   );
@@ -1297,6 +1399,8 @@ test("workspace forecast compares committed agent heads without touching drafts"
     1,
   );
   assert.equal(forecast.targetWorktree, targetPath);
+  assert.ok(forecast.timings.git.sessionQueries > 0);
+  assert.ok(forecast.timings.git.processes < forecast.timings.git.count);
   assert.equal(git(targetPath, "rev-parse", "HEAD"), targetHead);
   assert.equal(git(sourcePath, "rev-parse", "HEAD"), sourceHead);
   assert.equal(git(sourcePath, "status", "--porcelain=v1"), sourceStatus);

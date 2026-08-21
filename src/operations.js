@@ -14,6 +14,7 @@ import {
   resolveRevision,
   runGit,
   treeId,
+  withGitObjectSession,
 } from "./git.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
@@ -193,8 +194,10 @@ function recordSuccessfulApplication(operation, relation, cwd) {
 }
 
 function finalizeReconciliation(operation, cwd) {
-  const attachedTo = currentHead(cwd);
-  const resultTree = treeId(attachedTo, cwd);
+  const [attachedTo, resultTree] = resolveObjectIds(
+    ["HEAD^{commit}", "HEAD^{tree}"],
+    cwd,
+  );
   const predictedTree = operation.forecastApproval?.predictedResultTree;
   if (predictedTree && predictedTree !== resultTree) {
     operation.state = "forecast-mismatch";
@@ -320,27 +323,50 @@ function accumulateGitMetrics(operation, metrics) {
   operation.timings ??= { activeApplicationMs: 0 };
   const existing = operation.timings.git ?? {
     count: 0,
+    processes: 0,
+    sessionQueries: 0,
+    cacheHits: 0,
     totalMs: 0,
     failed: 0,
     byCommand: [],
   };
   const byCommand = new Map(
-    existing.byCommand.map((item) => [item.command, { ...item }]),
+    existing.byCommand.map((item) => [
+      item.command,
+      {
+        ...item,
+        processes: item.processes ?? item.count,
+        sessionQueries: item.sessionQueries ?? 0,
+        cacheHits: item.cacheHits ?? 0,
+      },
+    ]),
   );
   for (const item of metrics.byCommand) {
     const current = byCommand.get(item.command) ?? {
       command: item.command,
       count: 0,
+      processes: 0,
+      sessionQueries: 0,
+      cacheHits: 0,
       totalMs: 0,
       maxMs: 0,
     };
     current.count += item.count;
+    current.processes += item.processes ?? item.count;
+    current.sessionQueries += item.sessionQueries ?? 0;
+    current.cacheHits += item.cacheHits ?? 0;
     current.totalMs += item.totalMs;
     current.maxMs = Math.max(current.maxMs, item.maxMs);
     byCommand.set(item.command, current);
   }
   operation.timings.git = {
     count: existing.count + metrics.count,
+    processes:
+      (existing.processes ?? existing.count) +
+      (metrics.processes ?? metrics.count),
+    sessionQueries:
+      (existing.sessionQueries ?? 0) + (metrics.sessionQueries ?? 0),
+    cacheHits: (existing.cacheHits ?? 0) + (metrics.cacheHits ?? 0),
     totalMs: Number((existing.totalMs + metrics.totalMs).toFixed(2)),
     failed: existing.failed + metrics.failed,
     byCommand: [...byCommand.values()]
@@ -560,14 +586,21 @@ function startOperation(sourceRef, plan, options, cwd) {
     startedAt: new Date().toISOString(),
     timings: {
       activeApplicationMs: 0,
-      git: { count: 0, totalMs: 0, failed: 0, byCommand: [] },
+      git: {
+        count: 0,
+        processes: 0,
+        sessionQueries: 0,
+        cacheHits: 0,
+        totalMs: 0,
+        failed: 0,
+        byCommand: [],
+      },
     },
     updatedAt: new Date().toISOString(),
   };
 }
 
-export function reconcile(sourceRef, options = {}) {
-  const cwd = options.cwd ?? process.cwd();
+function reconcileInSession(sourceRef, options, cwd) {
   if (readReconciliationState(cwd)) {
     throw new CliError(
       "A reconciliation is already in progress in this worktree.",
@@ -603,6 +636,13 @@ export function reconcile(sourceRef, options = {}) {
   );
   writeReconciliationState(operation, cwd);
   return runReconciliationQueue(operation, cwd, performance.now());
+}
+
+export function reconcile(sourceRef, options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  return withGitObjectSession(cwd, () =>
+    reconcileInSession(sourceRef, options, cwd),
+  );
 }
 
 export function reconciliationStatus(options = {}) {
@@ -656,8 +696,7 @@ function forkMergeMessage(operation, cwd) {
   writeReconciliationState(operation, cwd);
 }
 
-export function continueReconciliation(options = {}) {
-  const cwd = options.cwd ?? process.cwd();
+function continueReconciliationInSession(options, cwd) {
   const phaseStarted = performance.now();
   const operation = requirePendingReconciliation(cwd);
   if (!operation.current) {
@@ -718,6 +757,13 @@ export function continueReconciliation(options = {}) {
     : "contextual-application";
   recordSuccessfulApplication(operation, relation, cwd);
   return runReconciliationQueue(operation, cwd, phaseStarted);
+}
+
+export function continueReconciliation(options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  return withGitObjectSession(cwd, () =>
+    continueReconciliationInSession(options, cwd),
+  );
 }
 
 export function abortReconciliation(options = {}) {

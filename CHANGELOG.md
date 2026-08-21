@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.0
+
+- Add a worktree-scoped persistent `git cat-file --batch-command` session for
+  immutable object reads during planning, forecasting, and reconciliation.
+- Enable the session automatically on Windows, where measured Git process
+  startup dominates latency; retain explicit `--git-session` and
+  `--no-git-session` controls on every command.
+- Cache only full object-ID expressions, invalidate session state after
+  mutations, isolate sessions by worktree path, and fall back to ordinary Git
+  processes if the persistent worker becomes unavailable.
+- Batch target and source commit metadata into two `git log` operations instead
+  of spawning `git show` once per commit, keeping planning process count
+  independent of branch length.
+- Batch note-object reads and use one reachability walk rather than one ancestry
+  and note process per causal record.
+- Resolve related head/tree probes together and read cherry-pick state directly
+  from each worktree's private Git directory.
+- Distinguish logical Git queries, actual process launches, persistent-session
+  queries, and immutable-object cache hits in forecasts, receipts, doctor
+  output, and `--trace-git` diagnostics.
+- Extend `vlab doctor --benchmark` with an object-session probe and add
+  `npm run demo:git-session`, which verifies identical forecasts while
+  comparing persistent and ordinary process counts.
+- Reduce the 12-change forecast demo from 52 ordinary Git processes to 25
+  processes (51.9% fewer on the release test host), while the deterministic
+  spec reconciliation application uses 6 processes for 10 logical queries.
+- Expand the integration suite to 29 tests and run it in both persistent and
+  ordinary plumbing modes, including forced worker-failure fallback and
+  multi-worktree forecast isolation.
+
 ## 0.6.0
 
 - Replace expanded v2 specification sidecars with sparse v3 manifests that

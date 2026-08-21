@@ -151,6 +151,35 @@ and tree identities are resolved together. The integration suite caps the
 representative deterministic-spec reconciliation path at 10 Git subprocesses,
 down from the 19-call Windows v0.5 observation that motivated this work.
 
+Version 0.7 separates a logical Git query from an operating-system process
+launch. During a planning, forecast, or reconciliation invocation, immutable
+object reads can share one `git cat-file --batch-command` process scoped to the
+exact worktree path. The synchronous CLI talks to an asynchronous worker thread
+through a bounded shared-memory response channel, preserving the existing
+synchronous domain APIs while the worker owns Git's streaming protocol.
+
+The session deliberately caches only expressions rooted at a complete SHA-1 or
+SHA-256 object ID. Symbolic names such as `HEAD`, branch refs, and index
+expressions are always queried again. Successful mutation commands invalidate
+the worktree session, and a session failure falls back to the ordinary Git
+path. Separate linked worktrees receive separate sessions because `HEAD`, the
+index, and in-progress operation files are worktree-private even when objects
+and causal metadata are shared.
+
+Windows enables this path by default based on the measured process-startup
+cost. Other platforms can opt in, but do not pay the worker startup cost by
+default when Git launches in a few milliseconds. `--git-session` and
+`--no-git-session` make both paths directly comparable. Metrics now distinguish
+logical queries, process launches, session queries, and immutable cache hits.
+
+Object reuse is paired with structural query reduction: target history and
+source-range metadata come from two bounded `git log` streams instead of one
+`git show` per commit; note payloads are read as an object batch after one
+reachability walk; related revision/tree identities are resolved together; and
+cherry-pick state is read from the worktree's private Git directory. In the
+release demo, a 12-change forecast drops from 52 Git processes to 25 while
+producing the same plan, step trees, and predicted result tree.
+
 ## Workspace checkpoint
 
 The checkpoint command creates a temporary Git index, reads `HEAD` into it, adds the current working tree, writes a tree, and uses `git commit-tree` to create an immutable checkpoint. The real index and worktree are untouched. A hidden ref prevents garbage collection.

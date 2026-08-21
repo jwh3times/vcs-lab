@@ -1,4 +1,4 @@
-import { runGit } from "./git.js";
+import { readGitObjects, runGit } from "./git.js";
 
 export const NOTES_REF = "vcs-lab";
 
@@ -39,6 +39,10 @@ export function appendNote(commit, record, cwd = process.cwd()) {
 }
 
 export function listNoteTargets(cwd = process.cwd()) {
+  return listNoteEntries(cwd).map((entry) => entry.target);
+}
+
+function listNoteEntries(cwd = process.cwd()) {
   const result = runGit(["notes", `--ref=${NOTES_REF}`, "list"], {
     cwd,
     allowFailure: true,
@@ -47,33 +51,62 @@ export function listNoteTargets(cwd = process.cwd()) {
   return result.stdout
     .split(/\r?\n/)
     .filter(Boolean)
-    .map((line) => line.trim().split(/\s+/)[1])
+    .map((line) => {
+      const [note, target] = line.trim().split(/\s+/);
+      return note && target ? { note, target } : null;
+    })
     .filter(Boolean);
 }
 
-export function listNoteRecords(cwd = process.cwd()) {
+function parseNoteContent(content) {
+  const text = content.toString("utf8").trim();
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      return { schema: "vcs-lab.note/v1", records: parsed };
+    }
+    if (parsed && Array.isArray(parsed.records)) return parsed;
+  } catch {
+    return {
+      schema: "vcs-lab.note/v1",
+      records: [{ type: "legacy-note", text }],
+    };
+  }
+  return { schema: "vcs-lab.note/v1", records: [] };
+}
+
+function recordsForEntries(entries, cwd) {
+  if (entries.length === 0) return [];
+  const objects = readGitObjects(entries.map((entry) => entry.note), cwd);
   const records = [];
-  for (const target of listNoteTargets(cwd)) {
-    for (const record of readNote(target, cwd).records) {
-      records.push({ ...record, attachedTo: target });
+  for (let index = 0; index < entries.length; index += 1) {
+    const object = objects[index];
+    if (!object.exists || object.type !== "blob") continue;
+    for (const record of parseNoteContent(object.content).records) {
+      records.push({ ...record, attachedTo: entries[index].target });
     }
   }
-  return records.sort((left, right) =>
+  return records;
+}
+
+export function listNoteRecords(cwd = process.cwd()) {
+  return recordsForEntries(listNoteEntries(cwd), cwd).sort((left, right) =>
     String(left.createdAt ?? "").localeCompare(String(right.createdAt ?? "")),
   );
 }
 
-export function recordsReachableFrom(ref, cwd = process.cwd()) {
-  const records = [];
-  for (const target of listNoteTargets(cwd)) {
-    const reachable = runGit(["merge-base", "--is-ancestor", target, ref], {
-      cwd,
-      allowFailure: true,
-    }).ok;
-    if (!reachable) continue;
-    for (const record of readNote(target, cwd).records) {
-      records.push({ ...record, attachedTo: target });
-    }
+export function recordsReachableFrom(
+  ref,
+  cwd = process.cwd(),
+  reachableCommits = null,
+) {
+  let reachable = reachableCommits;
+  if (!reachable) {
+    const output = runGit(["rev-list", ref], { cwd }).stdout;
+    reachable = new Set(output ? output.split(/\r?\n/).filter(Boolean) : []);
   }
-  return records;
+  const entries = listNoteEntries(cwd).filter((entry) =>
+    reachable.has(entry.target),
+  );
+  return recordsForEntries(entries, cwd);
 }

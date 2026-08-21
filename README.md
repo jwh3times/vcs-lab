@@ -7,6 +7,7 @@
 - compact merges retain a real causal parent while displaying as one first-parent landing;
 - hard squashes record exactly what they absorbed in a causal landing receipt;
 - a merge planner subtracts proven prior work instead of relying only on Git topology;
+- Windows planning and forecasting reuse a worktree-scoped Git object process instead of spawning once per read;
 - reconciliation can be forecast in an isolated worktree and pinned before application;
 - indexed Markdown can be merged deterministically by stable block identity;
 - conflicted reconciliation can pause, survive process exit, continue, or abort safely;
@@ -43,7 +44,7 @@ On Windows, use PowerShell, Git Bash, or a terminal where `git` and `node` are o
 This project now has its own Git history and should live in a normal development repository. The portable repository bundle retains the release commits and tags:
 
 ```bash
-git clone /path/to/causal-vcs-lab-0.6.0.bundle vcs-lab
+git clone /path/to/causal-vcs-lab-0.7.0.bundle vcs-lab
 cd vcs-lab
 git remote remove origin
 npm link
@@ -55,7 +56,7 @@ If you instead use the source ZIP, initialize its extracted directory with:
 ```bash
 git init -b main
 git add .
-git commit -m "Bootstrap causal-vcs-lab 0.6.0"
+git commit -m "Bootstrap causal-vcs-lab 0.7.0"
 npm link
 npm test
 ```
@@ -408,7 +409,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab workspace ...` | Worktree-backed workspaces, checkpoints, and committed-head forecasts |
 | `vlab spec ...` | Incremental indexing, block merge planning, explicit resolution, and corpus benchmarks |
 | `vlab receipts` | Inspect causal records as text or JSON |
-| `vlab doctor --benchmark` | Sample Git subprocess latency in the current repository |
+| `vlab doctor --benchmark` | Sample ordinary Git latency and persistent object-session reuse |
 
 ## Metadata locations
 
@@ -432,25 +433,44 @@ records and the hidden resolution refs retain the result blobs.
 
 ## Measuring the compatibility layer
 
-The current lab starts a Git process for each storage or graph operation. Get a
-small repeatable baseline for the current repository with:
+Version 0.7 keeps mutation commands as ordinary Git processes but can route
+repeated immutable object queries through one worktree-scoped
+`git cat-file --batch-command` process. It is enabled automatically on Windows,
+where the observed 80–130 ms process startup cost dominates these operations.
+On other platforms it remains opt-in because a local Git process may take only
+a few milliseconds.
+
+Get both the ordinary-process baseline and the persistent-session probe with:
 
 ```bash
 vlab doctor --benchmark --samples 10 --warmup 2
 ```
 
-For command-by-command timings, enable tracing for one invocation:
+For command-by-command timings, enable tracing directly on one invocation:
 
 ```bash
-VLAB_TRACE=1 vlab merge-plan feature
+vlab forecast feature --trace-git
 ```
 
-Trace output contains durations and Git command names, not file content or
-commit messages. These probes are intended to reveal when the compatibility
-layer or a synchronized filesystem becomes the bottleneck.
+`--git-session` forces the persistent path and `--no-git-session` forces the
+ordinary compatibility path. If a session fails, the command continues through
+ordinary Git. Trace output contains command names, durations, and whether a
+query started a process, reused the session, or hit the immutable object cache;
+it never includes file content or commit messages.
+
+Run an equality-checked comparison over a 12-change forecast with:
+
+```bash
+npm run demo:git-session
+```
+
+On the release test host the persistent path produced the identical forecast
+with 25 Git processes instead of 52, a 51.9% reduction. Wall time remains a
+machine-specific measurement; process count and result-tree equality are the
+portable acceptance invariants.
 
 Forecast output separately reports preflight, planning, simulation, invariant,
-temporary-worktree, and Git subprocess totals. Completed
+temporary-worktree, logical-query, and actual-process totals. Completed
 reconciliation receipts report active application time, excluding time spent
 waiting for a person between a conflict and `--continue`, plus total elapsed
 wall time.
@@ -491,12 +511,14 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The 28-test integration suite creates disposable Git repositories and exercises
+The 29-test integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
 non-mutating and stale-safe forecasts, pinned batch application, committed-head
 workspace comparison, independent worktree operations, checkpoints, annotated
 Markdown stability, sparse-manifest migration, zero-read incremental indexing,
 clean and blocked deterministic block merges, forecasted and explicit semantic
-application, conservative patch-equivalence handling, corpus measurements, and
-Git timing probes.
+application, conservative patch-equivalence handling, corpus measurements,
+batched history planning, persistent-session fallback, worktree isolation, and
+Git timing probes. The complete suite is also run with
+`VLAB_GIT_SESSION=1` to exercise the Windows-default path.
