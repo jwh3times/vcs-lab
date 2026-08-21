@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.1
+
+- Add a full product requirements document with predecessor lessons, AI-agent
+  and specification use cases, guiding principles, identified functional and
+  non-functional requirements, acceptance signals, success metrics, release
+  gates, roadmap criteria, risks, and open questions.
+- Add a current architecture reference covering components, identity and
+  persistence models, versioned schemas, causal planning, landing, forecast,
+  reconciliation, resolution, workspace, specification, Git-session, failure,
+  trust, performance, and extension boundaries.
+- Add an architecture decision record process and ten initial ADRs: nine
+  accepted decisions for the v0.7 implementation and one proposed metadata
+  integrity/portability direction.
+- Add a self-contained new-session handoff with the preserved product intent,
+  Windows repository path, release history, source/runtime maps, invariant
+  checklist, baseline commands, known risks, a detailed candidate v0.8 track,
+  release discipline, and a copy/paste continuation prompt.
+- Add an explicit documentation authority/navigation map and clarify that the
+  earlier design notes are historical rationale rather than the sole current
+  product contract.
+
 ## 0.7.0
 
 - Add a worktree-scoped persistent `git cat-file --batch-command` session for

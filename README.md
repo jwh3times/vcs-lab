@@ -17,6 +17,20 @@
 
 This is a laboratory, not a production VCS. Its purpose is to make the semantics observable and falsifiable before designing a native object store or network protocol.
 
+## Documentation map
+
+- [PRD.md](PRD.md) defines the product problem, principles, identified
+  requirements, success metrics, release gates, and roadmap.
+- [ARCHITECTURE.md](ARCHITECTURE.md) maps the current implementation, schemas,
+  persistence scopes, runtime flows, safety boundaries, and known debt.
+- [docs/adr](docs/adr/README.md) records the decisions that should not be
+  casually reversed during refactoring.
+- [SESSION_HANDOFF.md](SESSION_HANDOFF.md) is the detailed new-session pickup
+  guide, including the exact source map, validation commands, preserved user
+  intent, and recommended next release track.
+- [DESIGN.md](DESIGN.md) retains the chronological experiment rationale, while
+  [CHANGELOG.md](CHANGELOG.md) records delivered behavior by version.
+
 ## Requirements
 
 - Node.js 20 or newer
@@ -44,7 +58,7 @@ On Windows, use PowerShell, Git Bash, or a terminal where `git` and `node` are o
 This project now has its own Git history and should live in a normal development repository. The portable repository bundle retains the release commits and tags:
 
 ```bash
-git clone /path/to/causal-vcs-lab-0.7.0.bundle vcs-lab
+git clone /path/to/causal-vcs-lab-0.7.1.bundle vcs-lab
 cd vcs-lab
 git remote remove origin
 npm link
@@ -56,7 +70,7 @@ If you instead use the source ZIP, initialize its extracted directory with:
 ```bash
 git init -b main
 git add .
-git commit -m "Bootstrap causal-vcs-lab 0.7.0"
+git commit -m "Bootstrap causal-vcs-lab 0.7.1"
 npm link
 npm test
 ```

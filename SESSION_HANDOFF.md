@@ -1,0 +1,633 @@
+# New-session handoff: vcs-lab
+
+## Purpose of this document
+
+This is the operational handoff for continuing the repository in a fresh
+development or AI-agent session. It preserves the product motivation, current
+release state, implementation map, validation baseline, non-negotiable
+invariants, known gaps, and the recommended next increment.
+
+It is deliberately self-contained enough to recover context, but it does not
+replace the authoritative documents:
+
+1. [PRD.md](PRD.md) — product scope, requirements, priorities, success metrics,
+   and roadmap gates.
+2. [ARCHITECTURE.md](ARCHITECTURE.md) — current components, state, flows,
+   schemas, safety model, and limitations.
+3. [docs/adr/README.md](docs/adr/README.md) — normative decisions and their
+   consequences.
+4. [README.md](README.md) — user commands and experiments.
+5. [DESIGN.md](DESIGN.md) — chronological experiment rationale.
+6. [CHANGELOG.md](CHANGELOG.md) — delivered changes by release.
+
+If this handoff becomes stale, update it rather than allowing a new session to
+guess.
+
+## 1. Original user intent
+
+The work began as a design exploration for a highly optimized modern source
+control protocol informed by SVN and Git and designed for the volume and
+parallelism of specification-driven AI development.
+
+The user explicitly values:
+
+- Git compatibility because Git is the adoption standard;
+- easy branching;
+- a simpler, safer merge and rebase experience;
+- avoiding false “completely different history” behavior when a branch was
+  squash-merged and later merges back despite near-identical code;
+- cherry-picking with preserved intent and explicit divergence;
+- worktrees as a first-class experience because AI agents use them heavily;
+- high performance on Windows and in a OneDrive-hosted development directory;
+- support for a very large volume of specifications and generated documents.
+
+The product direction chosen is a hybrid: prove new causal and semantic
+behavior as a local Git compatibility layer before committing to a native
+object store, server, or wire protocol.
+
+## 2. User's preferred repository location
+
+The user's canonical local Windows project directory is:
+
+```text
+C:\Users\jerry\OneDrive\Documents\VSCodeProjects\vcs-lab
+```
+
+Do not move or recreate the repository somewhere else on the user's machine
+without a specific reason and approval. Disposable demo repositories belong
+under the system temporary directory and should print their path.
+
+## 3. Release and repository baseline
+
+The implementation baseline was established by v0.7.0; v0.7.1 is the
+documentation-only product/architecture baseline that accompanies it. The v0.7
+series contains 29 integration tests, all of which passed on the release host
+both normally and with the persistent Git object session forced on. All
+maintained demos also passed.
+
+Do not trust a hard-coded commit from a handoff; establish the exact checkout
+first:
+
+```powershell
+Set-Location C:\Users\jerry\OneDrive\Documents\VSCodeProjects\vcs-lab
+git status --short --branch
+git describe --tags --always --dirty
+git log -1 --oneline --decorate
+node --version
+git --version
+```
+
+Expected requirements:
+
+- Node.js 20 or newer;
+- Git 2.38 or newer;
+- no npm runtime dependencies;
+- `main` clean before starting a release or broad reconciliation experiment.
+
+If `git status` is not clean, preserve the user's changes. Inspect them and
+work around them; never reset, discard, or overwrite them just to reach the
+expected baseline.
+
+## 4. What has been implemented
+
+### v0.1 — causal identity foundation
+
+- Stable `Change-Id` trailers.
+- Compact two-parent landing and strict hard-squash landing.
+- Landing receipts with absorbed commits and logical IDs.
+- Merge planning with causal coverage and patch candidates.
+- Cherry-pick continuity/fork.
+- Worktree-backed workspaces and non-disruptive checkpoints.
+- Initial stable Markdown block identity.
+
+### v0.2 — durable conflict operations
+
+- Worktree-local reconciliation journal.
+- Status, process-separated continue, and safe abort.
+- Contextual application versus explicit logical fork.
+- No partial receipt publication before queue success.
+- Multi-worktree operation isolation.
+- Windows line-ending stabilization in v0.2.1.
+
+### v0.3 — exact resolution memory
+
+- Path-independent ordered base/target/source blob signature.
+- Shared, garbage-collection-safe retained result blobs.
+- Explicit apply/reject/list/status workflow.
+- Ambiguous result selection by ID.
+- Created/accepted/modified/rejected provenance.
+- Git latency probes and concise human output.
+
+### v0.4 — proactive forecasting
+
+- Detached temporary-worktree simulation.
+- Caller `HEAD`/index/files invariant checks.
+- Exact source/target/plan/decision pinning.
+- `--use-forecast` reviewed batch application.
+- Predicted final-tree enforcement.
+- Workspace-head forecasts and phase timing.
+
+### v0.5 — deterministic specification merge
+
+- Stable heading-section three-way merge.
+- Independent edit and move-plus-edit combination.
+- Explicit same-block/delete-edit/order blockers.
+- Semantic forecast and paused-operation resolution.
+- Pinned document/manifest hashes and audited modifications.
+- Corpus benchmark and structured Git call metrics.
+
+### v0.6 — sparse specification metadata
+
+- Sparse manifest v3 and v1/v2 identity-preserving migration.
+- Git-blob zero-content-read path for unchanged tracked documents.
+- Batched base/target/source spec object reads.
+- Representative semantic reconcile reduced to at most 10 Git processes.
+- Default benchmark: 11,240 sparse bytes versus 655,545 expanded-equivalent
+  bytes for 2,025 entities (98.29% less).
+
+The user independently verified on Windows that one real manifest migrated
+from 1,604 to 443 bytes (72.4% reduction) with all semantic IDs preserved. The
+user also verified the deterministic spec forecast/reconcile result and the
+zero-read unchanged index path.
+
+### v0.7 — persistent Git object plumbing
+
+- Invocation-scoped `git cat-file --batch-command` worker/session.
+- Enabled by default on Windows, opt-in elsewhere.
+- `--git-session`, `--no-git-session`, and `--trace-git` controls.
+- Immutable cache limited to full-OID-rooted expressions.
+- Mutation invalidation, per-worktree scoping, bounded channels, and ordinary
+  Git fallback.
+- Batched target/source history and note object reads.
+- Metrics distinguish logical queries, processes, session queries, and cache
+  hits.
+- Release demo reduced a 12-change forecast from 52 to 25 processes (51.9%)
+  with identical plan and predicted tree.
+- Deterministic spec reconciliation performs 10 logical queries through 6
+  actual Git processes in the release path.
+
+The user has not yet supplied an independent v0.7 Windows session-demo report
+in the preserved conversation. Capturing that evidence remains useful but does
+not block documentation work.
+
+## 5. Fast start for a new session
+
+### 5.1 Read and verify before editing
+
+```powershell
+Set-Location C:\Users\jerry\OneDrive\Documents\VSCodeProjects\vcs-lab
+
+git status --short --branch
+git log -5 --oneline --decorate
+Get-Content package.json
+
+Get-Content PRD.md -TotalCount 80
+Get-Content ARCHITECTURE.md -TotalCount 80
+Get-Content docs\adr\README.md
+Get-Content SESSION_HANDOFF.md -TotalCount 120
+```
+
+Then run the baseline tests appropriate to the task. For any behavior change,
+run both modes:
+
+```powershell
+npm test
+
+$env:VLAB_GIT_SESSION = "1"
+npm test
+Remove-Item Env:VLAB_GIT_SESSION
+```
+
+The expected baseline is 29 passing tests in each mode. A documentation-only
+change may run the ordinary suite plus link/packaging checks, but a release
+should still preserve the full gate in [PRD.md](PRD.md#14-release-and-quality-gates).
+
+### 5.2 User-observable demos
+
+```powershell
+npm run demo
+npm run demo:conflict
+npm run demo:resolution
+npm run demo:forecast
+npm run demo:spec
+npm run demo:git-session
+```
+
+Each script creates a disposable repository and prints its path and follow-up
+commands. Do not treat demo branch/object IDs as stable across runs.
+
+### 5.3 Windows measurements worth collecting
+
+```powershell
+vlab doctor --benchmark --samples 10 --warmup 2
+npm run demo:git-session
+```
+
+Record both wall time and process count. The semantic acceptance signal is
+identical plans/step trees/predicted tree between modes. Process count is more
+portable than a single timing observation.
+
+## 6. Source map for implementation work
+
+| Concern | Start here | Also inspect |
+| --- | --- | --- |
+| CLI syntax/output | `src/cli.js` | `bin/vlab.js`, README command table |
+| Git process/session/metrics | `src/git.js` | `src/git-session-worker.js`, session tests/demo |
+| Coverage classifications | `src/merge-plan.js` | `src/notes.js`, landing/reconciliation schemas |
+| Compact/hard-squash merge | `src/landings.js` | merge-plan tests |
+| Forecast simulation/pinning | `src/forecasts.js` | `src/operations.js`, stale/mismatch tests |
+| Reconcile start/continue/abort | `src/operations.js` | `src/reconcile-state.js`, conflict tests |
+| Exact conflict memory | `src/resolutions.js` | `src/notes.js`, resolution tests/demo |
+| Worktrees/workspaces/checkpoints | `src/workspaces.js` | `src/store.js`, workspace tests |
+| Markdown identity/index/merge | `src/specs.js` | spec tests and `scripts/spec-merge-demo.mjs` |
+| Shared note records | `src/notes.js` | `refs/notes/vcs-lab` behavior |
+| Common/private runtime paths | `src/store.js`, `src/reconcile-state.js` | `repoContext` in `src/git.js` |
+| IDs and hashes | `src/ids.js` | schema fields that name algorithms |
+| End-to-end contract | `test/integration.test.js` | all demo scripts |
+| User narrative | `README.md` | PRD, architecture, changelog |
+
+Avoid broad refactoring before reading the relevant integration scenarios. The
+suite is intentionally end-to-end because Git state, worktree boundaries,
+line endings, and process interruption are part of the behavior.
+
+## 7. Runtime state map
+
+| State | Location | Scope |
+| --- | --- | --- |
+| Causal records | `refs/notes/vcs-lab` | Shared repository, not normal-fetch by default |
+| Resolution retention | `refs/vcs-lab/resolutions/*` | Shared repository, not normal-fetch by default |
+| Checkpoints | `refs/vcs-lab/checkpoints/*` | Shared repository/local experiment |
+| Workspace registry | common Git dir, `vcs-lab/workspaces.json` | Shared among linked worktrees, machine-local paths |
+| Pending reconciliation | current worktree Git dir, `vcs-lab/reconciliation.json` | Worktree-private |
+| Forecasts | current worktree Git dir, `vcs-lab/forecasts/*.json` | Worktree-private |
+| Spec manifests | `.vcs-lab/specs/**/*.json` | Tracked and portable with project source |
+
+Current manual remote transfer requires both:
+
+```powershell
+git fetch origin refs/notes/vcs-lab:refs/notes/vcs-lab
+git fetch origin 'refs/vcs-lab/resolutions/*:refs/vcs-lab/resolutions/*'
+```
+
+Do not claim metadata portability is complete merely because one namespace was
+fetched.
+
+## 8. Invariants that must not regress
+
+These are the shortest high-value review checklist for any new change:
+
+1. Git remains a valid, usable repository without `vlab`.
+2. Commit/tree identity, logical Change ID, application, and landing remain
+   distinct concepts.
+3. Compact merge retains a real source parent.
+4. Hard squash publishes a receipt only after a completed commit.
+5. Only exact accepted proofs silently mark work covered.
+6. Patch equivalence remains visible and opt-in.
+7. Forecasting leaves caller `HEAD`, index, and files unchanged.
+8. A forecast approval pins exact inputs and result; staleness fails before
+   mutation.
+9. A complete forecast must reproduce its predicted tree before receipts.
+10. Partial reconciliation receipts remain private until complete success.
+11. Abort returns to the exact operation starting commit.
+12. Pending operations and sessions are isolated per linked worktree.
+13. Exact resolution reuse matches ordered blob identity and requires approval.
+14. Ambiguous candidates do not auto-select.
+15. Deterministic semantic merge blocks ambiguous same-entity outcomes.
+16. Markdown remains canonical; a sidecar is sparse, derived, and consistent.
+17. Old semantic IDs survive supported manifest migration.
+18. Unchanged tracked spec indexing can take the zero-content-read path.
+19. Persistent Git plumbing and ordinary Git produce identical domain results.
+20. Session cache never treats mutable symbolic/index expressions as immutable.
+21. Trace output never prints repository content or full commit messages.
+22. A local receipt is not described as cryptographically trusted.
+
+If a proposed change intentionally breaks one, write a superseding ADR and
+update the PRD before relying on the new behavior.
+
+## 9. Known risks and unfinished areas
+
+### Highest-value product gap
+
+Causal metadata is not yet self-inventorying or safely portable between clones.
+Notes, resolution refs, tracked manifests, shared local workspace state, and
+worktree-private journals have different transfer semantics. There is no
+machine-validated whole-repository integrity report.
+
+### Other material gaps
+
+- Rebase is not a first-class forecast/plan operation.
+- Workspace archive/move/restore/prune and stale-path repair are incomplete.
+- Forecasting does not include checkpoint or dirty-worktree overlays.
+- There is no formal standalone schema catalog or schema negotiation.
+- Current records are locally forgeable and unsigned.
+- The historical proof label `signed-shaped-landing-receipt` overstates the
+  current trust layer; it means signature-shaped, not signature-verified.
+- Notes/resolution scans have not been characterized on genuinely large
+  repositories.
+- Crash/fault injection is not systematic at every Git-mutation/journal-write
+  boundary.
+- Semantic merge supports heading-oriented Markdown only.
+- A persistent cross-command service is deliberately not implemented.
+
+## 10. Recommended next release track: v0.8 metadata integrity and portability
+
+This is the recommended work, not an already accepted architecture. Begin by
+reviewing Proposed [ADR-0010](docs/adr/0010-add-a-validated-metadata-envelope-before-a-server.md).
+Do not promote it until repository/fork identity, compatibility, and import
+conflict rules are concrete.
+
+### 10.1 Target outcome
+
+A user can ask what causal metadata exists, whether it is internally complete,
+what is portable, and how to move the shared subset to another clone without
+memorizing internal refspecs. Invalid or unknown records cannot silently prove
+coverage. Integrity must be clearly separated from actor trust.
+
+### 10.2 Proposed scope
+
+#### Phase A — inventory and validation (read-only first)
+
+Add a command family such as:
+
+```text
+vlab metadata status [--json]
+vlab metadata validate [--strict] [--json]
+```
+
+The exact names may change during design. The read-only inventory should report:
+
+- repository root/object format and relevant ref namespaces;
+- note target count and records by schema/type/version;
+- missing note attachments or referenced commits/trees;
+- resolution records, retention refs, and missing/mismatched result blobs;
+- checkpoint refs and workspace registry health;
+- worktree-private pending operations/forecast counts without exposing content;
+- tracked spec manifests by schema and source consistency;
+- unknown/newer schemas;
+- which data is shared-portable, tracked-portable, shared-local, or private;
+- stable diagnostic codes in JSON, not prose-only errors.
+
+Suggested initial diagnostic categories:
+
+```text
+unknown-schema
+malformed-record
+missing-attachment
+missing-referenced-object
+missing-resolution-ref
+missing-resolution-blob
+resolution-signature-mismatch
+workspace-path-missing
+spec-source-missing
+spec-manifest-stale
+private-operation-in-progress
+```
+
+Do not let an invalid record participate in causal coverage merely because a
+JSON parse succeeded.
+
+#### Phase B — portable envelope design
+
+Define, document, and test a versioned representation such as
+`vcs-lab.metadata-envelope/v1` containing:
+
+- envelope/schema version and producer version;
+- Git object format and a carefully defined repository lineage identifier;
+- capability list and included namespaces;
+- deterministic inventory entries with attachment/ref/object IDs;
+- hashes for non-Git envelope content;
+- explicit exclusions for workspace-private/machine-local state;
+- compatibility behavior for unknown record versions;
+- no claim of signature trust unless a future signature layer is present.
+
+Prefer reusing Git objects and refs rather than copying their byte content into
+large JSON. Evaluate at least:
+
+1. a Git bundle carrying dedicated metadata refs plus a small manifest;
+2. deterministic manifest plus explicit fetch/push refspec orchestration;
+3. one append-only namespaced metadata tree/ref.
+
+Document the selected tradeoff in a superseding or accepted ADR.
+
+#### Phase C — export/import experiment
+
+Candidate commands:
+
+```text
+vlab metadata export <path> [--json]
+vlab metadata import <path> --dry-run [--json]
+vlab metadata import <path> --apply [--json]
+```
+
+Safety requirements:
+
+- import previews exact refs/records/objects before mutation;
+- imports are idempotent;
+- existing conflicting record IDs or ref results never overwrite silently;
+- invalid and unknown records are rejected or quarantined;
+- no worktree-private reconciliation journal is exported by default;
+- imported facts are still not treated as cryptographically trusted;
+- partial failure leaves existing repository facts intact and recoverable.
+
+#### Phase D — two-clone conformance fixture
+
+Create a disposable source repository containing:
+
+- hard-squash and reconciliation receipts;
+- one exact reusable resolution and retained result blob;
+- a checkpoint/workspace to verify local/private exclusion rules;
+- an indexed v3 spec;
+- an unknown-schema and broken-reference fixture for validation tests.
+
+Export shared portable metadata, clone ordinary Git content, import the envelope,
+and verify:
+
+- merge plans classify the same changes with the same exact proofs;
+- the resolution catalog offers the same result blob;
+- spec entity IDs match;
+- repeated import is a no-op;
+- invalid fixture cannot affect coverage;
+- the destination has no source worktree-private operation state.
+
+### 10.3 Out of scope for this track
+
+- cryptographic signing or key management;
+- a hosted service or background daemon;
+- automatic push to arbitrary remotes;
+- server branch protection or authorization;
+- native replacement of Git objects;
+- syncing active private reconciliation journals;
+- AI-generated repair of corrupt metadata.
+
+### 10.4 Suggested module boundaries
+
+Do not put all logic into `src/cli.js`. A likely shape is:
+
+```text
+src/metadata.js             inventory, validation, scope classification
+src/metadata-envelope.js    deterministic envelope construction/parsing
+src/metadata-transfer.js    export/import staging and ref transaction
+src/schemas.js              schema/version registry and validators
+```
+
+This is a proposal, not a required filename set. Reuse `repoContext`, safe Git
+argument arrays, atomic JSON writing, `readGitObjects`, and metrics. Coverage
+planning should consume only records accepted by the validator once that path
+is introduced.
+
+### 10.5 Proposed v0.8 acceptance criteria
+
+1. Read-only inventory is deterministic and has stable JSON diagnostics.
+2. Existing v0.7 repositories validate without mutation.
+3. Corrupt, dangling, unknown, and ambiguous fixtures are handled explicitly.
+4. Shared portable data round-trips between two clones idempotently.
+5. Causal plan and exact-resolution behavior match after round-trip.
+6. Worktree-private and machine-local state is excluded by default.
+7. Import has a dry-run and does not silently overwrite conflicts.
+8. Ordinary and persistent Git session modes still pass the complete suite.
+9. Process/storage metrics are added for the representative envelope fixture.
+10. README, PRD, architecture, ADR status, changelog, and this handoff agree.
+
+## 11. Test and release discipline
+
+### During implementation
+
+- Add one disposable-repository integration scenario per new invariant.
+- Prefer read-only inspection before mutation features.
+- Keep command output concise and add `--json` for complete records.
+- Test Windows path and newline behavior; do not normalize bytes that are part
+  of a hash/signature contract.
+- Compare persistent-session and ordinary Git behavior.
+- Use explicit full paths/IDs for destructive cleanup; never broad recursive
+  deletion based on an unresolved variable.
+
+### Before release
+
+```powershell
+npm test
+
+$env:VLAB_GIT_SESSION = "1"
+npm test
+Remove-Item Env:VLAB_GIT_SESSION
+
+npm run demo
+npm run demo:conflict
+npm run demo:resolution
+npm run demo:forecast
+npm run demo:spec
+npm run demo:git-session
+
+git status --short
+git diff --check
+```
+
+Update together:
+
+- `package.json` version;
+- `src/version.js`;
+- version integration test if it contains a literal;
+- `CHANGELOG.md`;
+- README release artifact examples;
+- PRD current scorecard if capability status changed;
+- architecture schemas/flows;
+- ADR index/status;
+- this handoff;
+- annotated Git tag and portable release artifacts.
+
+### Release artifact verification
+
+For a Git bundle:
+
+```powershell
+git bundle verify .\causal-vcs-lab-X.Y.Z.bundle
+git clone .\causal-vcs-lab-X.Y.Z.bundle $env:TEMP\vlab-bundle-check
+Set-Location $env:TEMP\vlab-bundle-check
+npm test
+```
+
+For a source ZIP, extract it to a fresh directory, initialize Git as documented
+in README, and run version/test smoke checks. Record SHA-256 hashes outside the
+tracked source tree to avoid circular release-content changes.
+
+## 12. Practices for future sessions
+
+- Lead with evidence from `git status`, current code, tests, and measured demos.
+- Preserve unrelated or user-authored changes in a dirty worktree.
+- Make small, reviewable edits and inspect the diff after each coherent group.
+- Use Git-compatible operations and keep standard recovery visible.
+- Never label a heuristic “safe” without defining evidence and approval.
+- Never claim a local note is signed or authorized.
+- Avoid introducing dependencies or services unless their value exceeds the
+  maintenance, security, and portability cost.
+- Update durable documents during the implementation, not as an afterthought.
+- If the next task changes product intent, update PRD/ADR before code.
+- If the task only diagnoses a problem, do not silently implement a broader
+  fix.
+
+## 13. Useful repository queries
+
+```powershell
+# Current commands and help contract
+Select-String -Path src\cli.js -Pattern '^  vlab '
+
+# Persisted schema identifiers
+Get-ChildItem src -Filter *.js | Select-String -Pattern 'vcs-lab\.[a-z-]+/v[0-9]+'
+
+# Integration scenarios
+Select-String -Path test\integration.test.js -Pattern '^test\('
+
+# Hidden ref/runtime assumptions
+Get-ChildItem src -Filter *.js | Select-String -Pattern 'refs/vcs-lab|refs/notes|gitDir|commonDir'
+
+# Latest release history
+git log --oneline --decorate --max-count=20
+```
+
+On POSIX shells, use `rg` equivalents; `rg` is the preferred repository search
+tool when available.
+
+## 14. Copy/paste prompt for a new AI session
+
+```text
+Continue development of the vcs-lab repository at
+C:\Users\jerry\OneDrive\Documents\VSCodeProjects\vcs-lab.
+
+First read SESSION_HANDOFF.md, PRD.md, ARCHITECTURE.md, and
+docs/adr/README.md. Inspect git status and preserve any existing changes. Verify
+the current version/tag and run the relevant baseline tests before editing.
+
+The recommended next track is the v0.8 metadata integrity and portability work
+described in section 10 of SESSION_HANDOFF.md and Proposed ADR-0010. Begin with
+read-only inventory/validation and resolve the ADR's repository identity,
+schema compatibility, quarantine, and idempotent import rules before promoting
+it to Accepted. Keep Git as the substrate, keep worktree-private state out of
+portable exports, distinguish integrity from cryptographic trust, and preserve
+all invariants listed in section 8.
+
+Implement the agreed increment, add disposable-repository integration tests,
+run the suite with the persistent Git session both disabled and enabled, update
+all durable docs and changelog, and produce independently verified release
+artifacts. Do not add a server, daemon, signing system, or native object store
+as part of this increment unless I explicitly expand the scope.
+```
+
+## 15. Handoff completion checklist
+
+A future session is genuinely picked up when it can answer all of these from
+the repository, not from chat memory:
+
+- What problem is the product solving and why is Git retained?
+- Which identity proves exact state versus logical continuity?
+- Why does a hard squash not make its source commits Git ancestors?
+- What evidence may silently mark a change covered?
+- Which operation state is worktree-private versus repository-shared?
+- What exactly does a forecast pin and when are receipts published?
+- Why can an exact resolution be reused across a rename but not changed input?
+- Why is Markdown canonical and what does the sparse sidecar retain?
+- What can the persistent Git session cache safely?
+- What has passed on the release host versus been independently observed on
+  the user's Windows machine?
+- What is the next proposed scope, and which parts are deliberately excluded?
+
+If any answer is unclear, correct the durable docs before starting a broad new
+implementation.

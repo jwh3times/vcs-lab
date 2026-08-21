@@ -1,5 +1,11 @@
 # vcs-lab design notes
 
+This file preserves the chronological rationale of the experiments. The active
+product contract is [PRD.md](PRD.md), the current system map is
+[ARCHITECTURE.md](ARCHITECTURE.md), and normative decisions are indexed in
+[docs/adr](docs/adr/README.md). If this narrative conflicts with a later
+accepted ADR, the ADR governs.
+
 ## Purpose
 
 The prototype tests whether three additional identities are enough to repair common Git workflow problems without breaking Git compatibility:
