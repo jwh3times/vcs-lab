@@ -16,10 +16,27 @@
 - Keep patch-equivalent candidates fail-closed until `--accept-candidates`
   records an explicit omission decision; expose conflicts and unsupported
   merge topology without changing the caller.
+- Add supervised `vlab rebase <onto>` application for the current named branch,
+  with saved-forecast staleness checks, exact per-step tree enforcement, stable
+  Change IDs, explicit contextual forks, and blocked unexpected empty commits.
+- Add worktree-private `vcs-lab.rebase-operation/v1` journals plus process-safe
+  status/continue/abort recovery; exact abort restores the original source tip
+  and no application or summary facts publish before complete success.
+- Add validated shared `vcs-lab.rebase-application/v1` and
+  `vcs-lab.rebase/v1` records, causal coverage/graph/receipt integration, and
+  deterministic envelopes that retain referenced history made unreachable by
+  the branch rewrite.
 - Add disposable-repository tests for hard-squash continuation selection,
   repeatable caller non-mutation, advisory patch equivalence, and the linear-v1
   merge boundary, plus deterministic rebase forecasts, candidate pinning, and
-  conflict cleanup in ordinary and persistent Git-session modes.
+  conflict cleanup in ordinary and persistent Git-session modes. Add supervised
+  application tests for clean forecast reproduction, stale rejection,
+  exact-resolution reuse, conflict fork, unexpected empty blocking, partial
+  abort, linked-worktree isolation, and fresh-clone metadata portability.
+- Harden persistent Git-session shutdown by closing the batch-command input,
+  waiting for the underlying Git process to exit, and retaining bounded
+  terminate/fallback paths so Windows invocations do not leave worker or Git
+  processes behind.
 
 ## 0.8.0
 

@@ -339,6 +339,7 @@ class GitObjectSession {
     const header = new Int32Array(shared, 0, 4);
     this.worker.postMessage({ type: "close", shared });
     Atomics.wait(header, 0, 0, 5_000);
+    this.worker.terminate();
     this.worker.unref();
   }
 
@@ -346,6 +347,10 @@ class GitObjectSession {
     if (this.closed) return;
     this.failed = true;
     this.closed = true;
+    const shared = new SharedArrayBuffer(16 + 1024);
+    const header = new Int32Array(shared, 0, 4);
+    this.worker.postMessage({ type: "close", shared });
+    Atomics.wait(header, 0, 0, 5_000);
     this.worker.terminate();
     this.worker.unref();
   }

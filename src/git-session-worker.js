@@ -136,11 +136,32 @@ function respond(shared, value) {
   Atomics.notify(header, 0);
 }
 
+function closeGitSession(shared) {
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    respond(shared, { ok: true });
+    process.exit(0);
+  };
+  if (git.exitCode !== null || git.signalCode !== null) {
+    finish();
+    return;
+  }
+  git.once("exit", finish);
+  git.stdin.end();
+  const terminate = setTimeout(() => {
+    if (!finished) git.kill();
+  }, 2_000);
+  terminate.unref();
+  const fallback = setTimeout(finish, 4_000);
+  fallback.unref();
+}
+
 parentPort.on("message", async (message) => {
   if (message.type === "close") {
-    git.kill();
-    respond(message.shared, { ok: true });
-    process.exit(0);
+    closeGitSession(message.shared);
+    return;
   }
   try {
     const expressions = message.expressions.map(String);

@@ -47,7 +47,7 @@ function extractChangeId(commit, message) {
 function receiptCoverage(ref, directCommits, cwd) {
   const receipts = acceptedCausalRecords(
     recordsReachableFrom(ref, cwd, directCommits).filter((record) =>
-      ["landing", "reconciliation"].includes(record.type),
+      ["landing", "reconciliation", "rebase"].includes(record.type),
     ),
     cwd,
   );

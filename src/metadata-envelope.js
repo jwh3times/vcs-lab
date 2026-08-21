@@ -50,6 +50,7 @@ export function buildEnvelopeManifest(snapshot, payload, refs) {
     },
     capabilities: [
       "causal-notes/v1",
+      "causal-rebase/v1",
       "exact-resolutions/v1",
       "metadata-integrity/v1",
     ],
@@ -62,6 +63,7 @@ export function buildEnvelopeManifest(snapshot, payload, refs) {
       "shared-local/workspaces",
       "shared-local/checkpoints",
       "worktree-private/reconciliations",
+      "worktree-private/rebases",
       "worktree-private/forecasts",
     ],
     refs: [...refs].sort((left, right) => left.ref.localeCompare(right.ref)),

@@ -7,9 +7,10 @@
 - compact merges retain a real causal parent while displaying as one first-parent landing;
 - hard squashes record exactly what they absorbed in a causal landing receipt;
 - a merge planner subtracts proven prior work instead of relying only on Git topology;
-- causal rebase planning and forecasting preview exact omissions, heuristic
-  reviews, replay steps, conflicts, and the predicted tree without switching
-  branches;
+- causal rebase plans and forecasts preview exact omissions, heuristic reviews,
+  replay steps, conflicts, and the predicted tree before a supervised rewrite;
+- supervised causal rebase preserves stable intent, pauses and recovers through
+  a worktree-private journal, and publishes exact mappings only after success;
 - Windows planning and forecasting reuse a worktree-scoped Git object process instead of spawning once per read;
 - reconciliation can be forecast in an isolated worktree and pinned before application;
 - indexed Markdown can be merged deterministically by stable block identity;
@@ -205,9 +206,35 @@ Heuristic candidates still block a final prediction until explicitly accepted:
 vlab rebase-forecast main hard-feature --accept-candidates
 ```
 
-Branch application is not part of this development slice. Continue using
-ordinary Git rebase for mutation until the supervised-application and recovery
-slices are implemented.
+Apply the current named branch after reviewing the plan or a complete forecast:
+
+```bash
+vlab rebase main --use-forecast rebase_forecast_...
+```
+
+Execution rebuilds the plan and rejects a stale forecast before moving the
+branch. It resets the current branch to the exact `onto` commit and replays only
+the selected changes in source order. Clean and contextual same-intent rewrites
+preserve `Change-Id`; an unexpectedly empty replay blocks instead of silently
+disappearing.
+
+If a conflict pauses the queue, ordinary editing and `git add` remain usable:
+
+```bash
+vlab rebase --status
+# resolve and stage files
+vlab rebase --continue
+```
+
+Use `vlab rebase --continue --fork` when the resolution deliberately changes
+intent. That creates a new Change ID with `Derived-From` provenance. Use
+`vlab rebase --abort` to restore the exact original branch tip, including after
+earlier queue entries replayed cleanly. Application and summary receipts remain
+private until the complete queue and any predicted final tree are verified.
+
+Linear v1 operates only on the current named branch. Merge-preserving,
+interactive edit/reword/squash, arbitrary range, and dirty-overlay rebases
+remain ordinary Git workflows.
 
 ## Forecasting reconciliation
 
@@ -460,6 +487,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab merge-plan` | Proven coverage versus heuristic similarity |
 | `vlab rebase-plan` | Read-only causal omission/review/replay planning for a linear rebase |
 | `vlab rebase-forecast` | Non-mutating simulation and private pinning of a causal rebase plan |
+| `vlab rebase` | Supervised current-branch replay with stale checks, continue/fork/abort recovery, and completed receipts |
 | `vlab forecast` | Non-mutating reconciliation simulation and pinned approval |
 | `vlab reconcile` | Apply only proven-new changes with resumable conflicts |
 | `vlab resolve ...` | Inspect, apply, reject, and audit exact resolution suggestions |
@@ -503,10 +531,11 @@ vlab metadata import ../project-metadata --apply
 
 An envelope directory contains `manifest.json` and, when portable facts exist,
 `objects.bundle`. Export is deterministic for fixed accepted facts. It carries
-sanitized `refs/notes/vcs-lab` data and accepted
+sanitized `refs/notes/vcs-lab` data, the commit history required by accepted
+causal records (including rewritten rebase origins), and accepted
 `refs/vcs-lab/resolutions/*` commits/blobs. Tracked spec manifests already move
 with ordinary Git content. Workspace registries, checkpoint refs, active
-reconciliation journals, and saved forecasts are excluded.
+reconciliation/rebase journals, and saved forecasts are excluded.
 
 Import requires the same Git object format and at least one shared root commit,
 which supports ordinary clones and forks while unrelated and history-filtered
@@ -522,6 +551,7 @@ actor identity, landing authorization, or permission to execute content.
 
 - Git notes: `refs/notes/vcs-lab`
 - Pending reconciliation: the current worktree Git directory under `vcs-lab/reconciliation.json`
+- Pending causal rebase: the current worktree Git directory under `vcs-lab/rebase.json`
 - Saved forecasts: the current worktree Git directory under `vcs-lab/forecasts/<forecast-id>.json`
 - Workspace registry: the common Git directory under `vcs-lab/workspaces.json`
 - Checkpoints: `refs/vcs-lab/checkpoints/<workspace-id>`
@@ -620,7 +650,7 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The 37-test integration suite creates disposable Git repositories and exercises
+The 43-test integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
 non-mutating and stale-safe forecasts, pinned batch application, committed-head
@@ -633,5 +663,8 @@ timing probes, damaged metadata quarantine, deterministic envelope export,
 tamper/lineage/conflict rejection, idempotent two-clone parity, and read-only
 causal rebase planning plus deterministic/non-mutating rebase forecasts with
 explicit candidate decisions, predicted trees, private persistence, and
-conflict blockers. The complete suite is also run with
+conflict blockers; and supervised rebase application with stable identity,
+stale rejection, exact-resolution batching, contextual forks, empty-step
+blocking, exact abort, linked-worktree isolation, completed-record validation,
+and portable unreachable origins. The complete suite is also run with
 `VLAB_GIT_SESSION=1` to exercise the Windows-default path.

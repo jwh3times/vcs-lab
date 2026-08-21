@@ -7,9 +7,9 @@ import { gitBlobId, newId, sha256, slug } from "./ids.js";
 import { readGitObjects, repoContext, runGit } from "./git.js";
 import { readJson } from "./store.js";
 import {
-  readReconciliationState,
-  writeReconciliationState,
-} from "./reconcile-state.js";
+  readPendingOperation,
+  writePendingOperation,
+} from "./pending-operation.js";
 import { CliError } from "./errors.js";
 
 export const SPEC_PARSER = "stable-markdown-blocks/v1";
@@ -1149,7 +1149,7 @@ export function specMergePlansForOperation(operation, cwd = process.cwd()) {
 
 export function pendingSpecMergeStatus(options = {}) {
   const cwd = options.cwd ?? process.cwd();
-  const operation = readReconciliationState(cwd);
+  const operation = readPendingOperation(cwd);
   const plans = specMergePlansForOperation(operation, cwd);
   return {
     active: plans.length > 0,
@@ -1160,9 +1160,9 @@ export function pendingSpecMergeStatus(options = {}) {
 
 export function applyPendingSpecMerges(options = {}) {
   const cwd = options.cwd ?? process.cwd();
-  const operation = readReconciliationState(cwd);
+  const operation = readPendingOperation(cwd);
   if (!operation?.current) {
-    throw new CliError("No reconciliation conflict is pending in this worktree.");
+    throw new CliError("No VCS Lab conflict is pending in this worktree.");
   }
   let plans = specMergePlansForOperation(operation, cwd);
   if (options.path) plans = plans.filter((plan) => plan.file === options.path);
@@ -1194,7 +1194,7 @@ export function applyPendingSpecMerges(options = {}) {
     ),
     ...applied,
   ];
-  writeReconciliationState(operation, cwd);
+  writePendingOperation(operation, cwd);
   return { operationId: operation.id, applied };
 }
 

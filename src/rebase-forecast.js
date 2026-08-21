@@ -12,8 +12,9 @@ import {
 import { simulateCausalRebasePlan } from "./forecasts.js";
 import { newId, sha256 } from "./ids.js";
 import { readReconciliationState } from "./reconcile-state.js";
+import { readRebaseState } from "./rebase-state.js";
 import { buildRebasePlan } from "./rebase-plan.js";
-import { writeJson } from "./store.js";
+import { readJson, writeJson } from "./store.js";
 
 function rebaseForecastPath(id, cwd) {
   if (!/^rebase_forecast_[a-z0-9]+$/.test(String(id ?? ""))) {
@@ -25,6 +26,63 @@ function rebaseForecastPath(id, cwd) {
     "forecasts",
     `${id}.json`,
   );
+}
+
+export function readRebaseForecast(id, cwd = process.cwd()) {
+  const forecast = readJson(rebaseForecastPath(id, cwd), null);
+  if (!forecast) {
+    throw new CliError(`Rebase forecast '${id}' was not found in this worktree.`);
+  }
+  return forecast;
+}
+
+export function rebaseForecastForPlan(id, plan, cwd = process.cwd()) {
+  const forecast = readRebaseForecast(id, cwd);
+  if (
+    forecast.schema !== "vcs-lab.rebase-forecast/v1" ||
+    forecast.id !== id ||
+    forecast.status !== "complete" ||
+    !forecast.predictedResultTree
+  ) {
+    throw new CliError(
+      `Rebase forecast '${id}' is not a complete application approval.`,
+    );
+  }
+  if (
+    forecast.sourceHead !== plan.sourceHead ||
+    forecast.sourceTree !== plan.sourceTree ||
+    forecast.ontoHead !== plan.ontoHead ||
+    forecast.ontoTree !== plan.ontoTree ||
+    forecast.planFingerprint !== plan.fingerprint ||
+    forecast.plan?.fingerprint !== plan.fingerprint
+  ) {
+    throw new CliError(`Rebase forecast '${id}' is stale.`, {
+      details:
+        "The source, onto target, or causal metadata changed. Generate and review a new rebase forecast.",
+    });
+  }
+  const expectedCandidates = plan.candidates.map((candidate) => ({
+    commit: candidate.commit,
+    changeId: candidate.changeId,
+    proof: candidate.proof,
+  }));
+  const approvedCandidates = (forecast.acceptedCandidates ?? []).map(
+    (candidate) => ({
+      commit: candidate.commit,
+      changeId: candidate.changeId,
+      proof: candidate.proof,
+    }),
+  );
+  if (
+    plan.candidates.length > 0 &&
+    (!forecast.acceptCandidates ||
+      JSON.stringify(approvedCandidates) !== JSON.stringify(expectedCandidates))
+  ) {
+    throw new CliError(
+      `Rebase forecast '${id}' does not approve the current heuristic candidates.`,
+    );
+  }
+  return forecast;
 }
 
 function captureCaller(cwd) {
@@ -108,9 +166,9 @@ function emptySimulation(status, blockedReason = null, remainingChanges = 0) {
 }
 
 function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
-  if (readReconciliationState(cwd)) {
+  if (readReconciliationState(cwd) || readRebaseState(cwd)) {
     throw new CliError(
-      "Finish or abort the current reconciliation before forecasting a rebase.",
+      "Finish or abort the current VCS Lab operation before forecasting a rebase.",
     );
   }
 

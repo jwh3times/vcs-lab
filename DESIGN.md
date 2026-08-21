@@ -244,6 +244,27 @@ changed documents are blob-hashed together. In the default 25-document,
 2,025-entity benchmark, sparse metadata is 11,240 bytes versus 655,545 bytes for
 the equivalent v2 manifests, a 98.29% reduction.
 
+## Forecasted causal rebase
+
+Version 0.9 treats rebase as replacement of the current source branch, not as
+an alias for reconciliation into a target. The same causal proof lattice first
+classifies the source range into exact omissions, explicit heuristic review,
+and ordered replay. A disposable forecast pins every target-before/result tree
+and deterministic conflict decision before the owning worktree is changed.
+
+Application uses an explicit cherry-pick queue because it exposes exact
+origin/result mappings and supervised conflict state. A private journal is
+written before reset, provisional applications stay private, and abort restores
+the exact original source tip. Clean/contextual rewrites preserve logical
+identity; changed intent requires `--fork`. Unexpected empty applications are
+blocked because Git's implicit skip cannot become a causal proof.
+
+Only a completely verified queue publishes application records and a summary
+receipt. Rewriting can make the original commits unreachable from ordinary
+branches, so deterministic metadata export retains every commit referenced by
+accepted causal records inside the Git bundle. This keeps integrity validation
+and offline clone portability aligned with the new history shape.
+
 ## Exit criteria for a second prototype
 
 Build a native store only if local trials show that:

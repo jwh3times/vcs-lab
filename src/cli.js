@@ -14,6 +14,12 @@ import {
   forecastRebase,
   formatRebaseForecast,
 } from "./rebase-forecast.js";
+import {
+  abortRebase,
+  continueRebase,
+  rebaseStatus,
+  startRebase,
+} from "./rebase-operations.js";
 import { land } from "./landings.js";
 import { initLab } from "./store.js";
 import {
@@ -64,6 +70,10 @@ Usage:
   vlab merge-plan <source> [--json]
   vlab rebase-plan <onto> [<source>] [--json]
   vlab rebase-forecast <onto> [<source>] [--accept-candidates] [--json]
+  vlab rebase <onto> [--accept-candidates] [--use-forecast <id>] [--json]
+  vlab rebase --status [--json]
+  vlab rebase --continue [--fork] [--json]
+  vlab rebase --abort [--json]
   vlab forecast <source> [--accept-candidates] [--json]
   vlab reconcile <source> [--accept-candidates] [--use-forecast <id>] [--json]
   vlab reconcile --status [--json]
@@ -300,6 +310,16 @@ function formatReceipt(record) {
         `  spec merges ${record.semanticMerges.map((item) => `${item.decision ?? "recorded"}:${item.path}`).join(", ")}`,
       );
     }
+  } else if (record.type === "rebase-application") {
+    lines.push(
+      `  replayed    ${short(record.appliedCommit ?? record.attachedTo)} <= ${short(record.originCommit)}`,
+      `  change      ${record.appliedChangeId ?? record.originChangeId ?? "-"}`,
+      `  relation    ${record.relation ?? "-"}`,
+      `  trees       ${short(record.targetBeforeTree)} -> ${short(record.resultTree)}`,
+    );
+    if ((record.conflictedPaths ?? []).length) {
+      lines.push(`  conflicts   ${record.conflictedPaths.join(", ")}`);
+    }
   } else if (record.type === "resolution") {
     lines.push(
       `  signature   ${short(record.signature)}`,
@@ -335,6 +355,18 @@ function formatReceipt(record) {
       );
     } else {
       lines.push("  same state  not recorded");
+    }
+  } else if (record.type === "rebase") {
+    lines.push(
+      `  result      ${short(record.resultCommit ?? record.attachedTo)}`,
+      `  source      ${record.sourceRef ?? "-"} @ ${short(record.sourceHead)}`,
+      `  onto        ${record.ontoRef ?? "-"} @ ${short(record.ontoHead)}`,
+      `  coverage    ${(record.absorbedChanges ?? []).length} changes; ${(record.applications ?? []).length} replayed`,
+      `  same state  ${record.exactStateEqualityAfter ? "yes" : "no"}`,
+    );
+    if (record.forecastId) lines.push(`  forecast    ${record.forecastId}`);
+    if (record.timings?.activeApplicationMs !== undefined) {
+      lines.push(`  active time ${record.timings.activeApplicationMs.toFixed(2)} ms`);
     }
   } else {
     lines.push(`  attached    ${short(record.attachedTo)}`);
@@ -390,10 +422,18 @@ function formatCausalEdges(records) {
       lines.push(
         `${short(record.appliedCommit ?? record.attachedTo)} <= ${short(record.originCommit)}  ${relation} ${record.appliedChangeId ?? record.originChangeId ?? "unknown"}${suffix}`,
       );
+    } else if (record.type === "rebase-application") {
+      lines.push(
+        `${short(record.appliedCommit ?? record.attachedTo)} <= ${short(record.originCommit)}  ${record.relation ?? "causal-rebase"} ${record.appliedChangeId ?? record.originChangeId ?? "unknown"}`,
+      );
     } else if (record.type === "reconciliation") {
       if (consumedReconciliations.has(record.id)) continue;
       lines.push(
         `${short(record.resultCommit ?? record.attachedTo)} <= ${short(record.sourceHead)}  reconcile; ${(record.absorbedChanges ?? []).length} covered, ${(record.applied ?? []).length} applied`,
+      );
+    } else if (record.type === "rebase") {
+      lines.push(
+        `${short(record.resultCommit ?? record.attachedTo)} <= ${short(record.sourceHead)}  rebase onto ${short(record.ontoHead)}; ${(record.absorbedChanges ?? []).length} covered, ${(record.applications ?? []).length} replayed`,
       );
     }
   }
@@ -436,6 +476,37 @@ function formatReconciliationResult(result) {
       : null,
     semanticMerges ? `spec merges  ${semanticMerges} deterministic` : null,
     decisionText ? `resolutions  ${decisionText}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatRebaseResult(result) {
+  const receipt = result.receipt;
+  const forked = receipt.applications.filter(
+    (application) => application.relation === "contextual-fork",
+  ).length;
+  const contextual = receipt.applications.filter(
+    (application) => application.relation === "contextual-rebase",
+  ).length;
+  return [
+    "Causal rebase complete.",
+    `operation    ${result.operationId}`,
+    `branch       ${receipt.sourceRef}`,
+    `source       ${short(receipt.sourceHead)}`,
+    `onto         ${receipt.ontoRef} @ ${short(receipt.ontoHead)}`,
+    `result       ${short(receipt.resultCommit)}`,
+    `coverage     ${receipt.omitted.length} exact omit; ${receipt.acceptedCandidates.length} accepted candidate; ${receipt.applications.length} replayed`,
+    `contextual   ${contextual}`,
+    `forked       ${forked}`,
+    `same state   ${receipt.exactStateEqualityAfter ? "yes" : "no"}`,
+    receipt.forecastId ? `forecast     ${receipt.forecastId}` : null,
+    receipt.timings
+      ? `active time  ${receipt.timings.activeApplicationMs.toFixed(2)} ms`
+      : null,
+    receipt.timings?.git
+      ? formatGitActivity(receipt.timings.git)
+      : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -683,6 +754,43 @@ function formatReconciliationStatus(status) {
   return lines.join("\n");
 }
 
+function formatRebaseStatus(status) {
+  if (!status.active) return "No causal rebase is in progress in this worktree.";
+  const lines = [
+    `operation    ${status.operationId}`,
+    `state        ${status.state}`,
+    `branch       ${status.sourceRef}`,
+    `source start ${short(status.sourceHead)}`,
+    `onto         ${status.ontoRef} @ ${short(status.ontoHead)}`,
+    `progress     ${status.progress.completed}/${status.progress.total} replayed`,
+  ];
+  if (status.current) {
+    lines.push(
+      `current      ${short(status.current.sourceCommit)} ${status.current.sourceChangeId}`,
+    );
+    const paths = status.current.unresolvedPaths?.length
+      ? status.current.unresolvedPaths
+      : status.current.conflictedPaths;
+    if (paths?.length) lines.push(`conflicts    ${paths.join(", ")}`);
+  }
+  if (!status.recovery.branchMatches) {
+    lines.push(
+      "",
+      `branch mismatch: switch back to ${status.sourceRef} before recovery.`,
+    );
+  }
+  lines.push(
+    "",
+    status.state === "conflicted"
+      ? "Resolve and stage the conflicts, then run: vlab rebase --continue"
+      : ["forecast-mismatch", "identity-mismatch", "blocked"].includes(status.state)
+        ? "The operation is blocked and cannot publish receipts."
+        : "The operation is resumable in this worktree.",
+    "Abort and restore the original branch tip with: vlab rebase --abort",
+  );
+  return lines.join("\n");
+}
+
 export async function main(rawArgs) {
   const forceSession = rawArgs.includes("--git-session");
   const disableSession = rawArgs.includes("--no-git-session");
@@ -773,6 +881,37 @@ export async function main(rawArgs) {
         options.json ? forecast : formatRebaseForecast(forecast),
         options.json,
       );
+      return;
+    }
+    case "rebase": {
+      const actions = [options.status, options.continue, options.abort].filter(Boolean);
+      if (actions.length > 1) {
+        throw new CliError("Choose only one of --status, --continue, or --abort.");
+      }
+      if (options.status) {
+        const status = rebaseStatus();
+        print(options.json ? status : formatRebaseStatus(status), options.json);
+        return;
+      }
+      if (options.continue) {
+        const result = continueRebase({ fork: options.fork });
+        print(options.json ? result : formatRebaseResult(result), options.json);
+        return;
+      }
+      if (options.abort) {
+        const result = abortRebase();
+        print(result, options.json);
+        return;
+      }
+      const onto = requireValue(positionals[0], "vlab rebase <onto>");
+      if (positionals.length > 1) {
+        throw new CliError("Usage: vlab rebase <onto>");
+      }
+      const result = startRebase(onto, {
+        acceptCandidates: options.acceptCandidates,
+        forecastId: options.useForecast,
+      });
+      print(options.json ? result : formatRebaseResult(result), options.json);
       return;
     }
     case "forecast": {

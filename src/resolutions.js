@@ -9,9 +9,9 @@ import {
   resolutionSignatureFor,
 } from "./schemas.js";
 import {
-  readReconciliationState,
-  writeReconciliationState,
-} from "./reconcile-state.js";
+  readPendingOperation,
+  writePendingOperation,
+} from "./pending-operation.js";
 import { CliError } from "./errors.js";
 
 const RESOLUTION_REFS = "refs/vcs-lab/resolutions";
@@ -233,7 +233,7 @@ export function publishResolution(outcome, application, cwd = process.cwd()) {
 }
 
 function currentResolutionOperation(cwd) {
-  const operation = readReconciliationState(cwd);
+  const operation = readPendingOperation(cwd);
   if (!operation?.current?.conflicts?.length) {
     throw new CliError("No reusable conflict resolutions are pending in this worktree.");
   }
@@ -313,7 +313,7 @@ export function applyResolution(options = {}) {
     conflict.suggestionAppliedAt = new Date().toISOString();
     applied.push({ path: conflict.path, resolution: candidate });
   }
-  writeReconciliationState(operation, cwd);
+  writePendingOperation(operation, cwd);
   return { operationId: operation.id, applied };
 }
 
@@ -337,13 +337,13 @@ export function rejectResolution(options = {}) {
     conflict.selectionMethod = "explicit";
     rejected.push({ path: conflict.path, candidates: conflict.candidates.length });
   }
-  writeReconciliationState(operation, cwd);
+  writePendingOperation(operation, cwd);
   return { operationId: operation.id, rejected };
 }
 
 export function pendingResolutionStatus(options = {}) {
   const cwd = options.cwd ?? process.cwd();
-  const operation = readReconciliationState(cwd);
+  const operation = readPendingOperation(cwd);
   return {
     active: Boolean(operation?.current?.conflicts?.length),
     operationId: operation?.id ?? null,

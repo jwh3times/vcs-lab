@@ -28,6 +28,7 @@ import {
   unmergedPaths,
   writeReconciliationState,
 } from "./reconcile-state.js";
+import { readRebaseState } from "./rebase-state.js";
 import {
   captureConflictDescriptors,
   captureResolutionOutcomes,
@@ -601,10 +602,10 @@ function startOperation(sourceRef, plan, options, cwd) {
 }
 
 function reconcileInSession(sourceRef, options, cwd) {
-  if (readReconciliationState(cwd)) {
+  if (readReconciliationState(cwd) || readRebaseState(cwd)) {
     throw new CliError(
-      "A reconciliation is already in progress in this worktree.",
-      { details: "Run 'vlab reconcile --status', '--continue', or '--abort'." },
+      "A VCS Lab operation is already in progress in this worktree.",
+      { details: "Inspect the active reconciliation or rebase before starting another operation." },
     );
   }
   assertClean(cwd);

@@ -513,6 +513,365 @@ test("causal rebase forecasts expose conflicts without mutating the caller", (t)
   );
 });
 
+test("causal rebase applies a reviewed continuation and ports unreachable origins", (t) => {
+  const { repo, parent } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "one\n");
+  git(repo, "add", ".");
+  const first = JSON.parse(vlab(repo, "commit", "-m", "feature one"));
+  write(repo, "feature.txt", "one\ntwo\n");
+  git(repo, "add", ".");
+  const second = JSON.parse(vlab(repo, "commit", "-m", "feature two"));
+
+  git(repo, "switch", "main");
+  const landing = JSON.parse(vlab(repo, "hard-squash", "feature", "--json"));
+  git(repo, "switch", "feature");
+  write(repo, "continuation.txt", "three\n");
+  git(repo, "add", ".");
+  const continuation = JSON.parse(
+    vlab(repo, "commit", "-m", "feature continuation"),
+  );
+  const originalTree = git(repo, "rev-parse", "HEAD^{tree}");
+
+  const forecast = JSON.parse(
+    vlab(repo, "rebase-forecast", "main", "--json"),
+  );
+  const result = JSON.parse(
+    vlab(
+      repo,
+      "rebase",
+      "main",
+      "--use-forecast",
+      forecast.id,
+      "--json",
+    ),
+  );
+  assert.equal(result.receipt.schema, "vcs-lab.rebase/v1");
+  assert.equal(result.receipt.forecastId, forecast.id);
+  assert.equal(result.receipt.sourceHead, continuation.commit);
+  assert.equal(result.receipt.resultTree, forecast.predictedResultTree);
+  assert.equal(result.receipt.resultTree, originalTree);
+  assert.equal(result.receipt.exactStateEqualityAfter, true);
+  assert.deepEqual(result.receipt.absorbedChanges, [
+    first.changeId,
+    second.changeId,
+    continuation.changeId,
+  ]);
+  assert.equal(result.receipt.applications.length, 1);
+  assert.equal(
+    result.receipt.applications[0].sourceChangeId,
+    continuation.changeId,
+  );
+  assert.equal(
+    result.receipt.applications[0].appliedChangeId,
+    continuation.changeId,
+  );
+  assert.equal(git(repo, "branch", "--show-current"), "feature");
+  assert.equal(git(repo, "show", "-s", "--format=%P", "HEAD"), landing.landingCommit);
+  assert.doesNotThrow(() =>
+    git(repo, "merge-base", "--is-ancestor", "main", "feature"),
+  );
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(
+    JSON.parse(vlab(repo, "rebase", "--status", "--json")).active,
+    false,
+  );
+  const validation = JSON.parse(vlab(repo, "metadata", "validate", "--json"));
+  assert.equal(validation.summary.valid, true);
+  assert.equal(validation.summary.acceptedPortableRecords, 3);
+  assert.match(vlab(repo, "receipts"), /REBASE rebase_/);
+  assert.match(vlab(repo, "graph"), /rebase onto/);
+
+  const envelopeA = path.join(parent, "rebase-envelope-a");
+  const envelopeB = path.join(parent, "rebase-envelope-b");
+  vlab(repo, "metadata", "export", envelopeA, "--json");
+  vlab(repo, "metadata", "export", envelopeB, "--json");
+  assert.deepEqual(
+    fs.readFileSync(path.join(envelopeA, "manifest.json")),
+    fs.readFileSync(path.join(envelopeB, "manifest.json")),
+  );
+  assert.deepEqual(
+    fs.readFileSync(path.join(envelopeA, "objects.bundle")),
+    fs.readFileSync(path.join(envelopeB, "objects.bundle")),
+  );
+
+  const destination = path.join(parent, "rebase-destination");
+  git(parent, "clone", "--no-local", repo, destination);
+  git(destination, "config", "user.name", "VCS Lab Test");
+  git(destination, "config", "user.email", "vcs-lab@example.test");
+  const missingOrigin = spawnSync(
+    "git",
+    ["cat-file", "-e", `${continuation.commit}^{commit}`],
+    { cwd: destination, encoding: "utf8" },
+  );
+  assert.notEqual(missingOrigin.status, 0);
+  const preview = JSON.parse(
+    vlab(destination, "metadata", "import", envelopeA, "--dry-run", "--json"),
+  );
+  assert.equal(preview.summary.applicable, true);
+  assert.equal(preview.summary.addRecords, 3);
+  vlab(destination, "metadata", "import", envelopeA, "--apply", "--json");
+  assert.doesNotThrow(() =>
+    git(destination, "cat-file", "-e", `${continuation.commit}^{commit}`),
+  );
+  const importedValidation = JSON.parse(
+    vlab(destination, "metadata", "validate", "--json"),
+  );
+  assert.equal(importedValidation.summary.valid, true);
+  assert.equal(importedValidation.summary.acceptedPortableRecords, 3);
+});
+
+test("causal rebase rejects a stale forecast before moving the source branch", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "feature\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "feature"));
+  const forecast = JSON.parse(
+    vlab(repo, "rebase-forecast", "main", "--json"),
+  );
+
+  git(repo, "switch", "main");
+  write(repo, "target.txt", "target moved\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "move target");
+  git(repo, "switch", "feature");
+  const attempt = vlabResult(
+    repo,
+    "rebase",
+    "main",
+    "--use-forecast",
+    forecast.id,
+  );
+  assert.notEqual(attempt.status, 0);
+  assert.match(attempt.stderr, /forecast .* is stale/i);
+  assert.equal(git(repo, "rev-parse", "HEAD"), source.commit);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(
+    JSON.parse(vlab(repo, "rebase", "--status", "--json")).active,
+    false,
+  );
+});
+
+test("causal rebase pauses privately and can continue as an explicit fork", (t) => {
+  const { repo, parent } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source change"));
+  git(repo, "switch", "main");
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target change");
+  git(repo, "switch", "feature");
+
+  const observer = path.join(parent, "rebase-observer");
+  git(repo, "worktree", "add", observer, "main");
+  const attempt = vlabResult(repo, "rebase", "main");
+  assert.notEqual(attempt.status, 0);
+  assert.match(attempt.stderr, /causal rebase paused/i);
+  const status = JSON.parse(vlab(repo, "rebase", "--status", "--json"));
+  assert.equal(status.active, true);
+  assert.equal(status.state, "conflicted");
+  assert.equal(status.progress.completed, 0);
+  assert.deepEqual(status.current.unresolvedPaths, ["shared.txt"]);
+  assert.equal(
+    JSON.parse(vlab(observer, "rebase", "--status", "--json")).active,
+    false,
+  );
+  const metadata = JSON.parse(vlab(repo, "metadata", "status", "--json"));
+  assert.equal(metadata.scopes.worktreePrivate.pendingOperationCount, 1);
+  const privateEntry = metadata.scopes.worktreePrivate.worktrees.find(
+    (entry) => entry.path === path.resolve(repo),
+  );
+  assert.deepEqual(privateEntry.pendingOperationKinds, ["rebase"]);
+  assert.equal(
+    JSON.parse(vlab(repo, "resolve", "status", "--json")).conflicts.length,
+    1,
+  );
+
+  write(repo, "shared.txt", "forked resolution\n");
+  git(repo, "add", "shared.txt");
+  const completed = JSON.parse(
+    vlab(repo, "rebase", "--continue", "--fork", "--json"),
+  );
+  const application = completed.receipt.applications[0];
+  assert.equal(application.relation, "contextual-fork");
+  assert.equal(application.sourceChangeId, source.changeId);
+  assert.notEqual(application.appliedChangeId, source.changeId);
+  assert.deepEqual(completed.receipt.forkedSourceCommits, [source.commit]);
+  assert.deepEqual(completed.receipt.absorbedCommits, []);
+  assert.match(git(repo, "show", "-s", "--format=%B", "HEAD"), /Derived-From:/);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(
+    JSON.parse(vlab(repo, "metadata", "validate", "--json")).summary.valid,
+    true,
+  );
+});
+
+test("causal rebase abort restores the exact source after a partial replay", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "clean.txt", "clean replay\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "clean first change");
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", ".");
+  const original = JSON.parse(vlab(repo, "commit", "-m", "conflicting second change"));
+  const originalTree = git(repo, "rev-parse", "HEAD^{tree}");
+
+  git(repo, "switch", "main");
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target change");
+  git(repo, "switch", "feature");
+  const notesBefore = git(
+    repo,
+    "for-each-ref",
+    "--format=%(refname) %(objectname)",
+    "refs/notes/vcs-lab",
+  );
+
+  const attempt = vlabResult(repo, "rebase", "main");
+  assert.notEqual(attempt.status, 0);
+  const paused = JSON.parse(vlab(repo, "rebase", "--status", "--json"));
+  assert.equal(paused.state, "conflicted");
+  assert.equal(paused.progress.completed, 1);
+  assert.equal(paused.applied.length, 1);
+  assert.equal(
+    git(repo, "for-each-ref", "--format=%(refname) %(objectname)", "refs/notes/vcs-lab"),
+    notesBefore,
+  );
+
+  const aborted = JSON.parse(vlab(repo, "rebase", "--abort", "--json"));
+  assert.equal(aborted.restoredHead, original.commit);
+  assert.equal(git(repo, "rev-parse", "HEAD"), original.commit);
+  assert.equal(git(repo, "rev-parse", "HEAD^{tree}"), originalTree);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(
+    JSON.parse(vlab(repo, "rebase", "--status", "--json")).active,
+    false,
+  );
+  assert.equal(
+    git(repo, "for-each-ref", "--format=%(refname) %(objectname)", "refs/notes/vcs-lab"),
+    notesBefore,
+  );
+});
+
+test("causal rebase blocks an unexpectedly empty replay instead of skipping it", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  const empty = JSON.parse(
+    vlab(repo, "commit", "-m", "intentional empty change", "--allow-empty"),
+  );
+  const plan = JSON.parse(vlab(repo, "rebase-plan", "main", "--json"));
+  assert.equal(plan.replayQueue.length, 1);
+  assert.equal(plan.replayQueue[0].commit, empty.commit);
+
+  const attempt = vlabResult(repo, "rebase", "main");
+  assert.notEqual(attempt.status, 0);
+  assert.match(attempt.stderr, /unexpectedly empty|blocked/i);
+  const status = JSON.parse(vlab(repo, "rebase", "--status", "--json"));
+  assert.equal(status.active, true);
+  assert.equal(status.state, "blocked");
+  assert.equal(status.progress.completed, 0);
+  assert.equal(
+    git(repo, "for-each-ref", "--format=%(refname)", "refs/notes/vcs-lab"),
+    "",
+  );
+  const aborted = JSON.parse(vlab(repo, "rebase", "--abort", "--json"));
+  assert.equal(aborted.restoredHead, empty.commit);
+  assert.equal(git(repo, "rev-parse", "HEAD"), empty.commit);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("causal rebase batch-applies a pinned exact resolution", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "source-one", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source one");
+  git(repo, "switch", "-c", "target-one", base.commit);
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target one");
+  assert.notEqual(vlabResult(repo, "reconcile", "source-one").status, 0);
+  write(repo, "shared.txt", "remembered\n");
+  git(repo, "add", ".");
+  vlab(repo, "reconcile", "--continue", "--json");
+
+  git(repo, "switch", "-c", "source-two", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source two"));
+  git(repo, "switch", "-c", "target-two", base.commit);
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target two");
+  git(repo, "switch", "source-two");
+
+  const forecast = JSON.parse(
+    vlab(repo, "rebase-forecast", "target-two", "--json"),
+  );
+  assert.equal(forecast.status, "complete");
+  assert.equal(forecast.steps[0].outcome, "exact-resolution");
+  assert.equal(forecast.approvedResolutions.length, 1);
+  const result = JSON.parse(
+    vlab(
+      repo,
+      "rebase",
+      "target-two",
+      "--use-forecast",
+      forecast.id,
+      "--json",
+    ),
+  );
+  assert.equal(result.receipt.forecastId, forecast.id);
+  assert.equal(result.receipt.resultTree, forecast.predictedResultTree);
+  assert.equal(result.receipt.applications[0].relation, "contextual-rebase");
+  assert.equal(result.receipt.applications[0].sourceChangeId, source.changeId);
+  assert.equal(result.receipt.applications[0].appliedChangeId, source.changeId);
+  assert.equal(
+    result.receipt.applications[0].resolutions[0].selectionMethod,
+    "rebase-forecast-batch",
+  );
+  assert.equal(
+    result.receipt.applications[0].resolutions[0].decision,
+    "accepted",
+  );
+  assert.equal(readText(repo, "shared.txt"), "remembered\n");
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
 test("compact landing is one first-parent unit with a real causal parent", (t) => {
   const { repo } = makeRepo(t);
   write(repo, "base.txt", "base\n");

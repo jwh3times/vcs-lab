@@ -60,10 +60,11 @@ under the system temporary directory and should print their path.
 ## 3. Release and repository baseline
 
 The released baseline is v0.8.0. The current v0.9 development branch adds the
-accepted ADR-0011 model plus causal `rebase-plan` and isolated
-`rebase-forecast` slices to validated metadata portability and the v0.7
-causal/specification/Git-session foundation. The development suite contains 37
-integration tests and retains all six maintained demos.
+accepted ADR-0011 linear causal-rebase flow—plan, isolated forecast, supervised
+application, recovery, and portable completed receipts—to validated metadata
+portability and the v0.7 causal/specification/Git-session foundation. The
+development suite contains 43 integration tests and retains all six maintained
+demos.
 
 Do not trust a hard-coded commit from a handoff; establish the exact checkout
 first:
@@ -158,6 +159,8 @@ zero-read unchanged index path.
 - Immutable cache limited to full-OID-rooted expressions.
 - Mutation invalidation, per-worktree scoping, bounded channels, and ordinary
   Git fallback.
+- Graceful batch-input close plus bounded Git/worker termination; the full
+  forced-session suite leaves no VCS Lab Node or Git processes behind.
 - Batched target/source history and note object reads.
 - Metrics distinguish logical queries, processes, session queries, and cache
   hits.
@@ -188,12 +191,12 @@ not block documentation work.
   records/refs/objects, refuses conflicts, stages refs, and publishes through
   one checked ref transaction. Repeated import is a no-op.
 - Tracked spec manifests continue to travel with ordinary source. Workspace
-  registries, checkpoints, reconciliation journals, and forecasts are excluded
-  from envelopes.
+  registries, checkpoints, reconciliation/rebase journals, and forecasts are
+  excluded from envelopes.
 - Integrity remains explicitly distinct from signatures, actor identity, and
   authorization.
 
-### v0.9 development — causal rebase planning and forecast
+### v0.9 development — supervised causal rebase
 
 - `vcs-lab.rebase-plan/v1` classifies a linear source range as exact omission,
   heuristic review, or ordered replay without switching the caller.
@@ -206,8 +209,14 @@ not block documentation work.
 - Unaccepted candidates, unexpected application errors, conflicts, and
   unsupported topology fail closed; dirty caller bytes are excluded and caller
   branch/HEAD/index/status/worktree-list invariants are verified.
-- Branch mutation, staleness enforcement at application time, recovery, and
-  shared rebase receipts are intentionally still absent.
+- `vlab rebase <onto>` rebuilds the plan, rejects stale forecasts before
+  mutation, and replays only selected changes on the current named branch.
+- `vcs-lab.rebase-operation/v1` is worktree-private; status, process-separated
+  continue/fork, and exact abort preserve Git observability and publish nothing
+  while incomplete.
+- Completed `vcs-lab.rebase-application/v1` and `vcs-lab.rebase/v1` facts
+  validate, participate in coverage/inspection, and round-trip with unreachable
+  pre-rewrite origins through deterministic envelopes.
 
 ## 5. Fast start for a new session
 
@@ -237,7 +246,7 @@ npm test
 Remove-Item Env:VLAB_GIT_SESSION
 ```
 
-The expected development baseline is 37 passing tests in each mode. A documentation-only
+The expected development baseline is 43 passing tests in each mode. A documentation-only
 change may run the ordinary suite plus link/packaging checks, but a release
 should still preserve the full gate in [PRD.md](PRD.md#14-release-and-quality-gates).
 
@@ -275,6 +284,7 @@ portable than a single timing observation.
 | Coverage classifications | `src/merge-plan.js` | `src/notes.js`, landing/reconciliation schemas |
 | Causal rebase planning | `src/rebase-plan.js` | `src/merge-plan.js`, rebase plan tests, ADR-0011 |
 | Causal rebase forecasting | `src/rebase-forecast.js` | `src/forecasts.js`, rebase forecast tests, ADR-0011 |
+| Causal rebase application/recovery | `src/rebase-operations.js` | `src/rebase-state.js`, `src/pending-operation.js`, application tests, ADR-0011 |
 | Compact/hard-squash merge | `src/landings.js` | merge-plan tests |
 | Forecast simulation/pinning | `src/forecasts.js` | `src/operations.js`, stale/mismatch tests |
 | Reconcile start/continue/abort | `src/operations.js` | `src/reconcile-state.js`, conflict tests |
@@ -284,7 +294,7 @@ portable than a single timing observation.
 | Shared note records | `src/notes.js` | `refs/notes/vcs-lab` behavior |
 | Metadata inventory/validation | `src/metadata.js`, `src/schemas.js` | note/resolution/spec/workspace/private-state fixtures |
 | Envelope export/import | `src/metadata-envelope.js`, `src/metadata-transfer.js` | lineage, bundle, staging/ref-transaction tests |
-| Common/private runtime paths | `src/store.js`, `src/reconcile-state.js` | `repoContext` in `src/git.js` |
+| Common/private runtime paths | `src/store.js`, `src/reconcile-state.js`, `src/rebase-state.js` | `repoContext` in `src/git.js` |
 | IDs and hashes | `src/ids.js` | schema fields that name algorithms |
 | End-to-end contract | `test/integration.test.js` | all demo scripts |
 | User narrative | `README.md` | PRD, architecture, changelog |
@@ -302,6 +312,7 @@ line endings, and process interruption are part of the behavior.
 | Checkpoints | `refs/vcs-lab/checkpoints/*` | Shared repository/local experiment |
 | Workspace registry | common Git dir, `vcs-lab/workspaces.json` | Shared among linked worktrees, machine-local paths |
 | Pending reconciliation | current worktree Git dir, `vcs-lab/reconciliation.json` | Worktree-private |
+| Pending causal rebase | current worktree Git dir, `vcs-lab/rebase.json` | Worktree-private |
 | Forecasts | current worktree Git dir, `vcs-lab/forecasts/*.json` | Worktree-private |
 | Spec manifests | `.vcs-lab/specs/**/*.json` | Tracked and portable with project source |
 
@@ -333,7 +344,7 @@ These are the shortest high-value review checklist for any new change:
 8. A forecast approval pins exact inputs and result; staleness fails before
    mutation.
 9. A complete forecast must reproduce its predicted tree before receipts.
-10. Partial reconciliation receipts remain private until complete success.
+10. Partial reconciliation and rebase receipts remain private until complete success.
 11. Abort returns to the exact operation starting commit.
 12. Pending operations and sessions are isolated per linked worktree.
 13. Exact resolution reuse matches ordered blob identity and requires approval.
@@ -360,14 +371,15 @@ update the PRD before relying on the new behavior.
 
 ### Highest-value product gap
 
-Rebase now has an accepted user model, first-class causal plan, and isolated
-pinned forecast with predicted-tree/conflict evidence. It does not yet have
-application-time staleness enforcement, supervised branch mutation, recovery,
-or completed provenance.
+Workspace lifecycle and private draft/checkpoint-overlay forecasting now have
+the largest user-visible gap. Causal rebase is complete for the accepted linear
+v1 boundary; merge preservation, interactive editing, arbitrary ranges, and
+dirty overlays remain deliberately outside that contract.
 
 ### Other material gaps
 
-- Rebase application/recovery and completed receipts are not yet implemented.
+- Rebase does not yet preserve merge topology or support interactive
+  edit/reword/squash, arbitrary ranges, or dirty/checkpoint overlays.
 - Workspace archive/move/restore/prune and stale-path repair are incomplete.
 - Forecasting does not include checkpoint or dirty-worktree overlays.
 - There is no formal standalone schema catalog or schema negotiation.
@@ -431,16 +443,17 @@ an explicit fork for changed intent, delays shared receipts until complete
 success, and maps recovery to an exact worktree-private replay journal plus
 ordinary Git cherry-pick state.
 
-The read-only `vlab rebase-plan <onto> [<source>]` and isolated
-`vlab rebase-forecast <onto> [<source>]` slices are implemented. They reuse
-exact coverage, mark actions as omit/review/replay, pin stable fingerprints and
-candidate decisions, block linear-v1 merge topology, simulate exact replay and
-conflict behavior, save private evidence, and preserve the caller. The next
-bounded slice is supervised application: revalidate a saved forecast before
-mutation, establish an exact private journal, replay clean entries with stable
-identity, and provide status/abort safety before publishing any new shared
-record schema. Workspace lifecycle/draft-overlay forecasting and large-scale
-metadata benchmarks remain viable alternate tracks.
+The read-only plan, isolated forecast, supervised application, and recovery
+slices are implemented. Application revalidates approval before mutation,
+preserves or explicitly forks logical identity, blocks unexpected empty steps,
+records provisional mappings only in the private journal, exactly restores the
+original source tip on abort, and publishes validated shared records only after
+the complete queue and predicted tree pass. Deterministic export retains causal
+commits made unreachable by the rewrite.
+
+Workspace lifecycle/draft-overlay forecasting is the strongest next bounded
+track. Large-scale metadata benchmarks and broader rebase forms remain viable
+alternates; they require fresh scope rather than silently expanding linear v1.
 
 ## 11. Test and release discipline
 
@@ -552,11 +565,11 @@ the current version/tag and run the relevant baseline tests before editing.
 
 The v0.8 metadata integrity and portability work is implemented and ADR-0010 is
 Accepted. ADR-0011 is also Accepted for first-class causal rebase under the
-linear-v1 model. Its `rebase-plan` and isolated `rebase-forecast` slices are
-implemented as described in section 10.2. Verify their
-determinism/non-mutation and preserve omit/review/replay, explicit candidate
-acceptance, unexpected-empty, identity, tree-pinning, and recovery invariants
-while implementing the next supervised application/journal slice.
+linear-v1 model. Its plan, isolated forecast, supervised application, recovery,
+completed receipts, and portability slices are implemented as described in
+section 10.2. Verify them and preserve omit/review/replay, explicit candidate
+acceptance, unexpected-empty, identity, tree-pinning, recovery, and delayed
+publication invariants while selecting the next bounded product increment.
 Preserve all invariants listed in section 8.
 
 Implement the agreed increment, add disposable-repository integration tests,

@@ -587,9 +587,23 @@ function inspectPrivateState(context, diagnostics) {
         gitDir = null;
       }
     }
-    const operationPath = gitDir ? path.join(gitDir, "vcs-lab", "reconciliation.json") : null;
+    const operationPaths = gitDir
+      ? [
+          {
+            kind: "reconciliation",
+            path: path.join(gitDir, "vcs-lab", "reconciliation.json"),
+          },
+          {
+            kind: "rebase",
+            path: path.join(gitDir, "vcs-lab", "rebase.json"),
+          },
+        ]
+      : [];
     const forecastPath = gitDir ? path.join(gitDir, "vcs-lab", "forecasts") : null;
-    const pendingOperation = Boolean(operationPath && fs.existsSync(operationPath));
+    const pendingOperationKinds = operationPaths
+      .filter((entry) => fs.existsSync(entry.path))
+      .map((entry) => entry.kind);
+    const pendingOperation = pendingOperationKinds.length > 0;
     const forecastCount = forecastPath && fs.existsSync(forecastPath)
       ? fs.readdirSync(forecastPath, { withFileTypes: true }).filter((entry) => entry.isFile() && entry.name.endsWith(".json")).length
       : 0;
@@ -600,10 +614,16 @@ function inspectPrivateState(context, diagnostics) {
         "warning",
         "worktree-private",
         worktreePath,
-        "A worktree-private reconciliation is in progress and will not be exported.",
+        `A worktree-private ${pendingOperationKinds.join(" and ")} operation is in progress and will not be exported.`,
       );
     }
-    worktrees.push({ path: worktreePath, available: Boolean(gitDir), pendingOperation, forecastCount });
+    worktrees.push({
+      path: worktreePath,
+      available: Boolean(gitDir),
+      pendingOperation,
+      pendingOperationKinds,
+      forecastCount,
+    });
   }
   return {
     worktreeCount: worktrees.length,

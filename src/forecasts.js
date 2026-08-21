@@ -24,6 +24,7 @@ import {
   readReconciliationState,
   unmergedPaths,
 } from "./reconcile-state.js";
+import { readRebaseState } from "./rebase-state.js";
 import { readJson, writeJson } from "./store.js";
 import { listWorkspaces } from "./workspaces.js";
 import { CliError } from "./errors.js";
@@ -389,9 +390,9 @@ export function simulateCausalRebasePlan(plan, cwd = process.cwd()) {
 }
 
 function forecastReconciliationInSession(sourceRef, options, cwd) {
-  if (readReconciliationState(cwd)) {
+  if (readReconciliationState(cwd) || readRebaseState(cwd)) {
     throw new CliError(
-      "Finish or abort the current reconciliation before forecasting another.",
+      "Finish or abort the current VCS Lab operation before forecasting another.",
     );
   }
   const startedAt = new Date().toISOString();

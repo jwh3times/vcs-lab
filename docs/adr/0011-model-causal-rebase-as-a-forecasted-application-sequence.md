@@ -196,7 +196,7 @@ full interoperability with Git's native rebase sequencer in v1.
 - **Automatically drop patch-equivalent or empty commits:** rejected because a
   heuristic must not silently become causal coverage.
 
-## Acceptance plan and initial evidence
+## Acceptance evidence
 
 The user accepted this model and bounded scope on 2026-08-21. The first
 read-only vertical slice implements deterministic `rebase-plan` classification,
@@ -207,7 +207,7 @@ persists private plan/candidate approval evidence, pins target-before and result
 trees, verifies caller branch/HEAD/index/status/worktree-list invariants, and
 fails closed on unaccepted candidates, conflicts, and unsupported topology.
 Repeated integration forecasts produce the same fingerprint, step trees, and
-predicted tree. The remaining application slices must prove:
+predicted tree. The supervised application slice now proves:
 
 1. clean replay preserves stable IDs and publishes exact application/summary
    mappings only after complete success;
@@ -220,5 +220,12 @@ predicted tree. The remaining application slices must prove:
    partial records;
 6. linked worktrees cannot continue or overwrite each other's rebase journals;
 7. stock Git can inspect the resulting history and in-progress conflicts; and
-8. new accepted record schemas validate, quarantine when damaged, and
-    round-trip through the metadata envelope idempotently.
+8. new accepted record schemas validate and round-trip through a deterministic
+   metadata envelope, including original commits made unreachable by rewrite.
+
+The implementation uses `vcs-lab.rebase-operation/v1` for worktree-private
+state and publishes `vcs-lab.rebase-application/v1` plus `vcs-lab.rebase/v1`
+only after the queue and any forecasted final tree verify. The expanded
+integration suite exercises clean reviewed replay, stale rejection, exact
+resolution batch use, contextual fork, unexpected empty blocking, partial
+abort, linked-worktree isolation, stock Git state, and fresh-clone portability.

@@ -122,6 +122,9 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
 | `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
 | `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation | Rebase plan, forecast simulator, Git adapter |
+| `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts | Rebase plan/forecast, Git, notes, specs, resolutions |
+| `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
+| `src/pending-operation.js` | Safe reconciliation/rebase journal routing for shared conflict tools | Reconciliation and rebase state |
 | `src/forecasts.js` | Plan fingerprint, temporary-worktree simulation, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
@@ -198,6 +201,7 @@ identity belongs in tracked files.
 | Workspace registry | Shared repository installation | `<common-git-dir>/vcs-lab/workspaces.json` | Local; not automatically remote-portable |
 | Checkpoints | Shared repository | `refs/vcs-lab/checkpoints/<workspace-id>` | One ref chain per workspace |
 | Pending reconciliation | One linked worktree | `<worktree-git-dir>/vcs-lab/reconciliation.json` | Cleared on complete/abort |
+| Pending causal rebase | One linked worktree | `<worktree-git-dir>/vcs-lab/rebase.json` | Cleared on complete/abort |
 | Saved forecasts | One linked worktree | `<worktree-git-dir>/vcs-lab/forecasts/<id>.json` | Private approval artifact |
 | Spec identity manifest | Tracked/repository portable | `.vcs-lab/specs/<source>.json` | Versioned with Markdown |
 | Persistent object session | One CLI invocation and worktree | Memory plus worker process | Closed at invocation end |
@@ -223,6 +227,9 @@ use at the current development baseline:
 | `vcs-lab.merge-plan/v1` | Source/target coverage plan | `merge-plan.js` |
 | `vcs-lab.rebase-plan/v1` | Read-only causal rebase selection and constraints | `rebase-plan.js` |
 | `vcs-lab.rebase-forecast/v1` | Private pinned causal-rebase simulation and caller invariants | `rebase-forecast.js` |
+| `vcs-lab.rebase-operation/v1` | Worktree-private supervised replay and recovery journal | `rebase-operations.js` |
+| `vcs-lab.rebase-application/v1` | Exact origin-to-rewritten-commit mapping and contextual decisions | `rebase-operations.js` |
+| `vcs-lab.rebase/v1` | Completed plan, omissions, applications, trees, and timing summary | `rebase-operations.js` |
 | `vcs-lab.forecast/v2` | Pinned simulation and approvals | `forecasts.js` |
 | `vcs-lab.resolution/v1` | Exact resolution result and provenance | `resolutions.js` |
 | `vcs-lab.workspaces/v1` | Workspace registry container | `workspaces.js` |
@@ -324,8 +331,36 @@ reported but deliberately excluded because the scope is committed heads.
 Unaccepted heuristic candidates convert an otherwise complete simulation to
 `review-required` and remove its predicted-tree claim. A Git application error
 without conflict paths—including an unexpected empty replay—blocks instead of
-being silently skipped. Branch mutation and use/staleness validation of a
-saved rebase forecast remain in the next application slice.
+being silently skipped.
+
+### 7.5 Supervised causal rebase application
+
+`startRebase` operates only on the current named branch with a clean worktree.
+It rebuilds the exact plan, rejects stale or incomplete forecast approval before
+mutation, writes `vcs-lab.rebase-operation/v1`, resets the branch to `ontoHead`,
+and cherry-picks only the ordered replay queue. Every forecasted step must
+reproduce its target-before tree, decision kind, result tree, and final predicted
+tree. Heuristic candidates require an explicit accepted policy.
+
+Clean and contextual same-intent applications preserve `Change-Id`. A conflict
+remains visible as ordinary Git cherry-pick state while exact resolution and
+spec tools route through the owning rebase journal. `--continue --fork` rewrites
+the merge message with a new Change ID plus `Derived-From`/origin evidence.
+Unexpected empty applications and out-of-band Git-state mismatches fail closed.
+
+Provisional applications stay only in the worktree journal. After the complete
+queue and predicted tree verify, finalization publishes one
+`vcs-lab.rebase-application/v1` record per replay and one `vcs-lab.rebase/v1`
+summary at the new tip. Abort delegates active cherry-pick cleanup to Git, then
+hard-resets the exact original source tip and clears the journal without shared
+receipts. Linked worktrees therefore share completed facts but cannot overwrite
+or continue one another's active operation.
+
+Metadata export retains every commit referenced by accepted facts as a sorted
+parent of its deterministic synthetic notes commit. This makes pre-rewrite
+origins travel in `objects.bundle` even after ordinary branch refs no longer
+reach them; import preview accepts required objects already present either in
+the destination or in the verified bundle.
 
 ## 8. Landing flows
 
@@ -628,7 +663,10 @@ git cat-file --batch-command
 
 The synchronous main thread submits `info` or `contents` queries through a
 bounded shared-memory channel. The worker serializes requests and parses the
-streaming response.
+streaming response. Shutdown closes the batch-command input and waits for the
+underlying Git process before acknowledging the caller. Bounded termination
+and acknowledgement fallbacks prevent a failed close from retaining the CLI
+or leaving a session worker behind.
 
 ### 14.3 Cache and safety rules
 
@@ -642,6 +680,8 @@ streaming response.
 - Each linked worktree receives a distinct session.
 - The session ends with the enclosing invocation; there is no background daemon
   or cross-command lock.
+- Closing or disabling a session waits only within fixed bounds and always
+  terminates the worker afterward.
 
 The ordinary path remains both fallback and semantic oracle. Equality matters
 more than raw wall time.
@@ -654,7 +694,7 @@ more than raw wall time.
 - A named forecast applies only to its exact target/source/plan.
 - A forecasted complete reconciliation must reproduce its predicted tree.
 - No partial application receipts are shared before whole-operation success.
-- A worktree has at most one pending reconciliation journal.
+- A worktree has at most one pending reconciliation or rebase journal.
 - Resolution reuse requires the exact ordered blob signature.
 - A semantic sidecar must match its Markdown at continue time.
 - Candidate equivalence is never silently accepted.
@@ -666,7 +706,9 @@ automatically. `metadata export` creates a deterministic manifest and sanitized
 Git bundle; `metadata import --dry-run` verifies it in a disposable repository,
 then `--apply` stages and atomically publishes non-conflicting refs. Tracked
 spec manifests move with ordinary project content. Workspace registries,
-checkpoints, reconciliation journals, and forecasts remain deliberately local.
+checkpoints, reconciliation/rebase journals, and forecasts remain deliberately
+local. The envelope carries accepted records plus referenced commits that may no
+longer be reachable from an ordinary branch after a rebase.
 
 Envelope v1 lineage uses Git object format plus sorted root commits reachable
 from branches, tags, and remote-tracking refs. Equal roots identify the same
@@ -760,7 +802,7 @@ CLI and Git executable. This tests filesystem state, refs, notes, worktrees,
 process boundaries, line endings, and recovery behavior that unit mocks would
 hide.
 
-The current development baseline contains 37 scenarios covering:
+The current development baseline contains 43 scenarios covering:
 
 - initialization and versioning;
 - compact/hard-squash landing and causal suppression;
@@ -779,6 +821,10 @@ The current development baseline contains 37 scenarios covering:
 - causal rebase forecast determinism, caller/worktree preservation, private
   persistence, explicit candidate acceptance, predicted trees, and conflict
   blocking/cleanup.
+- supervised causal rebase stable identity, forecast reproduction/staleness,
+  exact-resolution batching, contextual fork, unexpected-empty blocking,
+  partial abort, linked-worktree isolation, validated records, and fresh-clone
+  portability of unreachable origins.
 
 The same suite is run with the session forced on. Demos complement tests by
 providing user-inspectable repositories and commands.
@@ -813,9 +859,9 @@ New capabilities should enter through versioned contracts:
 - Workspace registry stores local absolute paths and has limited lifecycle
   repair.
 - Forecasts cannot yet consume checkpoint/draft overlays.
-- Rebase has a first-class causal plan and isolated pinned forecast, but
-  supervised application, forecast staleness enforcement during mutation,
-  recovery, and completed receipts are not implemented.
+- Causal rebase v1 is deliberately linear and current-branch-only; it does not
+  preserve merge topology or provide interactive edit/reword/squash, arbitrary
+  range selection, or dirty/checkpoint overlays.
 - Notes lookup still scales with the notes namespace and reachable history;
   large-repository indexes are not implemented.
 - Crash boundaries have integration coverage for process-separated pauses but
@@ -829,14 +875,11 @@ New capabilities should enter through versioned contracts:
 ## 22. Candidate next architectural increment
 
 Metadata portability is implemented without a server. [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md)
-is Accepted, and its causal `rebase-plan` and isolated `rebase-forecast` slices
-are implemented. The next bounded increment is supervised application:
-revalidate a saved forecast before mutation, create an exact worktree-private
-rebase journal, replay the clean queue with stable identity, and provide a safe
-status/abort boundary before any shared receipt schema is published.
+is Accepted, and its linear plan, isolated forecast, supervised application,
+recovery journal, and portable completed-receipt slices are implemented.
 
-Workspace lifecycle/draft-overlay forecasting remains the strongest alternate
-bounded track. In parallel, larger note/resolution/worktree fixtures should
+Workspace lifecycle/draft-overlay forecasting is now the strongest bounded
+product track. In parallel, larger note/resolution/worktree fixtures should
 measure when inventory scans or explicit envelopes need an index or remote
 capability negotiation. A server or native database still requires the PRD's
 measured exit criteria.

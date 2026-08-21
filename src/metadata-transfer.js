@@ -28,6 +28,7 @@ import { CliError } from "./errors.js";
 
 const NOTES_REF = "refs/notes/vcs-lab";
 const RESOLUTION_PREFIX = "refs/vcs-lab/resolutions/";
+const MAX_COMMIT_PARENTS = 64;
 
 function groupRecords(entries) {
   const grouped = new Map();
@@ -48,6 +49,28 @@ function groupRecords(entries) {
 
 function notePath(attachment) {
   return `${attachment.slice(0, 2)}/${attachment.slice(2)}`;
+}
+
+function collapseCommitParents(parents, tree, cwd, env, message) {
+  let layer = [...new Set(parents)];
+  let depth = 0;
+  while (layer.length > MAX_COMMIT_PARENTS) {
+    const next = [];
+    for (let index = 0; index < layer.length; index += MAX_COMMIT_PARENTS) {
+      const group = layer.slice(index, index + MAX_COMMIT_PARENTS);
+      const parentArgs = group.flatMap((parent) => ["-p", parent]);
+      next.push(
+        runGit(["commit-tree", tree, ...parentArgs, "-F", "-"], {
+          cwd,
+          env,
+          input: `${message} retention ${depth}:${index / MAX_COMMIT_PARENTS}\n`,
+        }).stdout,
+      );
+    }
+    layer = next;
+    depth += 1;
+  }
+  return layer;
 }
 
 function buildNotesCommit(entries, cwd, options = {}) {
@@ -83,7 +106,14 @@ function buildNotesCommit(entries, cwd, options = {}) {
       );
     }
     const tree = runGit(["write-tree"], { cwd, env }).stdout;
-    const parents = (options.parents ?? []).flatMap((parent) => ["-p", parent]);
+    const retainedParents = collapseCommitParents(
+      options.parents ?? [],
+      tree,
+      cwd,
+      env,
+      options.message ?? "vcs-lab metadata envelope",
+    );
+    const parents = retainedParents.flatMap((parent) => ["-p", parent]);
     const commit = runGit(["commit-tree", tree, ...parents, "-F", "-"], {
       cwd,
       env,
@@ -169,9 +199,18 @@ export function exportMetadata(envelopePath, options = {}) {
     const refs = [];
     const bundleRefs = [];
     if (snapshot.portableRecords.length) {
+      const retainedCommits = new Set(
+        snapshot.portableRecords.flatMap((entry) => [
+          entry.attachment,
+          ...referencedObjectsForRecord(entry.record)
+            .filter((reference) => reference.type === "commit")
+            .map((reference) => reference.oid),
+        ]),
+      );
       const notes = buildNotesCommit(snapshot.portableRecords, context.root, {
         message: `vcs-lab metadata export ${exportKey}`,
         deterministic: true,
+        parents: [...retainedCommits].sort(),
       });
       runGit(["update-ref", temporaryNoteRef, notes.commit], { cwd: context.root });
       refs.push({ ref: NOTES_REF, bundleRef: temporaryNoteRef, oid: notes.commit });
@@ -240,7 +279,9 @@ function manifestRecordSummary(entry) {
 }
 
 function inspectEnvelopePayload(envelope) {
-  if (!envelope.bundlePath) return { records: [], refs: [] };
+  if (!envelope.bundlePath) {
+    return { records: [], refs: [], providedObjects: new Set() };
+  }
   const temporary = initInspectionRepository();
   try {
     const refspecs = envelope.manifest.refs.map((entry) => `${entry.bundleRef}:${entry.ref}`);
@@ -257,6 +298,15 @@ function inspectEnvelopePayload(envelope) {
     if (canonicalJson(actualRecords) !== canonicalJson(envelope.manifest.records)) {
       throw new CliError("Metadata envelope record inventory does not match its Git payload.");
     }
+    const payloadObjectProblems = destinationObjectProblems(
+      snapshot.portableRecords,
+      temporary.repo,
+    );
+    const unavailableObjects = new Set(
+      payloadObjectProblems.map(
+        (entry) => `${entry.expectedType}:${entry.oid}`,
+      ),
+    );
     const refs = envelope.manifest.refs.map((entry) => {
       const result = runGit(["show-ref", "--verify", "--hash", entry.ref], {
         cwd: temporary.repo,
@@ -267,13 +317,21 @@ function inspectEnvelopePayload(envelope) {
       }
       return entry;
     });
-    return { records: snapshot.portableRecords, refs };
+    return {
+      records: snapshot.portableRecords,
+      refs,
+      providedObjects: new Set(
+        requiredObjectClaims(snapshot.portableRecords).map(
+          (entry) => `${entry.type}:${entry.oid}`,
+        ).filter((key) => !unavailableObjects.has(key)),
+      ),
+    };
   } finally {
     fs.rmSync(temporary.parent, { recursive: true, force: true });
   }
 }
 
-function destinationObjectProblems(records, cwd) {
+function requiredObjectClaims(records) {
   const required = [];
   for (const entry of records) {
     const record = entry.record;
@@ -288,11 +346,17 @@ function destinationObjectProblems(records, cwd) {
       required.push({ ...reference, record: record.id });
     }
   }
+  return required;
+}
+
+function destinationObjectProblems(records, cwd, providedObjects = new Set()) {
+  const required = requiredObjectClaims(records);
   const unique = [...new Set(required.map((entry) => entry.oid))].sort();
   const objects = readGitObjects(unique, cwd);
   const lookup = new Map(unique.map((oid, index) => [oid, objects[index]]));
   return required
     .filter((entry) => {
+      if (providedObjects.has(`${entry.type}:${entry.oid}`)) return false;
       const object = lookup.get(entry.oid);
       return !object?.exists || object.type !== entry.type;
     })
@@ -346,7 +410,11 @@ function importPreview(envelope, incoming, cwd) {
     else if (current.ok) action = "conflict";
     return { ref: entry.ref, incoming: entry.oid, existing: current.ok ? current.stdout : null, action };
   });
-  const objectProblems = destinationObjectProblems(incoming.records, cwd);
+  const objectProblems = destinationObjectProblems(
+    incoming.records,
+    cwd,
+    incoming.providedObjects,
+  );
   const conflicts = records.filter((entry) => entry.action === "conflict").length +
     refs.filter((entry) => entry.action === "conflict").length + objectProblems.length;
   return {

@@ -13,9 +13,13 @@ const KNOWN_SCHEMAS = new Map([
   ["vcs-lab.application/v1", "note-record"],
   ["vcs-lab.application/v4", "note-record"],
   ["vcs-lab.reconciliation/v6", "note-record"],
+  ["vcs-lab.rebase-application/v1", "note-record"],
+  ["vcs-lab.rebase/v1", "note-record"],
   ["vcs-lab.resolution/v1", "note-record"],
   ["vcs-lab.reconciliation-operation/v4", "private"],
+  ["vcs-lab.rebase-operation/v1", "private"],
   ["vcs-lab.forecast/v2", "private"],
+  ["vcs-lab.rebase-forecast/v1", "private"],
   ["vcs-lab.workspaces/v1", "shared-local"],
   ["vcs-lab.workspace/v1", "shared-local"],
   ["vcs-lab.spec-manifest/v1", "tracked"],
@@ -145,6 +149,56 @@ export function validateNoteRecord(record, objectFormat = "sha1") {
     requireStringArray(record, "absorbedChanges", errors);
     fieldError(errors, Array.isArray(record.applied), "applied", "array");
     attachmentMatches(record, "resultCommit", errors);
+  } else if (schema === "vcs-lab.rebase-application/v1") {
+    validateCommonRecord(record, "rebase-application", objectFormat, errors);
+    for (const field of ["originCommit", "appliedCommit", "targetBefore"]) {
+      requireOid(record, field, objectFormat, errors);
+    }
+    for (const field of ["sourceTree", "targetBeforeTree", "resultTree"]) {
+      requireOid(record, field, objectFormat, errors);
+    }
+    for (const field of ["originChangeId", "appliedChangeId", "relation"]) {
+      fieldError(errors, typeof record[field] === "string" && record[field].length > 0, field, "non-empty string");
+    }
+    fieldError(errors, typeof record.rebaseOperation === "string" && record.rebaseOperation.length > 3, "rebaseOperation", "non-empty operation ID");
+    fieldError(errors, ["causal-rebase", "contextual-rebase", "contextual-fork"].includes(record.relation), "relation", "supported rebase relation");
+    fieldError(errors, Array.isArray(record.conflictedPaths), "conflictedPaths", "array");
+    fieldError(errors, Array.isArray(record.resolutions), "resolutions", "array");
+    fieldError(errors, Array.isArray(record.semanticMerges), "semanticMerges", "array");
+    attachmentMatches(record, "appliedCommit", errors);
+  } else if (schema === "vcs-lab.rebase/v1") {
+    validateCommonRecord(record, "rebase", objectFormat, errors);
+    for (const field of ["sourceHead", "ontoHead", "physicalBase", "resultCommit"]) {
+      requireOid(record, field, objectFormat, errors);
+    }
+    for (const field of ["sourceTree", "ontoTree", "resultTree"]) {
+      requireOid(record, field, objectFormat, errors);
+    }
+    requireOidArray(record, "absorbedCommits", objectFormat, errors);
+    requireOidArray(record, "forkedSourceCommits", objectFormat, errors);
+    requireStringArray(record, "absorbedChanges", errors);
+    fieldError(errors, Array.isArray(record.omitted), "omitted", "array");
+    fieldError(errors, Array.isArray(record.acceptedCandidates), "acceptedCandidates", "array");
+    fieldError(errors, Array.isArray(record.applications), "applications", "array");
+    fieldError(errors, typeof record.planFingerprint === "string" && /^[0-9a-f]{64}$/i.test(record.planFingerprint), "planFingerprint", "SHA-256 value");
+    fieldError(errors, record.effectiveBase && typeof record.effectiveBase === "object", "effectiveBase", "base descriptor");
+    if (record.effectiveBase && typeof record.effectiveBase === "object") {
+      requireOid(record.effectiveBase, "commit", objectFormat, errors);
+    }
+    for (const [index, application] of (record.applications ?? []).entries()) {
+      fieldError(errors, application && typeof application === "object" && !Array.isArray(application), `applications[${index}]`, "object");
+      if (!application || typeof application !== "object" || Array.isArray(application)) continue;
+      for (const field of ["sourceCommit", "appliedCommit"]) {
+        requireOid(application, field, objectFormat, errors);
+      }
+      for (const field of ["targetBeforeTree", "resultTree"]) {
+        requireOid(application, field, objectFormat, errors);
+      }
+      for (const field of ["sourceChangeId", "appliedChangeId", "relation"]) {
+        fieldError(errors, typeof application[field] === "string" && application[field].length > 0, `applications[${index}].${field}`, "non-empty string");
+      }
+    }
+    attachmentMatches(record, "resultCommit", errors);
   } else if (schema === "vcs-lab.resolution/v1") {
     validateCommonRecord(record, "resolution", objectFormat, errors);
     fieldError(errors, record.algorithm === RESOLUTION_SIGNATURE_ALGORITHM, "algorithm", RESOLUTION_SIGNATURE_ALGORITHM);
@@ -184,6 +238,20 @@ export function referencedObjectsForRecord(record) {
     for (const field of ["sourceHead", "targetBefore", "resultCommit"]) add(record[field], "commit", field);
     for (const oid of record.absorbedCommits ?? []) add(oid, "commit", "absorbedCommits");
     for (const field of ["targetTreeBefore", "sourceTree", "resultTree"]) add(record[field], "tree", field);
+  } else if (record.schema === "vcs-lab.rebase-application/v1") {
+    for (const field of ["originCommit", "appliedCommit", "targetBefore"]) add(record[field], "commit", field);
+    for (const field of ["sourceTree", "targetBeforeTree", "resultTree"]) add(record[field], "tree", field);
+  } else if (record.schema === "vcs-lab.rebase/v1") {
+    for (const field of ["sourceHead", "ontoHead", "physicalBase", "resultCommit"]) add(record[field], "commit", field);
+    add(record.effectiveBase?.commit, "commit", "effectiveBase.commit");
+    for (const oid of record.absorbedCommits ?? []) add(oid, "commit", "absorbedCommits");
+    for (const application of record.applications ?? []) {
+      add(application.sourceCommit, "commit", "applications.sourceCommit");
+      add(application.appliedCommit, "commit", "applications.appliedCommit");
+      add(application.targetBeforeTree, "tree", "applications.targetBeforeTree");
+      add(application.resultTree, "tree", "applications.resultTree");
+    }
+    for (const field of ["sourceTree", "ontoTree", "resultTree"]) add(record[field], "tree", field);
   } else if (record.schema === "vcs-lab.resolution/v1") {
     add(record.resolutionCommit, "commit", "resolutionCommit");
     for (const field of ["base", "ours", "theirs"]) add(record[field]?.blob, "blob", `${field}.blob`);
