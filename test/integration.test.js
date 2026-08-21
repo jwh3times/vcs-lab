@@ -12,7 +12,7 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 test("CLI reports the package version", () => {
   assert.equal(
     exec(process.execPath, [cli, "--version"], projectRoot),
-    "vcs-lab 0.7.1",
+    "vcs-lab 0.8.0",
   );
 });
 
@@ -1415,4 +1415,298 @@ test("workspace forecast compares committed agent heads without touching drafts"
     ).active,
     false,
   );
+});
+
+test("metadata validation quarantines invalid causal claims from coverage", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "portable\n");
+  git(repo, "add", ".");
+  const feature = JSON.parse(vlab(repo, "commit", "-m", "feature"));
+  git(repo, "switch", "main");
+  const target = git(repo, "rev-parse", "HEAD");
+  const targetTree = git(repo, "rev-parse", "HEAD^{tree}");
+  const missing = "f".repeat(40);
+  const invalid = {
+    schema: "vcs-lab.note/v1",
+    records: [
+      {
+        schema: "vcs-lab.landing/v99",
+        type: "landing",
+        id: "land_unknown_schema",
+        absorbedCommits: [feature.commit],
+        absorbedChanges: [feature.changeId],
+      },
+      {
+        schema: "vcs-lab.landing/v1",
+        type: "landing",
+        id: "land_dangling_reference",
+        mode: "hard-squash",
+        sourceRef: "feature",
+        sourceHead: missing,
+        targetBefore: target,
+        landingCommit: target,
+        base: base.commit,
+        absorbedCommits: [feature.commit],
+        absorbedChanges: [feature.changeId],
+        resultTree: targetTree,
+        createdAt: new Date(0).toISOString(),
+      },
+    ],
+  };
+  exec(
+    "git",
+    ["notes", "--ref=vcs-lab", "add", "-f", "-F", "-", target],
+    repo,
+    { input: `${JSON.stringify(invalid, null, 2)}\n` },
+  );
+
+  const status = JSON.parse(vlab(repo, "metadata", "status", "--json"));
+  assert.equal(status.scopes.sharedPortable.notes.quarantinedCount, 2);
+  assert.ok(status.diagnostics.some((item) => item.code === "unknown-schema"));
+  assert.ok(status.diagnostics.some((item) => item.code === "missing-referenced-object"));
+  assert.equal(status.trust.cryptographicallyTrusted, false);
+
+  const validation = vlabResult(repo, "metadata", "validate", "--json");
+  assert.notEqual(validation.status, 0);
+  assert.equal(JSON.parse(validation.stdout).summary.valid, false);
+
+  const plan = JSON.parse(vlab(repo, "merge-plan", "feature", "--json"));
+  assert.equal(plan.counts.covered, 0);
+  assert.equal(plan.counts.new, 1);
+  assert.equal(plan.changes[0].changeId, feature.changeId);
+});
+
+test("metadata envelope round-trips accepted facts between clones idempotently", (t) => {
+  const { repo, parent } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "one\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature one");
+  write(repo, "feature.txt", "one\ntwo\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature two");
+  git(repo, "switch", "main");
+  vlab(repo, "hard-squash", "feature", "--json");
+  git(repo, "switch", "feature");
+  write(repo, "continuation.txt", "three\n");
+  git(repo, "add", ".");
+  const continuation = JSON.parse(vlab(repo, "commit", "-m", "feature continuation"));
+
+  git(repo, "switch", "-c", "conflict-source", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "source conflict");
+  git(repo, "switch", "main");
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "target conflict");
+  assert.notEqual(vlabResult(repo, "reconcile", "conflict-source").status, 0);
+  write(repo, "shared.txt", "resolved\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "reconcile", "--continue", "--json");
+  const sourceCatalog = JSON.parse(vlab(repo, "resolve", "list", "--json"));
+  assert.equal(sourceCatalog.length, 1);
+
+  write(repo, "docs/spec.md", "# Portable\n\nREQ-PORTABLE-1: Keep identity.\n");
+  vlab(repo, "spec", "index", "docs/spec.md", "--json");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "portable specification");
+  const sourceSpec = JSON.parse(vlab(repo, "spec", "show", "docs/spec.md", "--json"));
+
+  const workspacePath = path.join(parent, "metadata-workspace");
+  vlab(repo, "workspace", "create", "metadata-agent", "--path", workspacePath, "--json");
+  write(workspacePath, "private-draft.txt", "private\n");
+  vlab(workspacePath, "workspace", "checkpoint", "--label", "excluded", "--json");
+  vlab(repo, "forecast", "feature", "--json");
+
+  const attachment = git(repo, "rev-parse", "HEAD");
+  const unknown = {
+    schema: "vcs-lab.note/v1",
+    records: [{
+      schema: "vcs-lab.future-proof/v9",
+      type: "landing",
+      id: "future_quarantined",
+      absorbedCommits: [continuation.commit],
+    }],
+  };
+  exec(
+    "git",
+    ["notes", "--ref=vcs-lab", "add", "-f", "-F", "-", attachment],
+    repo,
+    { input: `${JSON.stringify(unknown, null, 2)}\n` },
+  );
+  const sourceStatus = JSON.parse(vlab(repo, "metadata", "status", "--json"));
+  assert.equal(sourceStatus.scopes.sharedPortable.notes.quarantinedCount, 1);
+
+  const beforePlan = JSON.parse(vlab(repo, "merge-plan", "feature", "--json"));
+  assert.equal(
+    beforePlan.changes.find((item) => item.changeId === continuation.changeId).status,
+    "new",
+  );
+
+  const envelopePath = path.join(parent, "portable-metadata");
+  const exported = JSON.parse(
+    vlab(repo, "metadata", "export", envelopePath, "--json"),
+  );
+  assert.equal(exported.quarantinedRecords, 1);
+  assert.ok(exported.bytes > 0);
+
+  const envelopeManifest = JSON.parse(
+    fs.readFileSync(path.join(envelopePath, "manifest.json"), "utf8"),
+  );
+  const secondEnvelopePath = path.join(parent, "portable-metadata-repeat");
+  vlab(repo, "metadata", "export", secondEnvelopePath, "--json");
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(secondEnvelopePath, "manifest.json"), "utf8")),
+    envelopeManifest,
+  );
+  assert.deepEqual(
+    fs.readFileSync(path.join(secondEnvelopePath, "objects.bundle")),
+    fs.readFileSync(path.join(envelopePath, "objects.bundle")),
+  );
+  const incomingId = envelopeManifest.records.find(
+    (record) => record.type === "landing",
+  ).id;
+  const conflictDestination = path.join(parent, "conflict-destination");
+  git(parent, "clone", "--no-local", repo, conflictDestination);
+  git(conflictDestination, "config", "user.name", "VCS Lab Test");
+  git(conflictDestination, "config", "user.email", "vcs-lab@example.test");
+  const conflictHead = git(conflictDestination, "rev-parse", "HEAD");
+  const conflictingRecord = {
+    schema: "vcs-lab.note/v1",
+    records: [{
+      schema: "vcs-lab.application/v1",
+      type: "application",
+      id: incomingId,
+      originCommit: base.commit,
+      originChangeId: "ch_conflicting_import",
+      appliedCommit: conflictHead,
+      appliedChangeId: "ch_conflicting_import",
+      targetBefore: base.commit,
+      relation: "same-logical-change",
+      createdAt: new Date(0).toISOString(),
+    }],
+  };
+  exec(
+    "git",
+    ["notes", "--ref=vcs-lab", "add", "-f", "-F", "-", conflictHead],
+    conflictDestination,
+    { input: `${JSON.stringify(conflictingRecord, null, 2)}\n` },
+  );
+  const conflictNotesBefore = git(
+    conflictDestination,
+    "rev-parse",
+    "refs/notes/vcs-lab",
+  );
+  const conflictPreview = vlabResult(
+    conflictDestination,
+    "metadata",
+    "import",
+    envelopePath,
+    "--dry-run",
+    "--json",
+  );
+  assert.notEqual(conflictPreview.status, 0);
+  assert.ok(conflictPreview.stdout, conflictPreview.stderr);
+  assert.ok(JSON.parse(conflictPreview.stdout).summary.conflicts > 0);
+  assert.equal(
+    git(conflictDestination, "rev-parse", "refs/notes/vcs-lab"),
+    conflictNotesBefore,
+  );
+  assert.equal(
+    git(conflictDestination, "for-each-ref", "--format=%(refname)", "refs/vcs-lab/resolutions"),
+    "",
+  );
+
+  const tamperedEnvelope = path.join(parent, "tampered-metadata");
+  fs.cpSync(envelopePath, tamperedEnvelope, { recursive: true });
+  fs.appendFileSync(path.join(tamperedEnvelope, "objects.bundle"), "tampered");
+  const tampered = vlabResult(
+    conflictDestination,
+    "metadata",
+    "import",
+    tamperedEnvelope,
+    "--dry-run",
+    "--json",
+  );
+  assert.notEqual(tampered.status, 0);
+  assert.match(tampered.stderr, /payload integrity check failed/i);
+
+  const unrelated = path.join(parent, "unrelated");
+  fs.mkdirSync(unrelated);
+  git(unrelated, "init", "-b", "main");
+  git(unrelated, "config", "user.name", "VCS Lab Test");
+  git(unrelated, "config", "user.email", "vcs-lab@example.test");
+  write(unrelated, "unrelated.txt", "unrelated\n");
+  git(unrelated, "add", ".");
+  git(unrelated, "commit", "-m", "unrelated root");
+  const unrelatedPreview = vlabResult(
+    unrelated,
+    "metadata",
+    "import",
+    envelopePath,
+    "--dry-run",
+    "--json",
+  );
+  assert.notEqual(unrelatedPreview.status, 0);
+  assert.match(unrelatedPreview.stderr, /requires a shared root commit/i);
+
+  const destination = path.join(parent, "destination");
+  git(parent, "clone", "--no-local", repo, destination);
+  git(destination, "config", "core.autocrlf", "false");
+  git(destination, "config", "user.name", "VCS Lab Test");
+  git(destination, "config", "user.email", "vcs-lab@example.test");
+  const preview = JSON.parse(
+    vlab(destination, "metadata", "import", envelopePath, "--dry-run", "--json"),
+  );
+  assert.equal(preview.summary.applicable, true);
+  assert.ok(preview.summary.addRecords > 0);
+  assert.ok(["same", "fork"].includes(preview.repository.lineageRelation));
+
+  const imported = JSON.parse(
+    vlab(destination, "metadata", "import", envelopePath, "--apply", "--json"),
+  );
+  assert.equal(imported.applied, true);
+  const repeated = JSON.parse(
+    vlab(destination, "metadata", "import", envelopePath, "--apply", "--json"),
+  );
+  assert.equal(repeated.summary.addRecords, 0);
+  assert.equal(repeated.summary.conflicts, 0);
+  assert.equal(repeated.changed, false);
+
+  const afterPlan = JSON.parse(
+    vlab(destination, "merge-plan", "origin/feature", "--json"),
+  );
+  assert.deepEqual(afterPlan.counts, beforePlan.counts);
+  assert.deepEqual(
+    afterPlan.changes.map(({ changeId, status, proof }) => ({ changeId, status, proof })),
+    beforePlan.changes.map(({ changeId, status, proof }) => ({ changeId, status, proof })),
+  );
+  const destinationCatalog = JSON.parse(vlab(destination, "resolve", "list", "--json"));
+  assert.equal(destinationCatalog.length, 1);
+  assert.equal(destinationCatalog[0].resultBlob, sourceCatalog[0].resultBlob);
+  const destinationSpec = JSON.parse(vlab(destination, "spec", "show", "docs/spec.md", "--json"));
+  assert.equal(destinationSpec.manifest.artifactId, sourceSpec.manifest.artifactId);
+  assert.deepEqual(
+    destinationSpec.manifest.blocks.map((block) => block.id),
+    sourceSpec.manifest.blocks.map((block) => block.id),
+  );
+
+  const destinationStatus = JSON.parse(vlab(destination, "metadata", "status", "--json"));
+  assert.equal(destinationStatus.scopes.sharedPortable.notes.quarantinedCount, 0);
+  assert.equal(destinationStatus.scopes.sharedLocal.checkpoints.refCount, 0);
+  assert.equal(destinationStatus.scopes.sharedLocal.workspaceRegistry.present, false);
+  assert.equal(destinationStatus.scopes.worktreePrivate.pendingOperationCount, 0);
+  assert.equal(destinationStatus.scopes.worktreePrivate.forecastCount, 0);
 });

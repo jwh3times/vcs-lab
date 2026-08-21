@@ -6,6 +6,7 @@ import {
   withGitObjectSession,
 } from "./git.js";
 import { recordsReachableFrom } from "./notes.js";
+import { acceptedCausalRecords } from "./metadata.js";
 
 function parseHistory(output) {
   const records = [];
@@ -44,8 +45,11 @@ function extractChangeId(commit, message) {
 }
 
 function receiptCoverage(ref, directCommits, cwd) {
-  const receipts = recordsReachableFrom(ref, cwd, directCommits).filter((record) =>
-    ["landing", "reconciliation"].includes(record.type),
+  const receipts = acceptedCausalRecords(
+    recordsReachableFrom(ref, cwd, directCommits).filter((record) =>
+      ["landing", "reconciliation"].includes(record.type),
+    ),
+    cwd,
   );
   const commits = new Set();
   const changeIds = new Set();

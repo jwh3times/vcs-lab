@@ -44,6 +44,8 @@ import {
   forecastReconciliation,
   forecastWorkspaces,
 } from "./forecasts.js";
+import { metadataStatus, validateMetadata } from "./metadata.js";
+import { exportMetadata, importMetadata } from "./metadata-transfer.js";
 
 const HELP = `vcs-lab — Git-backed experiments for causal source control
 
@@ -67,6 +69,11 @@ Usage:
   vlab cherry-pick <commit-or-change-id> [--fork] [--repeat] [--json]
   vlab graph
   vlab receipts [--json]
+  vlab metadata status [--json]
+  vlab metadata validate [--strict] [--json]
+  vlab metadata export <directory> [--json]
+  vlab metadata import <directory> --dry-run [--json]
+  vlab metadata import <directory> --apply [--json]
   vlab workspace create <name> [--from <ref>] [--path <directory>]
   vlab workspace list [--json]
   vlab workspace checkpoint [--label <text>] [--json]
@@ -121,6 +128,50 @@ function print(value, json = false) {
   } else {
     console.log(value);
   }
+}
+
+function formatMetadataStatus(result, title = "Metadata status") {
+  const lines = [
+    title,
+    `repository   ${result.repository.root}`,
+    `object format ${result.repository.objectFormat}`,
+    `lineage      ${short(result.repository.lineage.id)}`,
+    `notes        ${result.scopes.sharedPortable.notes.targetCount} targets; ${result.scopes.sharedPortable.notes.acceptedCount} accepted, ${result.scopes.sharedPortable.notes.quarantinedCount} quarantined`,
+    `resolutions  ${result.scopes.sharedPortable.resolutions.acceptedRefCount}/${result.scopes.sharedPortable.resolutions.refCount} refs accepted`,
+    `specs        ${result.scopes.trackedPortable.consistentCount}/${result.scopes.trackedPortable.manifestCount} manifests consistent`,
+    `local        ${result.scopes.sharedLocal.checkpoints.refCount} checkpoints; ${result.scopes.sharedLocal.workspaceRegistry.count} workspaces`,
+    `private      ${result.scopes.worktreePrivate.pendingOperationCount} operations; ${result.scopes.worktreePrivate.forecastCount} forecasts`,
+    `diagnostics  ${result.summary.errors} errors, ${result.summary.warnings} warnings`,
+    `integrity    ${result.summary.valid ? "valid" : "invalid"}; not signed or authorized`,
+  ];
+  for (const diagnostic of result.diagnostics) {
+    lines.push(`  ${diagnostic.severity === "error" ? "!" : "?"} ${diagnostic.code}: ${diagnostic.subject}`);
+  }
+  return lines.join("\n");
+}
+
+function formatMetadataTransfer(result) {
+  if (result.schema === "vcs-lab.metadata-export/v1") {
+    return [
+      "Metadata exported",
+      `path         ${result.path}`,
+      `records      ${result.records}`,
+      `refs         ${result.refs}`,
+      `quarantined  ${result.quarantinedRecords} excluded`,
+      `payload      ${result.bytes} bytes`,
+      "trust        integrity only; not signed or authorized",
+    ].join("\n");
+  }
+  return [
+    result.applied ? "Metadata import applied" : "Metadata import preview",
+    `path         ${result.path}`,
+    `lineage      ${result.repository.lineageRelation}`,
+    `records      ${result.summary.addRecords} add, ${result.summary.noopRecords} unchanged`,
+    `refs         ${result.summary.createRefs} create, ${result.summary.mergeRefs} merge, ${result.summary.noopRefs} unchanged`,
+    `conflicts    ${result.summary.conflicts}`,
+    `applicable   ${result.summary.applicable ? "yes" : "no"}`,
+    "trust        integrity only; not signed or authorized",
+  ].join("\n");
 }
 
 function formatSpecResult(result) {
@@ -779,6 +830,37 @@ export async function main(rawArgs) {
       const records = listNoteRecords();
       print(options.json ? records : formatReceipts(records), options.json);
       return;
+    }
+    case "metadata": {
+      const subcommand = positionals[0];
+      if (subcommand === "status") {
+        const result = metadataStatus();
+        print(options.json ? result : formatMetadataStatus(result), options.json);
+        return;
+      }
+      if (subcommand === "validate") {
+        const result = validateMetadata({ strict: options.strict });
+        print(options.json ? result : formatMetadataStatus(result, "Metadata validation"), options.json);
+        if (!result.summary.valid) process.exitCode = 1;
+        return;
+      }
+      if (subcommand === "export") {
+        const destination = requireValue(positionals[1], "vlab metadata export <directory>");
+        const result = exportMetadata(destination);
+        print(options.json ? result : formatMetadataTransfer(result), options.json);
+        return;
+      }
+      if (subcommand === "import") {
+        const source = requireValue(positionals[1], "vlab metadata import <directory> --dry-run|--apply");
+        const result = importMetadata(source, {
+          dryRun: options.dryRun,
+          apply: options.apply,
+        });
+        print(options.json ? result : formatMetadataTransfer(result), options.json);
+        if (!result.summary.applicable) process.exitCode = 1;
+        return;
+      }
+      throw new CliError("Unknown metadata command. Use status, validate, export, or import.");
     }
     case "workspace": {
       const subcommand = positionals[0];

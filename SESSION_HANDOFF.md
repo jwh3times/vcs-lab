@@ -59,11 +59,10 @@ under the system temporary directory and should print their path.
 
 ## 3. Release and repository baseline
 
-The implementation baseline was established by v0.7.0; v0.7.1 is the
-documentation-only product/architecture baseline that accompanies it. The v0.7
-series contains 29 integration tests, all of which passed on the release host
-both normally and with the persistent Git object session forced on. All
-maintained demos also passed.
+The implementation baseline is v0.8.0. It adds validated metadata inventory,
+quarantine-safe causal consumption, and deterministic envelope transfer to the
+v0.7 causal/specification/Git-session foundation. The v0.8 series contains 31
+integration tests and retains all six maintained demos.
 
 Do not trust a hard-coded commit from a handoff; establish the exact checkout
 first:
@@ -170,6 +169,29 @@ The user has not yet supplied an independent v0.7 Windows session-demo report
 in the preserved conversation. Capturing that evidence remains useful but does
 not block documentation work.
 
+### v0.8 — metadata integrity and portability
+
+- Deterministic `metadata status` and `metadata validate` inventory across
+  shared-portable, tracked-portable, shared-local, and worktree-private scopes.
+- Stable diagnostic codes for unknown/malformed records, missing attachments
+  and objects, resolution signature/retention damage, spec drift, workspace
+  health, private operations, and record-ID conflicts.
+- Unknown or invalid causal facts are quarantined from coverage, exact
+  resolution lookup, and export without rewriting their source notes.
+- `vcs-lab.metadata-envelope/v1` uses a canonical hashed manifest plus a
+  deterministic sanitized Git bundle.
+- Lineage v1 binds Git object format and sorted ordinary root commits; the same
+  lineage or a fork with a shared root may import, while unrelated or
+  history-filtered lineages fail closed.
+- Import verifies its payload in a disposable repository, previews exact
+  records/refs/objects, refuses conflicts, stages refs, and publishes through
+  one checked ref transaction. Repeated import is a no-op.
+- Tracked spec manifests continue to travel with ordinary source. Workspace
+  registries, checkpoints, reconciliation journals, and forecasts are excluded
+  from envelopes.
+- Integrity remains explicitly distinct from signatures, actor identity, and
+  authorization.
+
 ## 5. Fast start for a new session
 
 ### 5.1 Read and verify before editing
@@ -198,7 +220,7 @@ npm test
 Remove-Item Env:VLAB_GIT_SESSION
 ```
 
-The expected baseline is 29 passing tests in each mode. A documentation-only
+The expected baseline is 31 passing tests in each mode. A documentation-only
 change may run the ordinary suite plus link/packaging checks, but a release
 should still preserve the full gate in [PRD.md](PRD.md#14-release-and-quality-gates).
 
@@ -241,6 +263,8 @@ portable than a single timing observation.
 | Worktrees/workspaces/checkpoints | `src/workspaces.js` | `src/store.js`, workspace tests |
 | Markdown identity/index/merge | `src/specs.js` | spec tests and `scripts/spec-merge-demo.mjs` |
 | Shared note records | `src/notes.js` | `refs/notes/vcs-lab` behavior |
+| Metadata inventory/validation | `src/metadata.js`, `src/schemas.js` | note/resolution/spec/workspace/private-state fixtures |
+| Envelope export/import | `src/metadata-envelope.js`, `src/metadata-transfer.js` | lineage, bundle, staging/ref-transaction tests |
 | Common/private runtime paths | `src/store.js`, `src/reconcile-state.js` | `repoContext` in `src/git.js` |
 | IDs and hashes | `src/ids.js` | schema fields that name algorithms |
 | End-to-end contract | `test/integration.test.js` | all demo scripts |
@@ -262,15 +286,17 @@ line endings, and process interruption are part of the behavior.
 | Forecasts | current worktree Git dir, `vcs-lab/forecasts/*.json` | Worktree-private |
 | Spec manifests | `.vcs-lab/specs/**/*.json` | Tracked and portable with project source |
 
-Current manual remote transfer requires both:
+The supported portable transfer path is:
 
 ```powershell
-git fetch origin refs/notes/vcs-lab:refs/notes/vcs-lab
-git fetch origin 'refs/vcs-lab/resolutions/*:refs/vcs-lab/resolutions/*'
+vlab metadata export ..\project-metadata
+vlab metadata import ..\project-metadata --dry-run
+vlab metadata import ..\project-metadata --apply
 ```
 
-Do not claim metadata portability is complete merely because one namespace was
-fetched.
+Manual note/resolution refspecs remain possible for low-level experiments, but
+they do not validate, quarantine, preview conflicts, or transfer every required
+resolution object safely.
 
 ## 8. Invariants that must not regress
 
@@ -300,6 +326,12 @@ These are the shortest high-value review checklist for any new change:
 20. Session cache never treats mutable symbolic/index expressions as immutable.
 21. Trace output never prints repository content or full commit messages.
 22. A local receipt is not described as cryptographically trusted.
+23. Unknown, malformed, dangling, or conflicting records cannot prove coverage
+    or appear as reusable exact resolutions.
+24. Metadata dry-run does not mutate destination refs, import does not silently
+    overwrite conflicts, and a repeated import is a no-op.
+25. Workspace/checkpoint and worktree-private state do not enter a portable
+    metadata envelope.
 
 If a proposed change intentionally breaks one, write a superseding ADR and
 update the PRD before relying on the new behavior.
@@ -308,10 +340,10 @@ update the PRD before relying on the new behavior.
 
 ### Highest-value product gap
 
-Causal metadata is not yet self-inventorying or safely portable between clones.
-Notes, resolution refs, tracked manifests, shared local workspace state, and
-worktree-private journals have different transfer semantics. There is no
-machine-validated whole-repository integrity report.
+Rebase is not yet a first-class causal plan/forecast operation. Users can rely
+on ordinary Git rebase plus stable Change IDs, but there is no reviewed,
+receipt-aware sequence with the same staleness and predicted-tree guarantees as
+reconciliation.
 
 ### Other material gaps
 
@@ -329,164 +361,48 @@ machine-validated whole-repository integrity report.
 - Semantic merge supports heading-oriented Markdown only.
 - A persistent cross-command service is deliberately not implemented.
 
-## 10. Recommended next release track: v0.8 metadata integrity and portability
+## 10. Delivered release track: v0.8 metadata integrity and portability
 
-This is the recommended work, not an already accepted architecture. Begin by
-reviewing Proposed [ADR-0010](docs/adr/0010-add-a-validated-metadata-envelope-before-a-server.md).
-Do not promote it until repository/fork identity, compatibility, and import
-conflict rules are concrete.
+[ADR-0010](docs/adr/0010-add-a-validated-metadata-envelope-before-a-server.md)
+is Accepted. It defines portable/local scope, root-commit lineage, exact schema
+compatibility, read-only quarantine, deterministic envelope contents,
+idempotent conflict semantics, and explicit trust non-claims.
 
-### 10.1 Target outcome
-
-A user can ask what causal metadata exists, whether it is internally complete,
-what is portable, and how to move the shared subset to another clone without
-memorizing internal refspecs. Invalid or unknown records cannot silently prove
-coverage. Integrity must be clearly separated from actor trust.
-
-### 10.2 Proposed scope
-
-#### Phase A — inventory and validation (read-only first)
-
-Add a command family such as:
+The implemented commands are:
 
 ```text
 vlab metadata status [--json]
 vlab metadata validate [--strict] [--json]
+vlab metadata export <directory> [--json]
+vlab metadata import <directory> --dry-run [--json]
+vlab metadata import <directory> --apply [--json]
 ```
 
-The exact names may change during design. The read-only inventory should report:
+The two-clone fixture contains hard-squash/reconciliation receipts, an exact
+retained resolution, a v3 spec, a workspace/checkpoint/forecast exclusion case,
+and invalid metadata. It verifies deterministic export, tamper and unrelated
+lineage rejection, non-mutating conflict preview, atomic/idempotent import,
+identical causal classifications, the same resolution blob and spec IDs, and
+absence of source-local/private state at the destination.
 
-- repository root/object format and relevant ref namespaces;
-- note target count and records by schema/type/version;
-- missing note attachments or referenced commits/trees;
-- resolution records, retention refs, and missing/mismatched result blobs;
-- checkpoint refs and workspace registry health;
-- worktree-private pending operations/forecast counts without exposing content;
-- tracked spec manifests by schema and source consistency;
-- unknown/newer schemas;
-- which data is shared-portable, tracked-portable, shared-local, or private;
-- stable diagnostic codes in JSON, not prose-only errors.
+### 10.1 Deliberate v0.8 limits
 
-Suggested initial diagnostic categories:
+- no signing, actor identity, authorization, or server policy;
+- no automatic push/fetch or remote capability negotiation;
+- no override for unrelated or history-filtered lineage;
+- no export of checkpoints, workspace registry paths, or active private state;
+- no automatic repair of quarantined metadata;
+- no native store, daemon, or background service.
 
-```text
-unknown-schema
-malformed-record
-missing-attachment
-missing-referenced-object
-missing-resolution-ref
-missing-resolution-blob
-resolution-signature-mismatch
-workspace-path-missing
-spec-source-missing
-spec-manifest-stale
-private-operation-in-progress
-```
+### 10.2 Recommended next release decision
 
-Do not let an invalid record participate in causal coverage merely because a
-JSON parse succeeded.
-
-#### Phase B — portable envelope design
-
-Define, document, and test a versioned representation such as
-`vcs-lab.metadata-envelope/v1` containing:
-
-- envelope/schema version and producer version;
-- Git object format and a carefully defined repository lineage identifier;
-- capability list and included namespaces;
-- deterministic inventory entries with attachment/ref/object IDs;
-- hashes for non-Git envelope content;
-- explicit exclusions for workspace-private/machine-local state;
-- compatibility behavior for unknown record versions;
-- no claim of signature trust unless a future signature layer is present.
-
-Prefer reusing Git objects and refs rather than copying their byte content into
-large JSON. Evaluate at least:
-
-1. a Git bundle carrying dedicated metadata refs plus a small manifest;
-2. deterministic manifest plus explicit fetch/push refspec orchestration;
-3. one append-only namespaced metadata tree/ref.
-
-Document the selected tradeoff in a superseding or accepted ADR.
-
-#### Phase C — export/import experiment
-
-Candidate commands:
-
-```text
-vlab metadata export <path> [--json]
-vlab metadata import <path> --dry-run [--json]
-vlab metadata import <path> --apply [--json]
-```
-
-Safety requirements:
-
-- import previews exact refs/records/objects before mutation;
-- imports are idempotent;
-- existing conflicting record IDs or ref results never overwrite silently;
-- invalid and unknown records are rejected or quarantined;
-- no worktree-private reconciliation journal is exported by default;
-- imported facts are still not treated as cryptographically trusted;
-- partial failure leaves existing repository facts intact and recoverable.
-
-#### Phase D — two-clone conformance fixture
-
-Create a disposable source repository containing:
-
-- hard-squash and reconciliation receipts;
-- one exact reusable resolution and retained result blob;
-- a checkpoint/workspace to verify local/private exclusion rules;
-- an indexed v3 spec;
-- an unknown-schema and broken-reference fixture for validation tests.
-
-Export shared portable metadata, clone ordinary Git content, import the envelope,
-and verify:
-
-- merge plans classify the same changes with the same exact proofs;
-- the resolution catalog offers the same result blob;
-- spec entity IDs match;
-- repeated import is a no-op;
-- invalid fixture cannot affect coverage;
-- the destination has no source worktree-private operation state.
-
-### 10.3 Out of scope for this track
-
-- cryptographic signing or key management;
-- a hosted service or background daemon;
-- automatic push to arbitrary remotes;
-- server branch protection or authorization;
-- native replacement of Git objects;
-- syncing active private reconciliation journals;
-- AI-generated repair of corrupt metadata.
-
-### 10.4 Suggested module boundaries
-
-Do not put all logic into `src/cli.js`. A likely shape is:
-
-```text
-src/metadata.js             inventory, validation, scope classification
-src/metadata-envelope.js    deterministic envelope construction/parsing
-src/metadata-transfer.js    export/import staging and ref transaction
-src/schemas.js              schema/version registry and validators
-```
-
-This is a proposal, not a required filename set. Reuse `repoContext`, safe Git
-argument arrays, atomic JSON writing, `readGitObjects`, and metrics. Coverage
-planning should consume only records accepted by the validator once that path
-is introduced.
-
-### 10.5 Proposed v0.8 acceptance criteria
-
-1. Read-only inventory is deterministic and has stable JSON diagnostics.
-2. Existing v0.7 repositories validate without mutation.
-3. Corrupt, dangling, unknown, and ambiguous fixtures are handled explicitly.
-4. Shared portable data round-trips between two clones idempotently.
-5. Causal plan and exact-resolution behavior match after round-trip.
-6. Worktree-private and machine-local state is excluded by default.
-7. Import has a dry-run and does not silently overwrite conflicts.
-8. Ordinary and persistent Git session modes still pass the complete suite.
-9. Process/storage metrics are added for the representative envelope fixture.
-10. README, PRD, architecture, ADR status, changelog, and this handoff agree.
+The strongest next core-product candidate is a first-class causal rebase plan
+and forecast. Start with a Proposed ADR that defines whether rebase is modeled
+as a sequence of target-context applications, which IDs/receipts survive, how
+forks are expressed, what exact tree is predicted, and how abort/recovery maps
+to ordinary Git. Do not begin broad implementation until that user model is
+accepted. Workspace lifecycle/draft-overlay forecasting and large-scale
+metadata benchmarks remain viable alternative bounded tracks.
 
 ## 11. Test and release discipline
 
@@ -596,19 +512,19 @@ First read SESSION_HANDOFF.md, PRD.md, ARCHITECTURE.md, and
 docs/adr/README.md. Inspect git status and preserve any existing changes. Verify
 the current version/tag and run the relevant baseline tests before editing.
 
-The recommended next track is the v0.8 metadata integrity and portability work
-described in section 10 of SESSION_HANDOFF.md and Proposed ADR-0010. Begin with
-read-only inventory/validation and resolve the ADR's repository identity,
-schema compatibility, quarantine, and idempotent import rules before promoting
-it to Accepted. Keep Git as the substrate, keep worktree-private state out of
-portable exports, distinguish integrity from cryptographic trust, and preserve
-all invariants listed in section 8.
+The v0.8 metadata integrity and portability work is implemented and ADR-0010 is
+Accepted. Verify its deterministic status/validation and two-clone envelope
+tests before changing its contracts. The recommended next decision is a
+Proposed ADR for first-class causal rebase planning/forecasting as described in
+section 10.2; define the user model, identity/receipt behavior, tree pinning,
+and Git recovery mapping before broad implementation. Preserve all invariants
+listed in section 8.
 
 Implement the agreed increment, add disposable-repository integration tests,
 run the suite with the persistent Git session both disabled and enabled, update
 all durable docs and changelog, and produce independently verified release
-artifacts. Do not add a server, daemon, signing system, or native object store
-as part of this increment unless I explicitly expand the scope.
+artifacts. Do not add a server, daemon, signing system, native object store, or
+unrelated-lineage import override unless I explicitly expand the scope.
 ```
 
 ## 15. Handoff completion checklist
@@ -625,6 +541,9 @@ the repository, not from chat memory:
 - Why can an exact resolution be reused across a rename but not changed input?
 - Why is Markdown canonical and what does the sparse sidecar retain?
 - What can the persistent Git session cache safely?
+- Which metadata scopes enter an envelope, how is clone/fork lineage decided,
+  and why can an invalid record not prove coverage?
+- Why does envelope integrity not establish actor trust or authorization?
 - What has passed on the release host versus been independently observed on
   the user's Windows machine?
 - What is the next proposed scope, and which parts are deliberately excluded?

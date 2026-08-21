@@ -1,8 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { readGitBlob, refExists, resolveRevision, runGit } from "./git.js";
-import { newId, sha256 } from "./ids.js";
+import { readGitBlob, readGitObjects, refExists, resolveRevision, runGit } from "./git.js";
+import { newId } from "./ids.js";
 import { appendNote, readNote } from "./notes.js";
+import { acceptedCausalRecords } from "./metadata.js";
+import {
+  RESOLUTION_SIGNATURE_ALGORITHM,
+  resolutionSignatureFor,
+} from "./schemas.js";
 import {
   readReconciliationState,
   writeReconciliationState,
@@ -10,7 +15,6 @@ import {
 import { CliError } from "./errors.js";
 
 const RESOLUTION_REFS = "refs/vcs-lab/resolutions";
-const SIGNATURE_ALGORITHM = "ordered-three-way-blobs/v1";
 
 function parseIndexEntries(output) {
   const entries = [];
@@ -48,16 +52,6 @@ function conflictStages(filePath, cwd) {
   };
 }
 
-function signatureFor(stages) {
-  const canonical = JSON.stringify({
-    algorithm: SIGNATURE_ALGORITHM,
-    base: stages.base,
-    ours: stages.ours,
-    theirs: stages.theirs,
-  });
-  return `rsig_${sha256(canonical)}`;
-}
-
 function compactResolution(record) {
   return {
     id: record.id,
@@ -80,10 +74,26 @@ export function listResolutionRecords(cwd = process.cwd()) {
   for (const ref of refs.split(/\r?\n/).filter(Boolean)) {
     const commit = resolveRevision(ref, cwd);
     for (const record of readNote(commit, cwd).records) {
-      if (record.type === "resolution") records.push({ ...record, ref, commit });
+      if (record.type === "resolution") {
+        records.push({ ...record, attachedTo: commit, discoveredRef: ref, commit });
+      }
     }
   }
-  return records.sort((left, right) =>
+  const accepted = acceptedCausalRecords(records, cwd).filter((record) =>
+    record.ref === record.discoveredRef &&
+    record.resolutionCommit === record.commit &&
+    resolutionSignatureFor(record) === record.signature,
+  );
+  const retained = readGitObjects(
+    accepted.filter((record) => record.resultBlob).map((record) => `${record.commit}:result`),
+    cwd,
+  );
+  let retainedIndex = 0;
+  return accepted.filter((record) => {
+    if (!record.resultBlob) return true;
+    const object = retained[retainedIndex++];
+    return object?.exists && object.type === "blob" && object.oid === record.resultBlob;
+  }).sort((left, right) =>
     String(right.createdAt ?? "").localeCompare(String(left.createdAt ?? "")),
   );
 }
@@ -97,11 +107,11 @@ export function resolutionCandidates(signature, cwd = process.cwd()) {
 export function captureConflictDescriptors(paths, cwd = process.cwd()) {
   return paths.map((filePath) => {
     const stages = conflictStages(filePath, cwd);
-    const signature = signatureFor(stages);
+    const signature = resolutionSignatureFor(stages);
     return {
       path: filePath,
       signature,
-      algorithm: SIGNATURE_ALGORITHM,
+      algorithm: RESOLUTION_SIGNATURE_ALGORITHM,
       ...stages,
       candidates: resolutionCandidates(signature, cwd),
       selectedResolutionId: null,

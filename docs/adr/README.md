@@ -27,7 +27,7 @@ requirements in [../../PRD.md](../../PRD.md) and the implemented architecture in
 | [0007](0007-keep-resolution-automation-exact-or-deterministic.md) | Accepted | Keep resolution automation exact or deterministic and expose ambiguity |
 | [0008](0008-keep-markdown-canonical-and-spec-metadata-sparse.md) | Accepted | Keep Markdown canonical and specification metadata sparse and derived |
 | [0009](0009-use-an-invocation-scoped-git-object-session.md) | Accepted | Use an invocation-scoped, worktree-isolated Git object session |
-| [0010](0010-add-a-validated-metadata-envelope-before-a-server.md) | Proposed | Add a validated metadata envelope before a native server or store |
+| [0010](0010-add-a-validated-metadata-envelope-before-a-server.md) | Accepted | Add a validated metadata envelope before a native server or store |
 
 ## Creating or changing an ADR
 

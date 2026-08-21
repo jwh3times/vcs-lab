@@ -6,9 +6,9 @@
 | --- | --- |
 | Product | `vcs-lab` / causal source-control laboratory |
 | Document version | 1.0 |
-| Product baseline | v0.7.x |
+| Product baseline | v0.8.x |
 | Status | Active product baseline |
-| Last updated | 2026-08-20 |
+| Last updated | 2026-08-21 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
 | Decision owner | Repository maintainers |
 
@@ -273,7 +273,7 @@ ADR that explains why.
 
 Priorities use **P0** (required invariant), **P1** (core product), **P2**
 (important expansion), and **P3** (exploratory). Status is **Implemented**,
-**Partial**, **Planned**, or **Deferred** at the v0.7 baseline.
+**Partial**, **Planned**, or **Deferred** at the v0.8 baseline.
 
 ### 9.1 Git compatibility and repository adoption
 
@@ -286,7 +286,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-GIT-05 | P1 | Repository initialization shall configure causal-note display and rewrite behavior without modifying tracked files. | Implemented | Integration test verifies clean status after initialization. |
 | FR-GIT-06 | P1 | Human-readable output shall have a JSON equivalent for state needed by automation. | Partial | Core plans, receipts, forecasts, workspaces, specs, and operations support JSON; a formal CLI schema catalog remains planned. |
 | FR-GIT-07 | P1 | The CLI shall accept explicit compatibility/performance controls without changing domain semantics. | Implemented | `--git-session` and `--no-git-session` produce equality-checked forecasts. |
-| FR-GIT-08 | P2 | A supported metadata synchronization command shall move all required causal records between clones. | Planned | Fresh-clone round-trip reproduces coverage, resolution catalog, and spec identity without manual ref knowledge. |
+| FR-GIT-08 | P2 | A supported metadata synchronization command shall move all required causal records between clones. | Implemented experimentally | Fresh-clone round-trip reproduces coverage, resolution catalog, and spec identity without manual ref knowledge. |
 
 ### 9.2 Logical change identity
 
@@ -356,7 +356,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-RES-05 | P1 | A result blob shall be retained against normal garbage collection. | Implemented | Hidden resolution ref points to a commit containing the blob. |
 | FR-RES-06 | P1 | Receipts shall distinguish created, accepted, modified, and rejected decisions. | Implemented | Application and resolution records preserve outcome. |
 | FR-RES-07 | P2 | Lower-confidence learned or semantic candidates shall occupy a separate tier from exact signatures. | Planned | Confidence/provenance is visible and exact tier remains unchanged. |
-| FR-RES-08 | P2 | Resolution data shall synchronize and verify safely across clones. | Planned | Metadata round-trip retains records and result blobs with integrity checks. |
+| FR-RES-08 | P2 | Resolution data shall synchronize and verify safely across clones. | Implemented experimentally | Metadata round-trip retains records and result blobs with integrity checks. |
 
 ### 9.7 AI-oriented workspaces and worktrees
 
@@ -410,10 +410,10 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | ID | Pri | Requirement | Status | Acceptance signal |
 | --- | --- | --- | --- | --- |
 | FR-PROTO-01 | P0 | Every persisted record shall carry a schema identifier and version. | Implemented | Current records use namespaced `vcs-lab.*` schemas. |
-| FR-PROTO-02 | P1 | Unknown newer schemas shall fail safely instead of being treated as trusted coverage. | Partial | Some parsers are conservative; a repository-wide compatibility policy is planned. |
-| FR-PROTO-03 | P1 | A metadata inventory shall enumerate notes, hidden refs, sidecars, worktree-private state, and required object reachability. | Planned | `vlab metadata status --json` can explain completeness and damage. |
-| FR-PROTO-04 | P1 | Export/import shall preserve causal records and retained objects without requiring users to know internal refspecs. | Planned | Two-clone round-trip passes and is idempotent. |
-| FR-PROTO-05 | P1 | Imported metadata shall be validated for schema, referenced object existence, attachment reachability, and conflicting IDs. | Planned | Corrupt and malicious fixtures are rejected or quarantined. |
+| FR-PROTO-02 | P1 | Unknown newer schemas shall fail safely instead of being treated as trusted coverage. | Implemented for portable causal facts | Unknown or unsupported records are diagnosed and quarantined from coverage, resolution lookup, and export. |
+| FR-PROTO-03 | P1 | A metadata inventory shall enumerate notes, hidden refs, sidecars, worktree-private state, and required object reachability. | Implemented | `vlab metadata status --json` explains scope, completeness, and damage with stable codes. |
+| FR-PROTO-04 | P1 | Export/import shall preserve causal records and retained objects without requiring users to know internal refspecs. | Implemented experimentally | Deterministic Git-bundle envelopes round-trip between clones idempotently. |
+| FR-PROTO-05 | P1 | Imported metadata shall be validated for schema, referenced object existence, attachment reachability, and conflicting IDs. | Implemented | Corrupt, tampered, unrelated, dangling, and conflicting fixtures fail or are quarantined before mutation. |
 | FR-PROTO-06 | P2 | Remote synchronization shall advertise capabilities and negotiate schema versions. | Deferred | Requires a protocol gateway or cooperating server. |
 | FR-TRUST-01 | P0 | Local receipt presence shall never be described as cryptographic proof or authorization. | Implemented principle | User-facing docs distinguish causal evidence from trust. |
 | FR-TRUST-02 | P2 | Records may later be signed by actors whose keys and authorization scope are explicit. | Deferred | Signature envelope, key rotation, replay protection, and policy model are specified and tested. |
@@ -554,7 +554,7 @@ stable IDs, or auditability.
 
 ## 12. Current release scorecard
 
-| Capability | v0.7 status | Evidence |
+| Capability | v0.8 status | Evidence |
 | --- | --- | --- |
 | Stable change identity | Complete for local prototype | Commit/cherry-pick/fork integration tests |
 | Compact and hard-squash landing | Complete for local prototype | Parent-shape and receipt tests |
@@ -567,7 +567,7 @@ stable IDs, or auditability.
 | Deterministic Markdown merge | Complete for section-level rules | Clean and blocked merge tests |
 | Sparse metadata and incremental indexing | Complete for manifest v3 | Corpus, migration, zero-read tests |
 | Invocation-scoped Git object session | Complete with fallback | Equality, count, failure, worktree tests |
-| Metadata portability | Manual and incomplete | Notes/resolution refspecs documented; no envelope/audit command |
+| Metadata integrity and portability | Experimental but complete for accepted shared facts | Inventory/validation plus deterministic envelope and two-clone idempotence tests |
 | Cryptographic trust/server policy | Not implemented | Explicit non-goal |
 | Native store/protocol | Not implemented | Exit criteria not yet satisfied |
 
@@ -643,11 +643,13 @@ scope is accepted in an issue, plan, or ADR.
 - **v0.6:** sparse spec manifests, zero-read indexing, and batched Git reads.
 - **v0.7:** invocation-scoped persistent object plumbing and structural query
   reduction.
+- **v0.8:** metadata inventory/validation, quarantine-safe coverage, and
+  deterministic Git-bundle export/import between clones.
 
-### Recommended next theme: metadata integrity and portability
+### Completed theme: metadata integrity and portability
 
-Before adding a native store or server, make the current causal layer
-self-describing and safely movable:
+The v0.8 experiment made the current causal layer self-describing and safely
+movable without adding a service:
 
 - inventory all shared and private metadata;
 - validate schemas, attachments, referenced objects, and retained blobs;
@@ -656,8 +658,8 @@ self-describing and safely movable:
 - quarantine unknown or invalid claims rather than using them for coverage;
 - document trust separately from integrity.
 
-This closes the largest practical gap between a successful local experiment
-and multi-clone use while preserving the Git-backed model.
+The first transport is deliberately an offline Git bundle plus a small hashed
+manifest. It is not a signing or authorization layer.
 
 ### Subsequent candidate themes
 
@@ -691,7 +693,7 @@ A native store or protocol prototype should begin only when trials demonstrate:
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
 | Locally forged receipts are mistaken for trusted proof | Incorrect coverage or policy claims | Treat them as local causal evidence; add validation, signing, and authorization as separate layers. |
-| Notes or hidden refs are not fetched | Missing coverage/resolutions across clones | Build explicit inventory/export/import and completeness diagnostics; keep useful trailers in landing commits. |
+| Notes or hidden refs are not fetched | Missing coverage/resolutions across clones | Use validated envelope export/import and completeness diagnostics; keep useful trailers in landing commits. |
 | Stable Change IDs are copied to semantically different work | False coverage | Provide explicit fork workflows, collision audits, and never use ID alone as authorization. |
 | Heuristic equivalence suppresses real work | Data loss | Keep candidates advisory and require explicit acceptance. |
 | A forecast becomes stale | Applying a reviewed decision to new inputs | Pin heads, trees, plan fingerprint, signatures, result IDs, and final tree; fail before mutation. |
@@ -706,8 +708,9 @@ A native store or protocol prototype should begin only when trials demonstrate:
 
 These questions are intentionally unresolved:
 
-1. What repository identity should bind a portable metadata envelope across
-   clones, forks, and history filtering?
+1. Should a future lineage version support deliberate history-filtered imports,
+   and what proof can replace the shared-root rule without enabling unrelated
+   metadata injection?
 2. Which causal claims are safe to merge automatically when two metadata
    sources disagree?
 3. Should logical Change IDs be repository-scoped, globally namespaced, or

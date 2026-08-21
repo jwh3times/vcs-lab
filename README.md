@@ -14,6 +14,8 @@
 - exact conflict resolutions can be suggested across branches and worktrees with explicit provenance;
 - workspaces use real Git worktrees but add path-independent logical metadata and non-disruptive checkpoints;
 - Markdown remains canonical while a sidecar gives sections and requirements stable entity IDs.
+- repository metadata can be inventoried, validated, quarantined, and moved
+  between related clones in an integrity-checked Git-bundle envelope.
 
 This is a laboratory, not a production VCS. Its purpose is to make the semantics observable and falsifiable before designing a native object store or network protocol.
 
@@ -58,7 +60,7 @@ On Windows, use PowerShell, Git Bash, or a terminal where `git` and `node` are o
 This project now has its own Git history and should live in a normal development repository. The portable repository bundle retains the release commits and tags:
 
 ```bash
-git clone /path/to/causal-vcs-lab-0.7.1.bundle vcs-lab
+git clone /path/to/causal-vcs-lab-0.8.0.bundle vcs-lab
 cd vcs-lab
 git remote remove origin
 npm link
@@ -70,7 +72,7 @@ If you instead use the source ZIP, initialize its extracted directory with:
 ```bash
 git init -b main
 git add .
-git commit -m "Bootstrap causal-vcs-lab 0.7.1"
+git commit -m "Bootstrap causal-vcs-lab 0.8.0"
 npm link
 npm test
 ```
@@ -423,7 +425,55 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab workspace ...` | Worktree-backed workspaces, checkpoints, and committed-head forecasts |
 | `vlab spec ...` | Incremental indexing, block merge planning, explicit resolution, and corpus benchmarks |
 | `vlab receipts` | Inspect causal records as text or JSON |
+| `vlab metadata ...` | Inventory, validate, export, preview, and import accepted metadata facts |
 | `vlab doctor --benchmark` | Sample ordinary Git latency and persistent object-session reuse |
+
+## Metadata integrity and portability
+
+Inspect every metadata scope without changing the repository:
+
+```bash
+vlab metadata status
+vlab metadata validate --json
+vlab metadata validate --strict
+```
+
+The inventory covers causal note attachments and record schemas, referenced
+commits/trees/blobs, exact-resolution signatures and retention refs, tracked
+spec/source consistency, workspace/checkpoint health, and counts of
+worktree-private operations and forecasts. JSON diagnostics use stable codes.
+Unknown, malformed, dangling, signature-mismatched, or ID-conflicting records
+remain inspectable but cannot prove coverage, appear as exact resolutions, or
+enter an export. Strict validation additionally fails on warnings such as a
+missing workspace path or active private operation.
+
+Create an offline envelope, clone the ordinary project content, preview the
+exact destination actions, then apply them:
+
+```bash
+vlab metadata export ../project-metadata
+git clone /path/to/project ../project-copy
+cd ../project-copy
+vlab metadata import ../project-metadata --dry-run
+vlab metadata import ../project-metadata --apply
+```
+
+An envelope directory contains `manifest.json` and, when portable facts exist,
+`objects.bundle`. Export is deterministic for fixed accepted facts. It carries
+sanitized `refs/notes/vcs-lab` data and accepted
+`refs/vcs-lab/resolutions/*` commits/blobs. Tracked spec manifests already move
+with ordinary Git content. Workspace registries, checkpoint refs, active
+reconciliation journals, and saved forecasts are excluded.
+
+Import requires the same Git object format and at least one shared root commit,
+which supports ordinary clones and forks while unrelated and history-filtered
+histories fail closed in envelope v1. Dry-run verifies the manifest, bundle,
+records, refs, and required content objects without changing destination refs.
+Apply uses staging refs and one checked ref transaction; repeated import is a
+no-op, and a conflicting record ID or resolution ref is never overwritten.
+
+These checks establish internal integrity, not cryptographic signature trust,
+actor identity, landing authorization, or permission to execute content.
 
 ## Metadata locations
 
@@ -435,15 +485,17 @@ Run `vlab --help` for the current command list. The most useful commands are:
 - Reusable resolution blobs: `refs/vcs-lab/resolutions/<signature>/<result-blob>`
 - Portable spec manifests: `.vcs-lab/specs/**/*.json`
 
-For another clone to receive experimental causal metadata, explicitly fetch the notes ref:
+The supported v0.8 transfer path is `vlab metadata export/import`. For low-level
+experimentation, the underlying namespaces remain:
 
 ```bash
 git fetch origin refs/notes/vcs-lab:refs/notes/vcs-lab
 git fetch origin 'refs/vcs-lab/resolutions/*:refs/vcs-lab/resolutions/*'
 ```
 
-Both refs are required to transfer reusable resolution data: notes carry the
-records and the hidden resolution refs retain the result blobs.
+Both refs are required for reusable resolution data: notes carry the records
+and the hidden resolution refs retain the result blobs. Fetching them manually
+does not perform envelope validation, conflict preview, or quarantine.
 
 ## Measuring the compatibility layer
 
@@ -525,7 +577,7 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The 29-test integration suite creates disposable Git repositories and exercises
+The 31-test integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
 non-mutating and stale-safe forecasts, pinned batch application, committed-head
@@ -533,6 +585,8 @@ workspace comparison, independent worktree operations, checkpoints, annotated
 Markdown stability, sparse-manifest migration, zero-read incremental indexing,
 clean and blocked deterministic block merges, forecasted and explicit semantic
 application, conservative patch-equivalence handling, corpus measurements,
-batched history planning, persistent-session fallback, worktree isolation, and
-Git timing probes. The complete suite is also run with
+batched history planning, persistent-session fallback, worktree isolation, Git
+timing probes, damaged metadata quarantine, deterministic envelope export,
+tamper/lineage/conflict rejection, and idempotent two-clone parity. The complete
+suite is also run with
 `VLAB_GIT_SESSION=1` to exercise the Windows-default path.

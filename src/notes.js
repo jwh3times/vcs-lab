@@ -15,7 +15,7 @@ export function readNote(commit, cwd = process.cwd()) {
     if (Array.isArray(parsed)) {
       return { schema: "vcs-lab.note/v1", records: parsed };
     }
-    if (Array.isArray(parsed.records)) {
+    if (parsed?.schema === "vcs-lab.note/v1" && Array.isArray(parsed.records)) {
       return parsed;
     }
   } catch {
@@ -62,10 +62,11 @@ function parseNoteContent(content) {
   const text = content.toString("utf8").trim();
   try {
     const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) {
-      return { schema: "vcs-lab.note/v1", records: parsed };
-    }
-    if (parsed && Array.isArray(parsed.records)) return parsed;
+    if (
+      parsed &&
+      parsed.schema === "vcs-lab.note/v1" &&
+      Array.isArray(parsed.records)
+    ) return parsed;
   } catch {
     return {
       schema: "vcs-lab.note/v1",

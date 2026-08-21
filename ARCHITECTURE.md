@@ -4,9 +4,9 @@
 
 | Field | Value |
 | --- | --- |
-| Architecture baseline | v0.7.x |
+| Architecture baseline | v0.8.x |
 | Status | Current implementation reference |
-| Last updated | 2026-08-20 |
+| Last updated | 2026-08-21 |
 | Runtime | Node.js 20+ (ES modules), Git 2.38+ |
 | External runtime dependencies | None beyond Node.js and Git |
 
@@ -34,6 +34,8 @@ mechanics. `vcs-lab` adds:
 - exact conflict-resolution provenance;
 - workspace/checkpoint metadata for linked worktrees;
 - stable semantic identity and deterministic merge for Markdown specs;
+- repository-wide metadata inventory, validation, and quarantine;
+- deterministic Git-bundle metadata export and atomic/idempotent import;
 - measurement and an optional persistent Git object-query path.
 
 The architecture deliberately separates **exact state** from **causal claims**.
@@ -112,6 +114,10 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/git-session-worker.js` | Owns asynchronous `git cat-file --batch-command` stream for a synchronous caller | Worker threads, Git |
 | `src/store.js` | Common runtime directory and atomic JSON read/write | `src/git.js` |
 | `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab` | `src/git.js` |
+| `src/schemas.js` | Supported schema registry, structural record validation, object-reference and resolution-signature rules | IDs |
+| `src/metadata.js` | Deterministic inventory, scope classification, integrity diagnostics, lineage, and accepted-record filtering | Git, schemas, specs |
+| `src/metadata-envelope.js` | Canonical envelope manifest, integrity hash, payload bounds, and parser | Metadata, schemas |
+| `src/metadata-transfer.js` | Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import | Metadata, envelope, Git |
 | `src/landings.js` | Compact and hard-squash landing mechanics and receipts | Git adapter, notes |
 | `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
 | `src/forecasts.js` | Plan fingerprint, temporary-worktree simulation, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
@@ -185,8 +191,8 @@ identity belongs in tracked files.
 | Data | Scope | Location | Lifecycle |
 | --- | --- | --- | --- |
 | Git source/history state | Shared repository | Git objects and ordinary refs | Normal Git lifecycle |
-| Causal notes | Shared repository | `refs/notes/vcs-lab` | Must be fetched/exported explicitly today |
-| Resolution result objects | Shared repository | `refs/vcs-lab/resolutions/<signature>/<result-blob>` | Hidden ref prevents GC |
+| Causal notes | Shared repository | `refs/notes/vcs-lab` | Portable through a validated metadata envelope |
+| Resolution result objects | Shared repository | `refs/vcs-lab/resolutions/<signature>/<result-blob>` | Hidden ref prevents GC; envelope transports accepted refs |
 | Workspace registry | Shared repository installation | `<common-git-dir>/vcs-lab/workspaces.json` | Local; not automatically remote-portable |
 | Checkpoints | Shared repository | `refs/vcs-lab/checkpoints/<workspace-id>` | One ref chain per workspace |
 | Pending reconciliation | One linked worktree | `<worktree-git-dir>/vcs-lab/reconciliation.json` | Cleared on complete/abort |
@@ -202,7 +208,7 @@ worktree correctness.
 ## 6. Persisted schemas
 
 Schemas are namespaced and versioned in a `schema` field. The following are in
-use at the v0.7 baseline:
+use at the v0.8 baseline:
 
 | Schema | Purpose | Primary owner |
 | --- | --- | --- |
@@ -221,11 +227,17 @@ use at the v0.7 baseline:
 | `vcs-lab.spec-manifest/v3` | Sparse Markdown identity manifest | `specs.js` |
 | `vcs-lab.spec-merge-plan/v1` | Deterministic three-way semantic plan | `specs.js` |
 | `vcs-lab.spec-benchmark/v2` | Generated corpus measurements | `specs.js` |
+| `vcs-lab.metadata-status/v1` | Deterministic repository metadata inventory | `metadata.js` |
+| `vcs-lab.metadata-validation/v1` | Inventory plus strict/non-strict validity result | `metadata.js` |
+| `vcs-lab.metadata-envelope/v1` | Portable manifest for sanitized notes and resolution refs | `metadata-envelope.js` |
+| `vcs-lab.metadata-export/v1` | Export result and process/storage metrics | `metadata-transfer.js` |
+| `vcs-lab.metadata-import-preview/v1` | Exact dry-run record/ref/object actions | `metadata-transfer.js` |
+| `vcs-lab.metadata-import/v1` | Applied/idempotent import result | `metadata-transfer.js` |
 
-Current schemas are executable JavaScript object shapes, not yet published as
-JSON Schema files. Adding machine-validated schema definitions and a repository
-inventory is a recommended next step. Until then, schema-version changes must
-include migration and integration tests.
+Current schemas are executable JavaScript validators and named object shapes,
+not yet published as standalone JSON Schema files. Unknown portable record
+schemas are quarantined rather than consumed. Schema-version changes still
+require migration/compatibility tests.
 
 ## 7. Causal planning architecture
 
@@ -236,7 +248,9 @@ session:
 2. Compute their physical merge base.
 3. Resolve target/source tree IDs and report exact state equality.
 4. Read target history and collect commit IDs and Change IDs.
-5. read causal records attached to commits reachable from the target.
+5. read causal records attached to commits reachable from the target and keep
+   only records whose registered schema, attachment, and referenced Git objects
+   validate.
 6. Collect absorbed commit and Change IDs from landing/reconciliation records.
 7. Use `git cherry` to identify advisory patch-equivalent candidates.
 8. Read source commits outside the physical merge base in chronological order.
@@ -599,13 +613,19 @@ more than raw wall time.
 - A semantic sidecar must match its Markdown at continue time.
 - Candidate equivalence is never silently accepted.
 
-### 15.2 Eventual/manual cross-clone consistency
+### 15.2 Explicit cross-clone consistency
 
-Causal notes and resolution refs do not follow normal branch fetches
-automatically. The current repository can therefore be internally consistent
-while another clone lacks records. This is a known protocol gap. Users must
-currently fetch both explicit namespaces, and workspace-private state is not
-intended for cross-clone synchronization.
+Causal notes and resolution refs still do not follow normal branch fetches
+automatically. `metadata export` creates a deterministic manifest and sanitized
+Git bundle; `metadata import --dry-run` verifies it in a disposable repository,
+then `--apply` stages and atomically publishes non-conflicting refs. Tracked
+spec manifests move with ordinary project content. Workspace registries,
+checkpoints, reconciliation journals, and forecasts remain deliberately local.
+
+Envelope v1 lineage uses Git object format plus sorted root commits reachable
+from branches, tags, and remote-tracking refs. Equal roots identify the same
+lineage; any shared root identifies an ordinary fork. Unrelated and
+history-filtered histories fail closed.
 
 ### 15.3 Trust limitation
 
@@ -627,6 +647,10 @@ not signatures or authorization. The historical phrase
 | Exact resolution is ambiguous | Require explicit record ID. |
 | Spec merge is ambiguous or metadata stale | Leave blocked; require manual edit/reindex. |
 | Persistent object worker fails | Mark session failed and use ordinary Git. |
+| Unknown/malformed/dangling causal record | Diagnose and quarantine it from coverage, resolution lookup, and export. |
+| Envelope payload or inventory mismatch | Reject before destination mutation. |
+| Import ID/ref conflict | Report exact conflict during dry-run; never overwrite silently. |
+| Import publication race/failure | Checked atomic ref transaction fails; existing destination facts remain intact. |
 | Temporary forecast worktree cleanup encounters in-progress Git state | Abort it best-effort, remove worktree, prune metadata. |
 | JSON state write is interrupted | Temporary file avoids replacing last complete record. |
 
@@ -656,7 +680,8 @@ and test process termination at every boundary.
 
 ### 17.3 Missing controls
 
-- formal JSON Schema validation and resource bounds for all records;
+- standalone JSON Schema documents and complete resource bounds for every
+  local/private record family;
 - cryptographic signatures and actor identity;
 - authorization/policy evaluation;
 - metadata quarantine and conflict resolution across remotes;
@@ -689,7 +714,7 @@ CLI and Git executable. This tests filesystem state, refs, notes, worktrees,
 process boundaries, line endings, and recovery behavior that unit mocks would
 hide.
 
-The v0.7 baseline contains 29 scenarios covering:
+The v0.8 baseline contains 31 scenarios covering:
 
 - initialization and versioning;
 - compact/hard-squash landing and causal suppression;
@@ -700,6 +725,9 @@ The v0.7 baseline contains 29 scenarios covering:
 - resumable conflicts, continue, abort, and contextual fork;
 - exact resolution reuse, ambiguity, modification, and rejection;
 - query batching, metrics, session equality, fallback, and worktree scoping.
+- metadata scope inventory, stable diagnostics, invalid-record quarantine,
+  deterministic envelopes, tamper/lineage/conflict rejection, and idempotent
+  two-clone causal/resolution/spec parity.
 
 The same suite is run with the session forced on. Demos complement tests by
 providing user-inspectable repositories and commands.
@@ -725,10 +753,10 @@ New capabilities should enter through versioned contracts:
 
 ## 21. Known limitations and architectural debt
 
-- Causal notes and resolution refs require manual refspec knowledge to move
-  between clones.
-- JSON schemas are named but not yet machine-validated from standalone schema
-  documents.
+- Envelopes are explicit offline artifacts; automatic remote capability
+  negotiation and synchronization are not implemented.
+- JSON schemas are executable validators but not yet published as standalone
+  JSON Schema documents.
 - Some historical schema/proof labels no longer describe their trust level
   cleanly.
 - Workspace registry stores local absolute paths and has limited lifecycle
@@ -745,20 +773,11 @@ New capabilities should enter through versioned contracts:
   merge independently.
 - There is no cryptographic trust, server policy, or negotiated protocol.
 
-## 22. Recommended next architectural increment
+## 22. Candidate next architectural increment
 
-The next increment should make metadata inspectable and portable before adding
-another performance subsystem:
-
-1. Define a versioned metadata inventory/envelope and capability document.
-2. Add standalone schemas or equivalent validators for shared records.
-3. Implement read-only integrity diagnostics for notes, attachments, hidden
-   refs, resolution blobs, sidecars, and schema versions.
-4. Implement explicit export/import or sync plumbing with idempotent two-clone
-   tests.
-5. Quarantine invalid/unknown records so they cannot prove coverage.
-6. Measure size and latency on scaled fixtures.
-
-This work should preserve Git refs/objects as the underlying transport first.
-A server or native database should follow only if this architecture cannot meet
-the measured requirements.
+Metadata portability is now implemented without a server. The next increment
+should choose one bounded product gap—first-class rebase planning or workspace
+lifecycle/draft-overlay forecasting—through a new proposed ADR. In parallel,
+larger note/resolution/worktree fixtures should measure when inventory scans or
+explicit envelopes need an index or remote capability negotiation. A server or
+native database still requires the PRD's measured exit criteria.

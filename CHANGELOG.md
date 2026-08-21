@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.8.0
+
+- Add deterministic `metadata status` and `metadata validate` inventory across
+  shared-portable notes/resolutions, tracked spec manifests, shared-local
+  workspaces/checkpoints, and worktree-private operations/forecasts.
+- Validate supported causal record shapes, attachments, referenced Git
+  objects, resolution signatures, retention refs/result blobs, record-ID
+  conflicts, spec/source consistency, and local workspace health with stable
+  diagnostic codes.
+- Quarantine unknown, malformed, dangling, and conflicting records from causal
+  coverage, exact-resolution lookup, and portable export without rewriting the
+  source notes.
+- Add deterministic `vcs-lab.metadata-envelope/v1` directories containing a
+  hashed manifest and a sanitized Git bundle for notes and exact-resolution
+  refs; tracked specs continue to travel with ordinary project content.
+- Define clone/fork lineage with Git object format plus sorted root-commit
+  anchors. Exact lineage or a shared root is import-compatible; unrelated and
+  history-filtered lineages fail closed in envelope v1.
+- Add import dry-run/apply with payload verification, exact record/ref/object
+  previews, conflict refusal, staged refs, atomic final ref transactions, and
+  idempotent repeated import.
+- Explicitly exclude workspace paths, checkpoint refs, active reconciliation
+  journals, and saved forecasts from portable envelopes and retain the
+  distinction between integrity, cryptographic trust, and authorization.
+- Add two disposable-repository integration scenarios covering damaged record
+  quarantine, coverage safety, deterministic export, tamper rejection,
+  unrelated-lineage rejection, conflict-safe dry runs, two-clone round trips,
+  causal-plan/resolution/spec parity, idempotence, and local/private exclusion.
+
 ## 0.7.1
 
 - Add a full product requirements document with predecessor lessons, AI-agent
