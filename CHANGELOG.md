@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Accept ADR-0011's bounded model of causal rebase as a forecasted sequence of
+  target-context applications with linear-v1 scope and fail-closed recovery.
+- Add read-only `vlab rebase-plan <onto> [<source>]` using the existing exact
+  coverage lattice to classify changes as omit, review, or replay without
+  switching the caller.
+- Add deterministic rebase-plan fingerprints, explicit heuristic-review state,
+  ordered replay queues, and unsupported merge-topology diagnostics.
+- Add disposable-repository tests for hard-squash continuation selection,
+  repeatable caller non-mutation, advisory patch equivalence, and the linear-v1
+  merge boundary in ordinary and persistent Git-session modes.
+
 ## 0.8.0
 
 - Add deterministic `metadata status` and `metadata validate` inventory across

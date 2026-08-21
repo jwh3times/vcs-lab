@@ -171,6 +171,146 @@ test("hard squash receipts suppress absorbed changes during reconciliation", (t)
   assert.equal(jsonReceipts.length, 3);
 });
 
+test("causal rebase planning is deterministic and replays only hard-squash continuation", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "one\n");
+  git(repo, "add", ".");
+  const first = JSON.parse(vlab(repo, "commit", "-m", "feature one"));
+  write(repo, "feature.txt", "one\ntwo\n");
+  git(repo, "add", ".");
+  const second = JSON.parse(vlab(repo, "commit", "-m", "feature two"));
+
+  git(repo, "switch", "main");
+  vlab(repo, "hard-squash", "feature", "--json");
+  git(repo, "switch", "feature");
+  write(repo, "continuation.txt", "three\n");
+  git(repo, "add", ".");
+  const continuation = JSON.parse(
+    vlab(repo, "commit", "-m", "feature continuation"),
+  );
+  write(repo, "caller-draft.txt", "uncommitted caller bytes\n");
+
+  const callerBefore = {
+    head: git(repo, "rev-parse", "HEAD"),
+    branch: git(repo, "branch", "--show-current"),
+    tree: git(repo, "rev-parse", "HEAD^{tree}"),
+    status: git(repo, "status", "--porcelain=v1"),
+    notes: git(repo, "rev-parse", "refs/notes/vcs-lab"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+  assert.match(callerBefore.status, /\?\? caller-draft\.txt/);
+  const plan = JSON.parse(vlab(repo, "rebase-plan", "main", "--json"));
+  const repeated = JSON.parse(vlab(repo, "rebase-plan", "main", "--json"));
+
+  assert.equal(plan.schema, "vcs-lab.rebase-plan/v1");
+  assert.equal(plan.mode, "linear");
+  assert.equal(plan.ontoRef, "main");
+  assert.equal(plan.sourceRef, "feature");
+  assert.equal(plan.sourceHead, continuation.commit);
+  assert.deepEqual(plan.counts, {
+    covered: 2,
+    "candidate-equivalent": 0,
+    new: 1,
+  });
+  assert.deepEqual(
+    plan.omitted.map((item) => item.changeId),
+    [first.changeId, second.changeId],
+  );
+  assert.ok(
+    plan.omitted.every((item) =>
+      ["signed-shaped-landing-receipt", "receipt-change-id"].includes(item.proof),
+    ),
+  );
+  assert.deepEqual(
+    plan.replayQueue.map((item) => item.changeId),
+    [continuation.changeId],
+  );
+  assert.equal(plan.constraints.supported, true);
+  assert.equal(plan.candidateDecisionRequired, false);
+  assert.equal(plan.executableWithoutReview, true);
+  assert.match(plan.fingerprint, /^[0-9a-f]{64}$/);
+  assert.deepEqual(repeated, plan);
+  assert.match(vlab(repo, "rebase-plan", "main"), /1 replay/);
+
+  const callerAfter = {
+    head: git(repo, "rev-parse", "HEAD"),
+    branch: git(repo, "branch", "--show-current"),
+    tree: git(repo, "rev-parse", "HEAD^{tree}"),
+    status: git(repo, "status", "--porcelain=v1"),
+    notes: git(repo, "rev-parse", "refs/notes/vcs-lab"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+  assert.deepEqual(callerAfter, callerBefore);
+});
+
+test("causal rebase planning keeps heuristic candidates in review", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "equivalent.txt", "same patch\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source patch"));
+
+  git(repo, "switch", "main");
+  write(repo, "equivalent.txt", "same patch\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "independent target patch");
+
+  const plan = JSON.parse(
+    vlab(repo, "rebase-plan", "main", "feature", "--json"),
+  );
+  assert.equal(plan.counts["candidate-equivalent"], 1);
+  assert.deepEqual(plan.replayQueue, []);
+  assert.equal(plan.candidates[0].changeId, source.changeId);
+  assert.equal(plan.candidates[0].proof, "git-patch-id-heuristic");
+  assert.equal(plan.changes[0].action, "review");
+  assert.equal(plan.candidateDecisionRequired, true);
+  assert.equal(plan.executableWithoutReview, false);
+  assert.equal(git(repo, "branch", "--show-current"), "main");
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("causal rebase planning marks merge topology unsupported in linear v1", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "feature\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature work");
+
+  git(repo, "switch", "-c", "side", base.commit);
+  write(repo, "side.txt", "side\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "side work");
+  git(repo, "switch", "feature");
+  git(repo, "merge", "--no-ff", "side", "-m", "merge side");
+  const mergeCommit = git(repo, "rev-parse", "HEAD");
+
+  git(repo, "switch", "main");
+  const plan = JSON.parse(
+    vlab(repo, "rebase-plan", "main", "feature", "--json"),
+  );
+  assert.equal(plan.constraints.supported, false);
+  assert.equal(plan.constraints.linearHistory, false);
+  assert.deepEqual(plan.constraints.mergeCommits, [mergeCommit]);
+  assert.equal(plan.executableWithoutReview, false);
+  assert.match(vlab(repo, "rebase-plan", "main", "feature"), /unsupported/i);
+  assert.equal(git(repo, "branch", "--show-current"), "main");
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
 test("compact landing is one first-parent unit with a real causal parent", (t) => {
   const { repo } = makeRepo(t);
   write(repo, "base.txt", "base\n");

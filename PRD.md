@@ -6,7 +6,7 @@
 | --- | --- |
 | Product | `vcs-lab` / causal source-control laboratory |
 | Document version | 1.0 |
-| Product baseline | v0.8.x |
+| Product baseline | v0.8.x release / v0.9 development |
 | Status | Active product baseline |
 | Last updated | 2026-08-21 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
@@ -312,7 +312,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-LAND-06 | P1 | Exact target/source tree equality shall be visible even when history differs. | Implemented | Merge plan reports `same state`. |
 | FR-LAND-07 | P1 | Landing messages shall retain portable trailers for mode, source revision, and absorbed logical changes. | Implemented | Git commit message is useful even when notes are not fetched. |
 | FR-LAND-08 | P1 | A landing that conflicts before commit shall publish no false receipt. | Implemented | Conflict exits without receipt creation. |
-| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Planned | [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Proposed; an accepted, forecastable rebase flow must pass squash/rewrite scenarios. |
+| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Partial | [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted and `rebase-plan` passes read-only squash/rewrite selection; forecast, application, and completed provenance remain. |
 | FR-LAND-10 | P2 | A higher-level landing transaction shall eventually support policy checks and atomic publication. | Deferred | Requires a trusted coordinator or protocol gateway. |
 
 ### 9.4 Causal merge planning
@@ -559,6 +559,7 @@ stable IDs, or auditability.
 | Stable change identity | Complete for local prototype | Commit/cherry-pick/fork integration tests |
 | Compact and hard-squash landing | Complete for local prototype | Parent-shape and receipt tests |
 | Causal planning | Complete for current proof types | Hard-squash and candidate tests |
+| Causal rebase | Read-only plan implemented; forecast/apply planned | Exact omission/replay, heuristic review, merge-topology, and non-mutation tests |
 | Resumable reconciliation | Complete for current queue model | Continue, abort, fork, multi-worktree tests |
 | Exact resolution reuse | Complete locally | Cross-path/worktree and provenance tests |
 | Forecast and pinned batch application | Complete locally | Non-mutation, stale, mismatch, batch tests |
@@ -645,6 +646,8 @@ scope is accepted in an issue, plan, or ADR.
   reduction.
 - **v0.8:** metadata inventory/validation, quarantine-safe coverage, and
   deterministic Git-bundle export/import between clones.
+- **v0.9 (in development):** accepted causal rebase model and deterministic
+  read-only omission/review/replay planning for linear history.
 
 ### Completed theme: metadata integrity and portability
 
@@ -664,7 +667,8 @@ manifest. It is not a signing or authorization layer.
 ### Subsequent candidate themes
 
 - Workspace lifecycle, private draft stacks, and checkpoint-overlay forecasts.
-- Rebase planning using the same causal proof lattice.
+- Causal rebase forecasting, supervised application, recovery, and portable
+  completed receipts under accepted ADR-0011.
 - Large-repository scale fixtures and incremental metadata indexes.
 - A repository-local service only if cross-command process and scan costs remain
   material after batching.
@@ -717,8 +721,8 @@ These questions are intentionally unresolved:
    issuer-qualified?
 4. What is the minimum trust model for a shared team: signed developer records,
    a landing-service attestation, or both?
-5. Can rebase be expressed as forecasted applications without producing an
-   unintuitive user model?
+5. Does the accepted target-context application model for causal rebase remain
+   intuitive once forecast, conflict recovery, and application are exercised?
 6. How should a workspace draft/checkpoint participate in a forecast while
    remaining distinct from committed causal state?
 7. At what measured thresholds does a long-lived repository service outperform

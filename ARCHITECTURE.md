@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Architecture baseline | v0.8.x |
+| Architecture baseline | v0.9 development after v0.8.0 |
 | Status | Current implementation reference |
 | Last updated | 2026-08-21 |
 | Runtime | Node.js 20+ (ES modules), Git 2.38+ |
@@ -120,6 +120,7 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/metadata-transfer.js` | Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import | Metadata, envelope, Git |
 | `src/landings.js` | Compact and hard-squash landing mechanics and receipts | Git adapter, notes |
 | `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
+| `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
 | `src/forecasts.js` | Plan fingerprint, temporary-worktree simulation, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
@@ -208,7 +209,7 @@ worktree correctness.
 ## 6. Persisted schemas
 
 Schemas are namespaced and versioned in a `schema` field. The following are in
-use at the v0.8 baseline:
+use at the current development baseline:
 
 | Schema | Purpose | Primary owner |
 | --- | --- | --- |
@@ -219,6 +220,7 @@ use at the v0.8 baseline:
 | `vcs-lab.reconciliation/v6` | Final operation summary, coverage, trees, timing | `operations.js` |
 | `vcs-lab.reconciliation-operation/v4` | Private resumable operation journal | `operations.js` |
 | `vcs-lab.merge-plan/v1` | Source/target coverage plan | `merge-plan.js` |
+| `vcs-lab.rebase-plan/v1` | Read-only causal rebase selection and constraints | `rebase-plan.js` |
 | `vcs-lab.forecast/v2` | Pinned simulation and approvals | `forecasts.js` |
 | `vcs-lab.resolution/v1` | Exact resolution result and provenance | `resolutions.js` |
 | `vcs-lab.workspaces/v1` | Workspace registry container | `workspaces.js` |
@@ -280,6 +282,26 @@ renamed or formally versioned when the proof schema is standardized.
 Only receipts attached to commits reachable from the target participate in
 coverage. A receipt elsewhere in the repository cannot suppress work on an
 unrelated target. Note contents are read in a batch after the reachability walk.
+
+### 7.3 Read-only causal rebase plan
+
+`buildMergePlanBetween(ontoRef, sourceRef)` exposes the same proof lattice for
+an explicit target without switching `HEAD`. `buildRebasePlan` wraps that
+classification as `vcs-lab.rebase-plan/v1`:
+
+- covered changes become `omit` actions with exact proofs;
+- candidate-equivalent changes become `review` and cannot enter the replay
+  queue silently;
+- new changes become ordered `replay` entries;
+- merge commits in the physical source range make the plan unsupported by the
+  accepted linear-v1 scope; and
+- exact heads, trees, bases, receipts, classifications, actions, and merge
+  constraints feed a deterministic SHA-256 fingerprint.
+
+The command performs only Git/object/metadata reads. Integration tests compare
+the caller branch, HEAD, tree, porcelain status, notes ref, and worktree list
+before and after repeated planning. Forecast and branch mutation are not yet
+implemented.
 
 ## 8. Landing flows
 
@@ -714,7 +736,7 @@ CLI and Git executable. This tests filesystem state, refs, notes, worktrees,
 process boundaries, line endings, and recovery behavior that unit mocks would
 hide.
 
-The v0.8 baseline contains 31 scenarios covering:
+The current development baseline contains 34 scenarios covering:
 
 - initialization and versioning;
 - compact/hard-squash landing and causal suppression;
@@ -728,6 +750,8 @@ The v0.8 baseline contains 31 scenarios covering:
 - metadata scope inventory, stable diagnostics, invalid-record quarantine,
   deterministic envelopes, tamper/lineage/conflict rejection, and idempotent
   two-clone causal/resolution/spec parity.
+- causal rebase plan determinism/non-mutation, hard-squash continuation
+  selection, heuristic review, and linear-history enforcement.
 
 The same suite is run with the session forced on. Demos complement tests by
 providing user-inspectable repositories and commands.
@@ -762,7 +786,8 @@ New capabilities should enter through versioned contracts:
 - Workspace registry stores local absolute paths and has limited lifecycle
   repair.
 - Forecasts cannot yet consume checkpoint/draft overlays.
-- Rebase has no first-class causal plan/apply workflow.
+- Rebase has a first-class read-only causal plan, but forecast, supervised
+  application, recovery, and completed receipts are not implemented.
 - Notes lookup still scales with the notes namespace and reachable history;
   large-repository indexes are not implemented.
 - Crash boundaries have integration coverage for process-separated pauses but
@@ -775,10 +800,11 @@ New capabilities should enter through versioned contracts:
 
 ## 22. Candidate next architectural increment
 
-Metadata portability is now implemented without a server. [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md)
-proposes the next bounded product increment: first-class causal rebase planning
-and forecasting. It is a design gate, not implemented architecture; the user
-model and scope must be accepted before code depends on it.
+Metadata portability is implemented without a server. [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md)
+is Accepted, and its read-only causal `rebase-plan` slice is implemented. The
+next bounded increment is `rebase-forecast`: reuse isolated simulation and
+pinning while keeping every caller invariant and leaving branch mutation for a
+later supervised-application slice.
 
 Workspace lifecycle/draft-overlay forecasting remains the strongest alternate
 bounded track. In parallel, larger note/resolution/worktree fixtures should

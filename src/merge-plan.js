@@ -99,9 +99,9 @@ function chooseEffectiveBase(physicalBase, receipts, sourceHead, cwd) {
   return { commit: effective, reason };
 }
 
-function buildMergePlanInSession(sourceRef, cwd) {
+function buildMergePlanInSession(targetRef, sourceRef, cwd) {
   const [targetHead, sourceHead] = resolveObjectIds(
-    ["HEAD^{commit}", `${sourceRef}^{commit}`],
+    [`${targetRef}^{commit}`, `${sourceRef}^{commit}`],
     cwd,
   );
   const physicalBase = mergeBase(targetHead, sourceHead, cwd);
@@ -176,7 +176,13 @@ function buildMergePlanInSession(sourceRef, cwd) {
 }
 
 export function buildMergePlan(sourceRef, cwd = process.cwd()) {
-  return withGitObjectSession(cwd, () => buildMergePlanInSession(sourceRef, cwd));
+  return buildMergePlanBetween("HEAD", sourceRef, cwd);
+}
+
+export function buildMergePlanBetween(targetRef, sourceRef, cwd = process.cwd()) {
+  return withGitObjectSession(cwd, () =>
+    buildMergePlanInSession(targetRef, sourceRef, cwd),
+  );
 }
 
 export function formatMergePlan(plan) {

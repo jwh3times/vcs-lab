@@ -59,10 +59,11 @@ under the system temporary directory and should print their path.
 
 ## 3. Release and repository baseline
 
-The implementation baseline is v0.8.0. It adds validated metadata inventory,
-quarantine-safe causal consumption, and deterministic envelope transfer to the
-v0.7 causal/specification/Git-session foundation. The v0.8 series contains 31
-integration tests and retains all six maintained demos.
+The released baseline is v0.8.0. The current v0.9 development branch adds the
+accepted ADR-0011 model and a read-only causal `rebase-plan` slice to validated
+metadata portability and the v0.7 causal/specification/Git-session foundation.
+The development suite contains 34 integration tests and retains all six
+maintained demos.
 
 Do not trust a hard-coded commit from a handoff; establish the exact checkout
 first:
@@ -220,7 +221,7 @@ npm test
 Remove-Item Env:VLAB_GIT_SESSION
 ```
 
-The expected baseline is 31 passing tests in each mode. A documentation-only
+The expected development baseline is 34 passing tests in each mode. A documentation-only
 change may run the ordinary suite plus link/packaging checks, but a release
 should still preserve the full gate in [PRD.md](PRD.md#14-release-and-quality-gates).
 
@@ -256,6 +257,7 @@ portable than a single timing observation.
 | CLI syntax/output | `src/cli.js` | `bin/vlab.js`, README command table |
 | Git process/session/metrics | `src/git.js` | `src/git-session-worker.js`, session tests/demo |
 | Coverage classifications | `src/merge-plan.js` | `src/notes.js`, landing/reconciliation schemas |
+| Causal rebase planning | `src/rebase-plan.js` | `src/merge-plan.js`, rebase plan tests, ADR-0011 |
 | Compact/hard-squash merge | `src/landings.js` | merge-plan tests |
 | Forecast simulation/pinning | `src/forecasts.js` | `src/operations.js`, stale/mismatch tests |
 | Reconcile start/continue/abort | `src/operations.js` | `src/reconcile-state.js`, conflict tests |
@@ -340,14 +342,14 @@ update the PRD before relying on the new behavior.
 
 ### Highest-value product gap
 
-Rebase is not yet a first-class causal plan/forecast operation. Users can rely
-on ordinary Git rebase plus stable Change IDs, but there is no reviewed,
-receipt-aware sequence with the same staleness and predicted-tree guarantees as
-reconciliation.
+Rebase now has an accepted user model and first-class read-only causal plan,
+but it does not yet have isolated forecasting, staleness/predicted-tree
+guarantees, supervised application, recovery, or completed provenance.
 
 ### Other material gaps
 
-- Rebase is not a first-class forecast/plan operation.
+- Rebase forecast/application/recovery and completed receipts are not yet
+  implemented.
 - Workspace archive/move/restore/prune and stale-path repair are incomplete.
 - Forecasting does not include checkpoint or dirty-worktree overlays.
 - There is no formal standalone schema catalog or schema negotiation.
@@ -401,22 +403,23 @@ worktree remained unchanged.
 - no automatic repair of quarantined metadata;
 - no native store, daemon, or background service.
 
-### 10.2 Recommended next release decision
+### 10.2 Active v0.9 rebase track
 
 [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md)
-is Proposed for the next core-product increment. It models causal rebase as a
+is Accepted for the next core-product increment. It models causal rebase as a
 non-interactive linear sequence of target-context applications, reuses the
 coverage lattice and forecast guarantees, preserves same-intent IDs, requires
 an explicit fork for changed intent, delays shared receipts until complete
 success, and maps recovery to an exact worktree-private replay journal plus
 ordinary Git cherry-pick state.
 
-This is a design gate, not accepted or implemented architecture. Review the
-command model, linear-v1 boundary, identity/receipt behavior, unexpected-empty
-policy, forecast pins, and Git recovery tradeoff before broad implementation.
-If accepted, begin with the read-only `rebase-plan` vertical slice. Workspace
-lifecycle/draft-overlay forecasting and large-scale metadata benchmarks remain
-viable alternative bounded tracks.
+The first read-only `vlab rebase-plan <onto> [<source>]` slice is implemented.
+It reuses exact coverage, marks actions as omit/review/replay, emits a stable
+fingerprint, blocks linear-v1 merge topology, and is equality-tested across
+ordinary and persistent Git modes without caller mutation. The next bounded
+slice is isolated `rebase-forecast`; branch mutation remains out of scope until
+that forecast contract passes. Workspace lifecycle/draft-overlay forecasting
+and large-scale metadata benchmarks remain viable alternate tracks.
 
 ## 11. Test and release discipline
 
@@ -527,12 +530,12 @@ docs/adr/README.md. Inspect git status and preserve any existing changes. Verify
 the current version/tag and run the relevant baseline tests before editing.
 
 The v0.8 metadata integrity and portability work is implemented and ADR-0010 is
-Accepted. Verify its deterministic status/validation and two-clone envelope
-tests before changing its contracts. ADR-0011 is Proposed for first-class
-causal rebase planning/forecasting as described in section 10.2. Review and
-accept or revise its command model, linear-v1 scope, identity/receipt behavior,
-unexpected-empty policy, tree pinning, and Git recovery mapping before broad
-implementation. Preserve all invariants listed in section 8.
+Accepted. ADR-0011 is also Accepted for first-class causal rebase under the
+linear-v1 model. Its read-only `rebase-plan` slice is implemented as described
+in section 10.2. Verify plan determinism/non-mutation and preserve its
+omit/review/replay, unexpected-empty, identity, tree-pinning, and recovery
+invariants while implementing the next isolated `rebase-forecast` slice.
+Preserve all invariants listed in section 8.
 
 Implement the agreed increment, add disposable-repository integration tests,
 run the suite with the persistent Git session both disabled and enabled, update

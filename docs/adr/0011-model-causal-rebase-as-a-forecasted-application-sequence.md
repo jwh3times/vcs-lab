@@ -1,6 +1,6 @@
 # ADR-0011: Model causal rebase as a forecasted application sequence
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-21
 - **Owners:** Repository maintainers
 - **Related requirements:** FR-ID-02 through FR-ID-05, FR-LAND-09, FR-PLAN-01 through FR-PLAN-06, FR-REC-02 through FR-REC-10
@@ -29,7 +29,7 @@ misleading. Reconciliation integrates a source into the current target. Rebase
 replaces the current branch's base and rewrites that branch's selected changes.
 They can share mechanics without collapsing those user-visible meanings.
 
-## Proposed decision
+## Decision
 
 Model a causal rebase as an ordered sequence of target-context applications
 whose result replaces the source branch tip. Reuse the accepted coverage proof
@@ -196,26 +196,24 @@ full interoperability with Git's native rebase sequencer in v1.
 - **Automatically drop patch-equivalent or empty commits:** rejected because a
   heuristic must not silently become causal coverage.
 
-## Proposed acceptance evidence
+## Acceptance plan and initial evidence
 
-Do not mark this ADR Accepted until the user model and bounded scope are
-reviewed. After acceptance, implementation should prove at least:
+The user accepted this model and bounded scope on 2026-08-21. The first
+read-only vertical slice implements deterministic `rebase-plan` classification,
+receipt-backed omission, heuristic review, linear-history diagnostics, and
+caller non-mutation. The remaining forecast/application slices must prove:
 
-1. read-only planning leaves the caller unchanged and shows exact proof for
-   covered, candidate-equivalent, and new changes;
-2. a hard-squash continuation rebase omits only receipt-covered commits and
-   replays only the continuation;
-3. clean replay preserves stable IDs and publishes exact application/summary
+1. clean replay preserves stable IDs and publishes exact application/summary
    mappings only after complete success;
-4. unaccepted candidates and unexpected empty applications block rather than
+2. unaccepted candidates and unexpected empty applications block rather than
    disappear;
-5. forecasts preserve caller invariants, pin a final tree, and reject moved
+3. forecasts preserve caller invariants, pin a final tree, and reject moved
    source/target inputs before mutation;
-6. conflict continuation distinguishes contextual application from explicit
+4. conflict continuation distinguishes contextual application from explicit
    fork and revalidates exact/deterministic resolutions;
-7. mid-queue abort restores the exact original branch tip and publishes no
+5. mid-queue abort restores the exact original branch tip and publishes no
    partial records;
-8. linked worktrees cannot continue or overwrite each other's rebase journals;
-9. stock Git can inspect the resulting history and in-progress conflicts; and
-10. new accepted record schemas validate, quarantine when damaged, and
+6. linked worktrees cannot continue or overwrite each other's rebase journals;
+7. stock Git can inspect the resulting history and in-progress conflicts; and
+8. new accepted record schemas validate, quarantine when damaged, and
     round-trip through the metadata envelope idempotently.

@@ -28,7 +28,7 @@ requirements in [../../PRD.md](../../PRD.md) and the implemented architecture in
 | [0008](0008-keep-markdown-canonical-and-spec-metadata-sparse.md) | Accepted | Keep Markdown canonical and specification metadata sparse and derived |
 | [0009](0009-use-an-invocation-scoped-git-object-session.md) | Accepted | Use an invocation-scoped, worktree-isolated Git object session |
 | [0010](0010-add-a-validated-metadata-envelope-before-a-server.md) | Accepted | Add a validated metadata envelope before a native server or store |
-| [0011](0011-model-causal-rebase-as-a-forecasted-application-sequence.md) | Proposed | Model causal rebase as a forecasted application sequence |
+| [0011](0011-model-causal-rebase-as-a-forecasted-application-sequence.md) | Accepted | Model causal rebase as a forecasted application sequence |
 
 ## Creating or changing an ADR
 

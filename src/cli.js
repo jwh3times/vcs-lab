@@ -9,6 +9,7 @@ import {
   reconciliationStatus,
 } from "./operations.js";
 import { buildMergePlan, formatMergePlan } from "./merge-plan.js";
+import { buildRebasePlan, formatRebasePlan } from "./rebase-plan.js";
 import { land } from "./landings.js";
 import { initLab } from "./store.js";
 import {
@@ -57,6 +58,7 @@ Usage:
   vlab compact-merge <source> [-m <message>]
   vlab hard-squash <source> [-m <message>]
   vlab merge-plan <source> [--json]
+  vlab rebase-plan <onto> [<source>] [--json]
   vlab forecast <source> [--accept-candidates] [--json]
   vlab reconcile <source> [--accept-candidates] [--use-forecast <id>] [--json]
   vlab reconcile --status [--json]
@@ -88,7 +90,7 @@ Usage:
   vlab doctor [--benchmark] [--samples <n>] [--warmup <n>]
   vlab version
 
-Legend for merge-plan: '=' proven covered, '?' heuristic candidate, '+' new.
+Plan legend: '=' proven covered/omit, '?' heuristic review, '+' new/replay.
 
 Global diagnostics:
   --trace-git        print per-command process/session timings to stderr
@@ -735,6 +737,18 @@ export async function main(rawArgs) {
       const source = requireValue(positionals[0], "vlab merge-plan <source>");
       const plan = buildMergePlan(source);
       print(options.json ? plan : formatMergePlan(plan), options.json);
+      return;
+    }
+    case "rebase-plan": {
+      const onto = requireValue(
+        positionals[0],
+        "vlab rebase-plan <onto> [<source>]",
+      );
+      if (positionals.length > 2) {
+        throw new CliError("Usage: vlab rebase-plan <onto> [<source>]");
+      }
+      const plan = buildRebasePlan(onto, positionals[1]);
+      print(options.json ? plan : formatRebasePlan(plan), options.json);
       return;
     }
     case "forecast": {

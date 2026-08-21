@@ -7,6 +7,7 @@
 - compact merges retain a real causal parent while displaying as one first-parent landing;
 - hard squashes record exactly what they absorbed in a causal landing receipt;
 - a merge planner subtracts proven prior work instead of relying only on Git topology;
+- a causal rebase planner previews exact omissions, heuristic reviews, and the replay queue without switching branches;
 - Windows planning and forecasting reuse a worktree-scoped Git object process instead of spawning once per read;
 - reconciliation can be forecast in an isolated worktree and pinned before application;
 - indexed Markdown can be merged deterministically by stable block identity;
@@ -167,6 +168,27 @@ The planner uses three statuses:
 - `+` new work.
 
 Similarity is deliberately advisory. Run `vlab reconcile <branch> --accept-candidates` only after reviewing candidate equivalence.
+
+## Planning a causal rebase
+
+Preview how a linear source branch would be rewritten onto another commit or
+branch without switching or modifying the caller:
+
+```bash
+git switch hard-feature
+vlab rebase-plan main
+vlab rebase-plan main hard-feature --json
+git status --short
+```
+
+The plan uses the same exact coverage proofs as reconciliation. Covered changes
+are marked `omit`, heuristic patch candidates remain `review`, and new changes
+enter the ordered `replay` queue. It also emits a deterministic fingerprint and
+marks source ranges containing merge commits unsupported by linear v1.
+
+This development slice is planning-only. Continue using ordinary Git rebase
+for mutation until the forecast and supervised-application slices are
+implemented.
 
 ## Forecasting reconciliation
 
@@ -417,6 +439,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab merge --compact` | First-parent compression without causal loss |
 | `vlab merge --hard-squash` | Git-compatible strict squash plus sideband receipt |
 | `vlab merge-plan` | Proven coverage versus heuristic similarity |
+| `vlab rebase-plan` | Read-only causal omission/review/replay planning for a linear rebase |
 | `vlab forecast` | Non-mutating reconciliation simulation and pinned approval |
 | `vlab reconcile` | Apply only proven-new changes with resumable conflicts |
 | `vlab resolve ...` | Inspect, apply, reject, and audit exact resolution suggestions |
@@ -577,7 +600,7 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The 31-test integration suite creates disposable Git repositories and exercises
+The 34-test integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
 non-mutating and stale-safe forecasts, pinned batch application, committed-head
@@ -587,6 +610,7 @@ clean and blocked deterministic block merges, forecasted and explicit semantic
 application, conservative patch-equivalence handling, corpus measurements,
 batched history planning, persistent-session fallback, worktree isolation, Git
 timing probes, damaged metadata quarantine, deterministic envelope export,
-tamper/lineage/conflict rejection, and idempotent two-clone parity. The complete
+tamper/lineage/conflict rejection, idempotent two-clone parity, and read-only
+causal rebase planning with heuristic and merge-topology blockers. The complete
 suite is also run with
 `VLAB_GIT_SESSION=1` to exercise the Windows-default path.
