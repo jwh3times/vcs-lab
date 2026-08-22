@@ -7,7 +7,7 @@
 | Product | causal-vcs-lab |
 | Test-plan revision | 1 |
 | Prepared | 2026-08-22 |
-| Target development branch | `codex/rebase-adr` |
+| Consolidated development branch | `main` |
 | Implementation baseline commit | `1e91d08` |
 | Released package version at this baseline | `0.8.0` |
 | Development track | v0.9 supervised linear causal rebase |
@@ -128,7 +128,7 @@ Set-Location $sourceRepo
 
 $global:vlabCli = (Resolve-Path ".\bin\vlab.js").Path
 $implementationBaseline = "1e91d08"
-$expectedBranch = "codex/rebase-adr"
+$expectedBranch = "main"
 $sourceHeadAtStart = git rev-parse HEAD
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $uatRoot = Join-Path $env:TEMP "vcs-lab-uat-$stamp"
@@ -318,7 +318,7 @@ Assert-True ($reportedVersion -match "vcs-lab 0.8.0") "CLI version output"
 
 ### Expected result
 
-Branch `codex/rebase-adr`, a clean commit containing baseline `1e91d08`, and CLI
+Branch `main`, a clean commit containing baseline `1e91d08`, and CLI
 version `0.8.0`.
 
 ## 9. TP-03 — Ordinary-mode integration suite
