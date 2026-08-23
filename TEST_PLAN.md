@@ -5,8 +5,8 @@
 | Field | Value |
 | --- | --- |
 | Product | causal-vcs-lab |
-| Test-plan revision | 1 |
-| Prepared | 2026-08-22 |
+| Test-plan revision | 2 |
+| Prepared | 2026-08-23 |
 | Consolidated development branch | `main` |
 | Implementation baseline commit | `1e91d08` |
 | Released package version at this baseline | `0.8.0` |
@@ -18,6 +18,10 @@ development baseline. It complements [PRD.md](PRD.md),
 [ARCHITECTURE.md](ARCHITECTURE.md),
 [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md),
 and [SESSION_HANDOFF.md](SESSION_HANDOFF.md).
+
+Revision 2 incorporates the 2026-08-22 execution findings: TP-04 now uses a
+bounded monitored runner that accommodates buffered Node test output, and every
+fresh clone applies LF configuration before its initial checkout.
 
 ## 2. Purpose
 
@@ -224,6 +228,7 @@ function New-VlabTestRepo {
         git config user.name "VCS Lab UAT"
         git config user.email "vcs-lab-uat@example.invalid"
         git config core.autocrlf false
+        git config core.eol lf
 
         Write-Utf8Lf -Path (Join-Path $Path $BaseFile) -Text $BaseText
         git add -- $BaseFile
@@ -323,6 +328,11 @@ version `0.8.0`.
 
 ## 9. TP-03 — Ordinary-mode integration suite
 
+The integration suite is contained in one test file, so Node may buffer the
+summary until the file exits. A passing sandboxed Windows run has taken about
+250 seconds. Allow up to 12 minutes and do not classify absent TAP output alone
+as a stall; use process activity and the final exit code.
+
 ### Commands
 
 ```powershell
@@ -359,21 +369,96 @@ Stop and retain evidence.
 
 ## 10. TP-04 — Forced-session integration suite
 
+The Node test runner executes the single integration file in a child process and
+may buffer its test summary until that file exits. On the reference Windows
+host, a passing forced-session run took approximately 250 seconds. Lack of TAP
+output during that interval is not by itself a stall. The monitored command
+below allows 12 minutes, reports the parent process every 15 seconds, captures
+both output streams, and terminates only the exact test-process tree if the
+deadline expires.
+
 ### Commands
 
 ```powershell
 Set-Location $sourceRepo
 
+$forcedStdout = Join-Path $uatRoot "forced-session.stdout.log"
+$forcedStderr = Join-Path $uatRoot "forced-session.stderr.log"
+$forcedTimeout = [TimeSpan]::FromMinutes(12)
+$forcedTimedOut = $false
+
 $env:VLAB_GIT_SESSION = "1"
 $sessionStarted = Get-Date
-npm test
-$sessionExit = $LASTEXITCODE
+try {
+    $testProcess = Start-Process `
+        -FilePath "node" `
+        -ArgumentList @("--test") `
+        -WorkingDirectory $sourceRepo `
+        -RedirectStandardOutput $forcedStdout `
+        -RedirectStandardError $forcedStderr `
+        -WindowStyle Hidden `
+        -PassThru
+
+    while (-not $testProcess.WaitForExit(15000)) {
+        $testProcess.Refresh()
+        $elapsed = (Get-Date) - $sessionStarted
+        $processSnapshot = Get-Process -Id $testProcess.Id -ErrorAction SilentlyContinue
+        $cpu = if ($processSnapshot) {
+            [math]::Round($processSnapshot.CPU, 2)
+        }
+        else {
+            $null
+        }
+
+        Write-Host (
+            "Forced suite active: pid={0}, elapsed={1:n1}s, cpu={2}" -f
+                $testProcess.Id,
+                $elapsed.TotalSeconds,
+                $cpu
+        )
+
+        if ($elapsed -ge $forcedTimeout) {
+            $forcedTimedOut = $true
+            Write-Host "Forced suite exceeded $($forcedTimeout.TotalMinutes) minutes."
+            & taskkill.exe /PID $testProcess.Id /T /F | Out-Host
+            $testProcess.WaitForExit()
+            break
+        }
+    }
+
+    if (-not $forcedTimedOut) {
+        $testProcess.WaitForExit()
+    }
+    $sessionExit = $testProcess.ExitCode
+}
+finally {
+    Remove-Item Env:VLAB_GIT_SESSION -ErrorAction SilentlyContinue
+}
 $sessionElapsed = (Get-Date) - $sessionStarted
 
+$forcedOutput = if (Test-Path -LiteralPath $forcedStdout) {
+    Get-Content -LiteralPath $forcedStdout -Raw
+}
+else {
+    ""
+}
+$forcedErrors = if (Test-Path -LiteralPath $forcedStderr) {
+    Get-Content -LiteralPath $forcedStderr -Raw
+}
+else {
+    ""
+}
+
+$forcedOutput | Write-Host
+if ($forcedErrors) { $forcedErrors | Write-Host }
+
+Assert-True (-not $forcedTimedOut) "Forced-session suite completes before deadline"
 Assert-Equal 0 $sessionExit "Forced-session suite exits successfully"
+Assert-True ($forcedOutput -match '(?m)^# tests 43\s*$') "Forced-session suite reports 43 tests"
+Assert-True ($forcedOutput -match '(?m)^# pass 43\s*$') "Forced-session suite reports 43 passes"
+Assert-True ($forcedOutput -match '(?m)^# fail 0\s*$') "Forced-session suite reports zero failures"
 Write-Host "Forced-session elapsed: $($sessionElapsed.TotalSeconds) seconds"
 
-Remove-Item Env:VLAB_GIT_SESSION
 Start-Sleep -Seconds 3
 
 Get-Process node, git -ErrorAction SilentlyContinue |
@@ -383,7 +468,8 @@ Get-Process node, git -ErrorAction SilentlyContinue |
 
 ### Expected result
 
-43 tests pass, zero fail, and no VCS Lab-created worker remains.
+The monitored process exits before 12 minutes, 43 tests pass, zero fail, and no
+VCS Lab-created worker remains. Retain both forced-session log files as evidence.
 
 ## 11. TP-05 — Static repository gates
 
@@ -819,13 +905,15 @@ Get-FileHash `
 ```powershell
 $portableDestination = Join-Path $uatRoot "portable-destination"
 
-git clone --no-local $cleanRepo $portableDestination
+git -c core.autocrlf=false -c core.eol=lf `
+    clone --no-local $cleanRepo $portableDestination
 Assert-Equal 0 $LASTEXITCODE "Fresh clone succeeds"
 
 Set-Location $portableDestination
 git config user.name "VCS Lab UAT"
 git config user.email "vcs-lab-uat@example.invalid"
 git config core.autocrlf false
+git config core.eol lf
 
 git cat-file -e "$($continuation.commit)^{commit}" 2>$null
 $originPresentBeforeImport = $LASTEXITCODE -eq 0
@@ -1561,7 +1649,7 @@ $releaseSmokeRoot = Join-Path $env:TEMP "vcs-lab-release-smoke-$releaseVersion-$
 $bundleClone = Join-Path $releaseSmokeRoot "bundle-clone"
 
 New-Item -ItemType Directory -Path $releaseSmokeRoot | Out-Null
-git clone $bundlePath $bundleClone
+git -c core.autocrlf=false -c core.eol=lf clone $bundlePath $bundleClone
 Assert-Equal 0 $LASTEXITCODE "Bundle clone succeeds"
 
 Set-Location $bundleClone

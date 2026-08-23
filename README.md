@@ -36,6 +36,9 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
   intent, and recommended next release track.
 - [TEST_PLAN.md](TEST_PLAN.md) is the complete PowerShell development, manual
   acceptance, portability, integrity, and conditional release test procedure.
+- [TEST_RESULTS.md](TEST_RESULTS.md) records the 2026-08-22 execution evidence,
+  including the prematurely interrupted forced-session gate that motivated test
+  plan revision 2.
 - [DESIGN.md](DESIGN.md) retains the chronological experiment rationale, while
   [CHANGELOG.md](CHANGELOG.md) records delivered behavior by version.
 
