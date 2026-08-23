@@ -454,9 +454,15 @@ if ($forcedErrors) { $forcedErrors | Write-Host }
 
 Assert-True (-not $forcedTimedOut) "Forced-session suite completes before deadline"
 Assert-Equal 0 $sessionExit "Forced-session suite exits successfully"
-Assert-True ($forcedOutput -match '(?m)^# tests 43\s*$') "Forced-session suite reports 43 tests"
-Assert-True ($forcedOutput -match '(?m)^# pass 43\s*$') "Forced-session suite reports 43 passes"
-Assert-True ($forcedOutput -match '(?m)^# fail 0\s*$') "Forced-session suite reports zero failures"
+Assert-True (
+    $forcedOutput -match '(?m)^(?:#|ℹ)\s*tests\s+43\s*$'
+) "Forced-session suite reports 43 tests"
+Assert-True (
+    $forcedOutput -match '(?m)^(?:#|ℹ)\s*pass\s+43\s*$'
+) "Forced-session suite reports 43 passes"
+Assert-True (
+    $forcedOutput -match '(?m)^(?:#|ℹ)\s*fail\s+0\s*$'
+) "Forced-session suite reports zero failures"
 Write-Host "Forced-session elapsed: $($sessionElapsed.TotalSeconds) seconds"
 
 Start-Sleep -Seconds 3

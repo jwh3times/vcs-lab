@@ -39,6 +39,11 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 - [TEST_RESULTS.md](TEST_RESULTS.md) records the 2026-08-22 execution evidence,
   including the prematurely interrupted forced-session gate that motivated test
   plan revision 2.
+- [REVISED_TEST_RESULTS.md](REVISED_TEST_RESULTS.md) records the 2026-08-23
+  revision-2 timeout and retained evidence.
+- [FORCED_SESSION_TEST_PROCESS.md](FORCED_SESSION_TEST_PROCESS.md) defines the
+  focused reproduction, process-tree capture, correction, and qualification
+  procedure for that release-blocking timeout.
 - [DESIGN.md](DESIGN.md) retains the chronological experiment rationale, while
   [CHANGELOG.md](CHANGELOG.md) records delivered behavior by version.
 
