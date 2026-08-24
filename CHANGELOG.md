@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add bounded `vlab metadata benchmark` fixtures for history, linked worktrees,
+  workspace registry/status, causal notes, retained resolutions, and complete
+  metadata inventory, with semantic equality across samples and trendable
+  `vcs-lab.repository-scale-benchmark/v1` JSON.
+- Separate fixture setup from cold/warm scan measurements, report logical and
+  actual Git-process costs, omit repository content and identities, and remove
+  the disposable repository after every run.
+- Accept ADR-0013's evidence gate: batch the measured workspace-status and
+  resolution-catalog process amplification first, rerun the same schema, and
+  add neither persistent indexes nor a resident service without post-batching
+  representative evidence.
+
 - Add conservative workspace move, archive, restore, stale-path repair, and
   preview/apply prune commands while retaining workspace, branch, and checkpoint
   identity.

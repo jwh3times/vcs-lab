@@ -372,7 +372,7 @@ baseline after v0.8.0.
 | FR-WS-06 | P1 | Two workspace heads shall be forecastable without switching either worktree. | Implemented | `workspace forecast` compares committed heads. |
 | FR-WS-07 | P2 | Workspace lifecycle shall support archive, restore, move, prune, and stale-path repair. | Implemented for conservative v1 lifecycle | Commands preserve workspace/branch/checkpoint identity; archive refuses dirty or ignored files and prune requires `--apply`. |
 | FR-WS-08 | P2 | A native workspace model shall support private draft stacks without requiring a public compatibility branch. | Deferred | Requires a later storage/protocol layer; Git branch remains v0.x compatibility mechanism. |
-| FR-WS-09 | P2 | Workspace creation and status shall scale to many parallel agents without serial scans of unrelated worktrees. | Planned | Benchmark-defined limits and incremental registry/status path exist. |
+| FR-WS-09 | P2 | Workspace creation and status shall scale to many parallel agents without serial scans of unrelated worktrees. | Measured; optimization pending | Repository-scale schema exposes three status-probe processes per registered workspace and selects an invocation-local batch path before any persistent index. |
 
 ### 9.8 Specification and documentation model
 
@@ -405,7 +405,7 @@ baseline after v0.8.0.
 | FR-PERF-07 | P1 | Trace output shall report command class and timing without file content or commit-message payloads. | Implemented | `--trace-git` output is metadata-only. |
 | FR-PERF-08 | P1 | Windows shall use the measured lower-process path by default while other platforms can compare explicitly. | Implemented | Platform default plus force/disable flags exist. |
 | FR-PERF-09 | P2 | A cross-command daemon or repository service shall be introduced only after benchmarks show startup/round-trip cost remains material after batching. | Planned gate | Decision requires an ADR with Windows and non-Windows evidence. |
-| FR-PERF-10 | P2 | Large-repository benchmarks shall cover history depth, worktree count, note volume, resolution volume, and documentation volume. | Planned | Repeatable benchmark suite produces trendable JSON. |
+| FR-PERF-10 | P2 | Large-repository benchmarks shall cover history depth, worktree count, note volume, resolution volume, and documentation volume. | Implemented for synthetic fixtures | `vcs-lab.repository-scale-benchmark/v1` covers repository/shared-metadata volume and links `vcs-lab.spec-benchmark/v2` for documentation volume. |
 
 ### 9.10 Metadata portability, protocol, and trust
 
@@ -573,6 +573,7 @@ stable IDs, or auditability.
 | Deterministic Markdown merge | Complete for section-level rules | Clean and blocked merge tests |
 | Sparse metadata and incremental indexing | Complete for manifest v3 | Corpus, migration, zero-read tests |
 | Invocation-scoped Git object session | Complete with lazy startup and fallback | Equality/count/failure/worktree tests plus 10 direct, 20 redirected, three full current-Node, and one full Node 20 forced-session qualification runs |
+| Repository-scale evidence | Synthetic representative profile implemented | Trendable semantic/process/timing measurements select workspace-status and resolution-catalog batching; no index or service is yet justified |
 | Metadata integrity and portability | Experimental but complete for accepted shared facts | Inventory/validation plus deterministic envelope and two-clone idempotence tests |
 | Cryptographic trust/server policy | Not implemented | Explicit non-goal |
 | Native store/protocol | Not implemented | Exit criteria not yet satisfied |
@@ -608,6 +609,7 @@ stable IDs, or auditability.
 - Content reads and blob-cache hits for specification indexing.
 - Sparse manifest bytes per entity and ratio to source bytes.
 - Result equality between optimized and ordinary compatibility paths.
+- Per-entity process amplification for workspace, note, and resolution scans.
 
 The v0.7 release demonstration reduced a 12-change forecast from 52 to 25 Git
 process launches (51.9%) while preserving the complete forecast. The v0.6
@@ -627,6 +629,15 @@ TP-18 development gate; see
 The committed workspace lifecycle and immutable source-checkpoint increment
 also passed that complete gate; see
 [WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md).
+
+The initial `vcs-lab.repository-scale-benchmark/v1` representative Windows
+profile measured the plain registry read at 0.30 ms with no Git processes and
+the batched 300-target note catalog at 185.55 ms with two processes. In
+contrast, status for 12 workspaces used 36 processes and a 1,784.51 ms median,
+while 50 retained resolutions used 103 processes and a 6,287.27 ms median.
+This is host-specific synthetic evidence: it selects batching for those two
+paths and does not establish a production scale target. See
+[ADR-0013](docs/adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md).
 
 ## 14. Release and quality gates
 
@@ -667,7 +678,8 @@ scope is accepted in an issue, plan, or ADR.
 - **v0.9 (in development):** accepted causal rebase model with deterministic
   planning, isolated pinned forecasting, supervised current-branch replay,
   worktree-private recovery, portable completed receipts for linear history,
-  conservative workspace lifecycle, and immutable source-checkpoint forecasts.
+  conservative workspace lifecycle, immutable source-checkpoint forecasts, and
+  an evidence-gated repository/shared-metadata scale benchmark.
 
 ### Completed theme: metadata integrity and portability
 
@@ -690,7 +702,9 @@ manifest. It is not a signing or authorization layer.
   conservative worktree-backed implementation.
 - Broader causal rebase forms beyond linear v1: merge preservation, interactive
   editing, arbitrary ranges, and checkpoint/draft overlays.
-- Large-repository scale fixtures and incremental metadata indexes.
+- Batch workspace-status and resolution-catalog scans, then rerun the accepted
+  repository-scale schema; consider incremental catalogs only if already-batched
+  scans remain over a representative budget.
 - A repository-local service only if cross-command process and scan costs remain
   material after batching.
 - Protocol capability negotiation and optional remote gateway.
@@ -725,7 +739,7 @@ A native store or protocol prototype should begin only when trials demonstrate:
 | Semantic parser changes move identity boundaries | Review/merge discontinuity | Version parser and ID algorithms; require migrations and ADRs. |
 | Sidecar conflicts dominate document conflicts | Poor usability | Keep sidecars sparse, derive ordinary fields, batch reads, and semantically merge them with canonical Markdown. |
 | Persistent Git worker deadlocks or serves stale data | Hang or wrong result | Bound buffers/timeouts, cache only immutable expressions, invalidate on mutation, isolate by worktree, and fall back. |
-| Many agents overload worktree and registry scans | Latency and coordination failures | Add scale benchmarks and incremental/lifecycle design before claiming high scale. |
+| Many agents overload worktree and metadata scans | Latency and coordination failures | Use the repository-scale schema to remove measured per-entity process amplification first; require post-batching evidence before adding indexes or claiming high scale. |
 | Native rewrite begins too early | Complexity and adoption failure | Enforce measured exit criteria and preserve Git as oracle during experimentation. |
 | Documentation drifts from executable behavior | Incorrect future implementation | Link requirements to schemas/tests, keep a release handoff, and update docs in every invariant-changing release. |
 

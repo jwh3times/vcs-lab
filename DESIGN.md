@@ -193,6 +193,22 @@ cherry-pick state is read from the worktree's private Git directory. In the
 release demo, a 12-change forecast drops from 52 Git processes to 25 while
 producing the same plan, step trees, and predicted result tree.
 
+Version 0.9 adds a separate repository-scale decision fixture rather than
+inferring architecture from single-command timings. `vlab metadata benchmark`
+constructs and removes a bounded synthetic repository, verifies equal semantic
+results across samples, and reports scan latency together with Git process
+counts. Documentation volume remains the responsibility of the existing spec
+benchmark.
+
+On the initial 250-commit, 12-workspace, 250-causal-note, 50-resolution Windows
+profile, the registry read used no Git processes and the 300-target note scan
+used two. Workspace status used 36 processes and resolution enumeration used
+103. Those two paths also exceeded the one-second median budget. The evidence
+therefore selects invocation-local batching for status and resolution
+traversal before an incremental index. A resident service remains gated until
+post-batching measurements from representative Windows and non-Windows
+repositories show material cross-command cost.
+
 ## Workspace checkpoint
 
 The checkpoint command creates a temporary Git index, reads `HEAD` into it, adds

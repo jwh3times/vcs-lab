@@ -1911,7 +1911,7 @@ test("modified and rejected suggestions create auditable resolution variants", (
   assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 3);
 });
 
-test("doctor benchmarks Git probes, starts sessions lazily, and traces subprocess timings", (t) => {
+test("doctor and repository-scale benchmarks expose process costs without repository content", (t) => {
   const { repo, parent } = makeRepo(t);
   write(repo, "base.txt", "base\n");
   git(repo, "add", "base.txt");
@@ -1938,6 +1938,107 @@ test("doctor benchmarks Git probes, starts sessions lazily, and traces subproces
   assert.equal(doctor.objectSession.git.processes, 1);
   assert.ok(doctor.objectSession.git.sessionQueries >= 3);
   assert.ok(doctor.objectSession.git.cacheHits >= 8);
+
+  const scaleCallerBefore = {
+    head: git(repo, "rev-parse", "HEAD"),
+    status: git(repo, "status", "--porcelain=v1"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+  const scaleFixtureDirectoriesBefore = fs.readdirSync(os.tmpdir())
+    .filter((entry) => entry.startsWith("vcs-lab-scale-benchmark-"))
+    .sort();
+  const scale = JSON.parse(
+    vlab(
+      repo,
+      "metadata",
+      "benchmark",
+      "--history",
+      "4",
+      "--workspaces",
+      "2",
+      "--notes",
+      "3",
+      "--resolutions",
+      "2",
+      "--samples",
+      "2",
+      "--budget-ms",
+      "5000",
+      "--json",
+    ),
+  );
+  assert.equal(scale.schema, "vcs-lab.repository-scale-benchmark/v1");
+  assert.deepEqual(scale.fixture, {
+    profile: "custom-v1",
+    historyDepth: 4,
+    workspaces: 2,
+    causalNotes: 3,
+    resolutions: 2,
+    totalNoteTargets: 5,
+    totalNoteRecords: 5,
+  });
+  assert.equal(scale.coverage.documentationVolume.companionSchema, "vcs-lab.spec-benchmark/v2");
+  assert.equal(scale.setup.expectedAbsentProbeFailures, 9);
+  assert.equal(scale.setup.unexpectedGitFailures, 0);
+  assert.equal(scale.measurements.history.result.commits, 4);
+  assert.equal(scale.measurements.gitWorktrees.result.worktrees, 3);
+  assert.equal(scale.measurements.workspaceRegistry.result.workspaces, 2);
+  assert.deepEqual(scale.measurements.workspaceStatus.result, {
+    workspaces: 2,
+    active: 2,
+    dirty: 0,
+  });
+  assert.equal(scale.measurements.noteCatalog.result.records, 5);
+  assert.equal(scale.measurements.resolutionCatalog.result.resolutions, 2);
+  assert.deepEqual(scale.measurements.metadataStatus.result, {
+    valid: true,
+    acceptedPortableRecords: 5,
+    noteTargets: 5,
+    resolutionRefs: 2,
+    registeredWorkspaces: 2,
+    materializedWorktrees: 3,
+  });
+  assert.ok(
+    Object.values(scale.measurements).every(
+      (measurement) => measurement.samples.length === 2,
+    ),
+  );
+  assert.equal(
+    scale.analysis.processAmplification.workspaceStatusProcessesPerWorkspace,
+    3,
+  );
+  assert.ok(
+    scale.analysis.processAmplification.noteCatalogProcessesPerTarget < 1,
+  );
+  assert.ok(
+    scale.analysis.processAmplification.resolutionCatalogProcessesPerResolution > 3,
+  );
+  assert.equal(scale.analysis.nextAction, "batch-process-amplified-scans");
+  assert.equal(scale.analysis.persistentIndex.recommendedNow, false);
+  assert.equal(scale.analysis.residentService.recommendedNow, false);
+  assert.deepEqual(
+    scale.analysis.recommendations.map((item) => item.area),
+    ["workspace-status", "resolution-catalog", "note-catalog"],
+  );
+  assert.deepEqual(scale.privacy, {
+    repositoryPathsIncluded: false,
+    objectIdsIncluded: false,
+    fileContentsIncluded: false,
+    commitMessagesIncluded: false,
+  });
+  assert.equal(scale.cleanup.temporaryFixtureRemoved, true);
+  assert.doesNotMatch(JSON.stringify(scale), /vcs-lab-scale-benchmark-/);
+  assert.deepEqual(
+    fs.readdirSync(os.tmpdir())
+      .filter((entry) => entry.startsWith("vcs-lab-scale-benchmark-"))
+      .sort(),
+    scaleFixtureDirectoriesBefore,
+  );
+  assert.deepEqual({
+    head: git(repo, "rev-parse", "HEAD"),
+    status: git(repo, "status", "--porcelain=v1"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  }, scaleCallerBefore);
 
   const traced = spawnSync(process.execPath, [cli, "doctor"], {
     cwd: repo,

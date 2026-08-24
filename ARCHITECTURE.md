@@ -92,6 +92,7 @@ but a receipt does not rewrite a commit or tree ID.
 - Resolution signature/catalog management.
 - Workspace registry and checkpoint creation.
 - Markdown parsing, sparse manifest materialization, and deterministic merge.
+- Disposable repository/shared-metadata scale measurement and decision gates.
 
 ### 2.2 Outside the boundary
 
@@ -118,6 +119,7 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/metadata.js` | Deterministic inventory, scope classification, integrity diagnostics, lineage, and accepted-record filtering | Git, schemas, specs |
 | `src/metadata-envelope.js` | Canonical envelope manifest, integrity hash, payload bounds, and parser | Metadata, schemas |
 | `src/metadata-transfer.js` | Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import | Metadata, envelope, Git |
+| `src/scale-benchmark.js` | Bounded synthetic repository fixture, scan measurements, semantic equality checks, and evidence-based optimization recommendations | Git, notes, metadata, resolutions, workspaces |
 | `src/landings.js` | Compact and hard-squash landing mechanics and receipts | Git adapter, notes |
 | `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
 | `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
@@ -239,6 +241,7 @@ use at the current development baseline:
 | `vcs-lab.spec-manifest/v3` | Sparse Markdown identity manifest | `specs.js` |
 | `vcs-lab.spec-merge-plan/v1` | Deterministic three-way semantic plan | `specs.js` |
 | `vcs-lab.spec-benchmark/v2` | Generated corpus measurements | `specs.js` |
+| `vcs-lab.repository-scale-benchmark/v1` | Disposable repository/shared-metadata volume, scan, process-amplification, and decision measurements | `scale-benchmark.js` |
 | `vcs-lab.metadata-status/v1` | Deterministic repository metadata inventory | `metadata.js` |
 | `vcs-lab.metadata-validation/v1` | Inventory plus strict/non-strict validity result | `metadata.js` |
 | `vcs-lab.metadata-envelope/v1` | Portable manifest for sanitized notes and resolution refs | `metadata-envelope.js` |
@@ -828,8 +831,21 @@ processes and separately records elapsed wall time.
 
 `vlab doctor --benchmark` measures ordinary repository probes and the object
 session. `vlab spec benchmark` measures cold, unchanged, and one-change corpus
-paths plus metadata size. `npm run demo:git-session` compares optimized and
-ordinary forecasts for semantic equality and process count.
+paths plus metadata size. `vlab metadata benchmark` creates a bounded
+disposable repository and measures history, stock worktree discovery, registry
+reads, complete workspace status, notes, retained resolutions, and complete
+metadata status. Every phase checks semantic equality across samples and
+reports cold/median/p95 latency plus Git metrics; setup is reported separately.
+`npm run demo:git-session` compares optimized and ordinary forecasts for
+semantic equality and process count.
+
+The initial representative Windows profile contains 250 commits, 12 registered
+linked worktrees, 250 causal notes, and 50 retained resolutions. It measured
+three Git processes per workspace status and 103 processes for the 50-item
+resolution catalog, while the registry read used none and the 300-target note
+catalog used two. ADR-0013 therefore selects invocation-local batching for
+workspace status and resolution traversal before persistent indexes. One local
+synthetic run cannot recommend a resident service.
 
 ## 19. Testing architecture
 
@@ -861,6 +877,9 @@ The current development baseline contains 43 scenarios covering:
   exact-resolution batching, contextual fork, unexpected-empty blocking,
   partial abort, linked-worktree isolation, validated records, and fresh-clone
   portability of unreachable origins.
+- bounded repository-scale fixture construction, semantic equality across scan
+  samples, process-amplification decisions, caller non-mutation, privacy, and
+  exact disposable cleanup.
 
 The same suite is run with the session forced on. Demos complement tests by
 providing user-inspectable repositories and commands.
@@ -893,14 +912,20 @@ New capabilities should enter through versioned contracts:
 - Some historical schema/proof labels no longer describe their trust level
   cleanly.
 - Workspace registry stores local absolute paths and still probes materialized
-  worktrees serially.
+  worktrees serially; the representative fixture measures three Git processes
+  per registered workspace.
 - Forecasts can consume one immutable source checkpoint, but not a target
   checkpoint, live dirty bytes, or a native private draft stack.
 - Causal rebase v1 is deliberately linear and current-branch-only; it does not
   preserve merge topology or provide interactive edit/reword/squash, arbitrary
   range selection, or dirty/checkpoint overlays.
-- Notes lookup still scales with the notes namespace and reachable history;
-  large-repository indexes are not implemented.
+- Notes lookup still scales with the notes namespace and reachable history, but
+  its current catalog scan is already batched. Resolution catalog traversal is
+  still per-ref and process-amplified. Large-repository indexes are not
+  implemented because the measured first action is batching.
+- Repository-scale evidence is synthetic and currently from one Windows host;
+  real repositories and non-Windows hosts must be measured before setting fixed
+  targets or changing the service gate.
 - Crash boundaries have integration coverage for process-separated pauses but
   not systematic kill/fault injection at every mutation/journal edge.
 - Persistent session buffers are intentionally bounded and invocation-scoped;
@@ -916,8 +941,10 @@ is Accepted, and its linear plan, isolated forecast, supervised application,
 recovery journal, and portable completed-receipt slices are implemented.
 
 Workspace lifecycle and immutable source-checkpoint forecasting now have a
-bounded worktree-backed implementation. The strongest next increment is a
-large-workspace/metadata scale fixture that measures registry, note, resolution,
-and worktree scans before choosing incremental indexes or a resident service.
-Target overlays and native draft stacks require a separate accepted contract. A
-server or native database still requires the PRD's measured exit criteria.
+bounded worktree-backed implementation. ADR-0013's repository-scale fixture is
+also implemented and selects the next bounded increment: batch workspace
+status discovery and resolution catalog traversal, then rerun the same schema.
+Only already-batched scans that remain over a representative budget become
+incremental-catalog candidates. Target overlays and native draft stacks require
+a separate accepted contract. A server or native database still requires the
+PRD's measured exit criteria and representative multi-platform evidence.

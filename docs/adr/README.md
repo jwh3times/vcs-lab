@@ -30,6 +30,7 @@ requirements in [../../PRD.md](../../PRD.md) and the implemented architecture in
 | [0010](0010-add-a-validated-metadata-envelope-before-a-server.md) | Accepted | Add a validated metadata envelope before a native server or store |
 | [0011](0011-model-causal-rebase-as-a-forecasted-application-sequence.md) | Accepted | Model causal rebase as a forecasted application sequence |
 | [0012](0012-treat-workspace-lifecycle-as-reversible-materialization-and-drafts-as-checkpoint-inputs.md) | Accepted | Treat workspace lifecycle as reversible materialization and drafts as checkpoint inputs |
+| [0013](0013-measure-scan-amplification-before-adding-indexes-or-a-service.md) | Accepted | Measure scan amplification before adding indexes or a service |
 
 ## Creating or changing an ADR
 

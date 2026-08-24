@@ -20,6 +20,8 @@
 - Markdown remains canonical while a sidecar gives sections and requirements stable entity IDs.
 - repository metadata can be inventoried, validated, quarantined, and moved
   between related clones in an integrity-checked Git-bundle envelope.
+- repository and shared-metadata scan costs can be measured in a disposable
+  scale fixture before choosing batching, indexes, or a resident service.
 
 This is a laboratory, not a production VCS. Its purpose is to make the semantics observable and falsifiable before designing a native object store or network protocol.
 
@@ -537,7 +539,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab workspace ...` | Worktree-backed lifecycle, checkpoints, and committed/checkpoint forecasts |
 | `vlab spec ...` | Incremental indexing, block merge planning, explicit resolution, and corpus benchmarks |
 | `vlab receipts` | Inspect causal records as text or JSON |
-| `vlab metadata ...` | Inventory, validate, export, preview, and import accepted metadata facts |
+| `vlab metadata ...` | Inventory, validate, transfer, and benchmark accepted metadata facts and scan paths |
 | `vlab doctor --benchmark` | Sample ordinary Git latency and persistent object-session reuse |
 
 ## Metadata integrity and portability
@@ -631,6 +633,29 @@ Get both the ordinary-process baseline and the persistent-session probe with:
 vlab doctor --benchmark --samples 10 --warmup 2
 ```
 
+Measure repository/shared-metadata volume without reading or changing the
+caller repository:
+
+```bash
+vlab metadata benchmark --json
+vlab metadata benchmark --history 500 --workspaces 20 --notes 500 --resolutions 100 --samples 5 --budget-ms 1500 --json
+```
+
+The default disposable profile contains 250 reachable commits, 12 registered
+linked-worktree workspaces, 250 causal notes, and 50 retained resolutions. It
+measures history, stock Git worktree discovery, the registry, complete
+workspace status, notes, resolutions, and complete metadata status. Setup cost
+is separate, every sample must return the same semantic result, and JSON omits
+fixture paths, object IDs, file content, and commit messages. Documentation
+volume is covered by `vlab spec benchmark`.
+
+On the initial Windows host run, registry parsing took a 0.30 ms median with no
+Git processes and the 300-target note catalog took 185.55 ms with two. Status
+for 12 workspaces took 1,784.51 ms and 36 processes; 50 resolutions took
+6,287.27 ms and 103 processes. This synthetic observation selects batching for
+workspace status and resolution traversal. It does not justify an incremental
+index, a resident service, or a production scale claim.
+
 For command-by-command timings, enable tracing directly on one invocation:
 
 ```bash
@@ -686,6 +711,8 @@ manifest representation from 655,545 equivalent v2 bytes to 11,240 v3 bytes.
 - virtual/lazy filesystem materialization;
 - target-checkpoint overlays or forecasts over uncaptured live workspace bytes;
 - a complete Git protocol gateway;
+- persistent repository indexes or a cross-command resident service before
+  representative post-batching evidence justifies them;
 - safe automatic equivalence inference for independently created near-identical code.
 
 Those should be built only after these local semantics prove useful.
@@ -713,5 +740,7 @@ explicit candidate decisions, predicted trees, private persistence, and
 conflict blockers; and supervised rebase application with stable identity,
 stale rejection, exact-resolution batching, contextual forks, empty-step
 blocking, exact abort, linked-worktree isolation, completed-record validation,
-and portable unreachable origins. The complete suite is also run with
+portable unreachable origins, plus a caller-isolated repository-scale fixture
+that verifies semantic scan results, process-amplification decisions, privacy,
+and cleanup. The complete suite is also run with
 `VLAB_GIT_SESSION=1` to exercise the Windows-default path.

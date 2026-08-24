@@ -66,6 +66,7 @@ import {
 } from "./forecasts.js";
 import { metadataStatus, validateMetadata } from "./metadata.js";
 import { exportMetadata, importMetadata } from "./metadata-transfer.js";
+import { benchmarkRepositoryScale } from "./scale-benchmark.js";
 
 const HELP = `vcs-lab — Git-backed experiments for causal source control
 
@@ -100,6 +101,7 @@ Usage:
   vlab metadata export <directory> [--json]
   vlab metadata import <directory> --dry-run [--json]
   vlab metadata import <directory> --apply [--json]
+  vlab metadata benchmark [--history <n>] [--workspaces <n>] [--notes <n>] [--resolutions <n>] [--samples <n>] [--budget-ms <n>] [--json]
   vlab workspace create <name> [--from <ref>] [--path <directory>] [--owner <name>] [--focus <text>]
   vlab workspace list [--json]
   vlab workspace checkpoint [--label <text>] [--json]
@@ -130,7 +132,7 @@ Global diagnostics:
 function parseArgs(args) {
   const positionals = [];
   const options = {};
-  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--label", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks"]);
+  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--label", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks", "--history", "--workspaces", "--notes", "--resolutions", "--budget-ms"]);
   for (let index = 0; index < args.length; index += 1) {
     const item = args[index];
     if (valueFlags.has(item)) {
@@ -203,6 +205,37 @@ function formatMetadataTransfer(result) {
     `applicable   ${result.summary.applicable ? "yes" : "no"}`,
     "trust        integrity only; not signed or authorized",
   ].join("\n");
+}
+
+function formatScaleBenchmark(result) {
+  const fixture = result.fixture;
+  const lines = [
+    "Repository scale benchmark",
+    `fixture      ${fixture.historyDepth} history, ${fixture.workspaces} workspaces, ${fixture.causalNotes} causal notes, ${fixture.resolutions} resolutions`,
+    `samples      ${result.samples}; interactive budget ${result.analysis.interactiveBudgetMs} ms`,
+    `setup        ${result.setup.durationMs} ms; ${result.setup.git.processes} Git processes`,
+    "",
+  ];
+  for (const [name, measurement] of Object.entries(result.measurements)) {
+    lines.push(
+      `${name.padEnd(18)} ${measurement.medianMs.toFixed(2)} ms median (${measurement.coldMs.toFixed(2)} cold); ${measurement.medianProcesses} Git processes`,
+    );
+  }
+  lines.push(
+    "",
+    `next action  ${result.analysis.nextAction}`,
+    `index now    ${result.analysis.persistentIndex.recommendedNow ? "yes" : "no"} — ${result.analysis.persistentIndex.reason}`,
+    `service now  no — ${result.analysis.residentService.reason}`,
+  );
+  if (result.analysis.recommendations.length) {
+    lines.push("", "Recommendations");
+    for (const recommendation of result.analysis.recommendations) {
+      lines.push(
+        `- ${recommendation.area}: ${recommendation.action} (${recommendation.evidence})`,
+      );
+    }
+  }
+  return lines.join("\n");
 }
 
 function formatSpecResult(result) {
@@ -1070,7 +1103,19 @@ export async function main(rawArgs) {
         if (!result.summary.applicable) process.exitCode = 1;
         return;
       }
-      throw new CliError("Unknown metadata command. Use status, validate, export, or import.");
+      if (subcommand === "benchmark") {
+        const result = benchmarkRepositoryScale({
+          history: options.history,
+          workspaces: options.workspaces,
+          notes: options.notes,
+          resolutions: options.resolutions,
+          samples: options.samples,
+          budgetMs: options.budgetMs,
+        });
+        print(options.json ? result : formatScaleBenchmark(result), options.json);
+        return;
+      }
+      throw new CliError("Unknown metadata command. Use status, validate, export, import, or benchmark.");
     }
     case "workspace": {
       const subcommand = positionals[0];

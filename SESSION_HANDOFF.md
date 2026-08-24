@@ -70,7 +70,8 @@ The released baseline is v0.8.0. The current v0.9 development branch adds the
 accepted ADR-0011 linear causal-rebase flow—plan, isolated forecast, supervised
 application, recovery, and portable completed receipts—and ADR-0012's
 conservative workspace lifecycle plus immutable source-checkpoint forecasting.
-These extend validated metadata portability and the v0.7
+It also implements ADR-0013's repository/shared-metadata scale fixture and
+evidence gate. These extend validated metadata portability and the v0.7
 causal/specification/Git-session foundation. The development suite contains 43
 integration tests and retains all six maintained demos.
 
@@ -255,6 +256,24 @@ qualification, not an independent user report; see
   checkpoint, rejects a moved base, reports its distinct scope, and never reads
   later live dirty bytes. The target remains its committed head.
 
+### v0.9 development — repository-scale decision evidence
+
+- ADR-0013 adds bounded `vlab metadata benchmark` inputs for history,
+  registered linked worktrees, causal notes, retained resolutions, samples, and
+  an interactive latency budget.
+- `vcs-lab.repository-scale-benchmark/v1` separates fixture setup from scan
+  phases, requires equal semantic results across samples, and records both wall
+  time and complete Git metrics.
+- The command uses and removes a synthetic repository; output contains no
+  caller path, fixture path, object ID, file content, or commit message.
+- The initial Windows representative profile found no reason to index the
+  registry and confirmed the note catalog's batched path. It measured three Git
+  processes per workspace status and 103 processes for 50 retained
+  resolutions, selecting those paths for invocation-local batching.
+- A persistent catalog is considered only if a post-batching scan remains over
+  budget. A resident service still requires representative Windows and
+  non-Windows evidence after batching and any justified catalogs.
+
 ## 5. Fast start for a new session
 
 ### 5.1 Read and verify before editing
@@ -306,6 +325,7 @@ commands. Do not treat demo branch/object IDs as stable across runs.
 ```powershell
 vlab doctor --benchmark --samples 10 --warmup 2
 npm run demo:git-session
+vlab metadata benchmark --json
 ```
 
 Record both wall time and process count. The semantic acceptance signal is
@@ -331,6 +351,7 @@ portable than a single timing observation.
 | Shared note records | `src/notes.js` | `refs/notes/vcs-lab` behavior |
 | Metadata inventory/validation | `src/metadata.js`, `src/schemas.js` | note/resolution/spec/workspace/private-state fixtures |
 | Envelope export/import | `src/metadata-envelope.js`, `src/metadata-transfer.js` | lineage, bundle, staging/ref-transaction tests |
+| Repository-scale measurements | `src/scale-benchmark.js` | Git metrics, notes, resolutions, workspaces, metadata inventory, ADR-0013 |
 | Common/private runtime paths | `src/store.js`, `src/reconcile-state.js`, `src/rebase-state.js` | `repoContext` in `src/git.js` |
 | IDs and hashes | `src/ids.js` | schema fields that name algorithms |
 | End-to-end contract | `test/integration.test.js` | all demo scripts |
@@ -405,6 +426,9 @@ These are the shortest high-value review checklist for any new change:
     archive refuses dirty or ignored bytes and prune mutates only with `--apply`.
 27. A source-checkpoint forecast pins immutable checkpoint/base/tree identity,
     labels that scope explicitly, and never consumes later live dirty bytes.
+28. A scale benchmark uses only a bounded disposable fixture, separates setup
+    from scans, checks semantic equality, omits repository content/identity,
+    and cannot recommend a resident service from one local synthetic run.
 
 If a proposed change intentionally breaks one, write a superseding ADR and
 update the PRD before relying on the new behavior.
@@ -413,24 +437,27 @@ update the PRD before relying on the new behavior.
 
 ### Highest-value product gap
 
-Workspace lifecycle and immutable source-checkpoint forecasting now have a
-bounded implementation. The highest-value next evidence is a
-large-workspace/metadata scale fixture that measures registry, note, resolution,
-and worktree scans before choosing incremental indexes or a resident service.
+Workspace lifecycle, immutable source-checkpoint forecasting, and the bounded
+repository-scale evidence fixture are implemented. The fixture selects the
+highest-value next implementation: batch workspace status discovery and
+resolution-catalog traversal, then rerun the same schema before considering a
+persistent catalog.
 
 ### Other material gaps
 
 - Rebase does not yet preserve merge topology or support interactive
   edit/reword/squash, arbitrary ranges, or dirty/checkpoint overlays.
-- Workspace registry inspection still probes materialized worktrees serially.
+- Workspace registry inspection still probes materialized worktrees serially;
+  the representative profile measured three Git processes per workspace.
 - Forecasting supports one immutable source checkpoint, but not target
   checkpoints, uncaptured live bytes, or a native private draft stack.
 - There is no formal standalone schema catalog or schema negotiation.
 - Current records are locally forgeable and unsigned.
 - The historical proof label `signed-shaped-landing-receipt` overstates the
   current trust layer; it means signature-shaped, not signature-verified.
-- Notes/resolution scans have not been characterized on genuinely large
-  repositories.
+- Notes and resolutions now have synthetic volume measurements, but not yet
+  genuinely large real-repository or non-Windows evidence. Resolution traversal
+  remains process-amplified; the note catalog is already batched.
 - Crash/fault injection is not systematic at every Git-mutation/journal-write
   boundary.
 - Semantic merge supports heading-oriented Markdown only.
@@ -504,10 +531,21 @@ applied through the existing pinned reconciliation path without reading live
 dirty bytes. The committed increment passed the clean TP-01 through TP-18 gate;
 see [WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md).
 
-The strongest next bounded product track is a large-workspace/metadata scale
-fixture followed by evidence-based incremental registry or metadata indexes.
-Target overlays, native draft stacks, broader rebase forms, and a resident
-service require fresh scope rather than silent expansion of their current
+### 10.4 Active v0.9 repository-scale evidence track
+
+[ADR-0013](docs/adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md)
+is Accepted. `vlab metadata benchmark` creates a bounded disposable profile and
+emits `vcs-lab.repository-scale-benchmark/v1` with semantic, timing, and Git
+process evidence for history, worktrees, registry/status, notes, resolutions,
+and complete metadata status. The existing spec benchmark remains the
+documentation-volume companion.
+
+The initial representative Windows run measured a cheap registry read and an
+already-batched note catalog, but process-amplified workspace status and
+resolution traversal. The next bounded product track is therefore to batch
+those two paths and rerun this schema. Target overlays, native draft stacks,
+broader rebase forms, persistent indexes, and a resident service require fresh
+post-batching evidence or scope rather than silent expansion of their current
 contracts.
 
 ## 11. Test and release discipline
@@ -619,13 +657,16 @@ docs/adr/README.md. Inspect git status and preserve any existing changes. Verify
 the current version/tag and run the relevant baseline tests before editing.
 
 The v0.8 metadata integrity and portability work is implemented and ADR-0010 is
-Accepted. ADR-0011's linear-v1 causal rebase and ADR-0012's conservative
-workspace lifecycle/immutable source-checkpoint forecasting are implemented as
-described in sections 10.2 and 10.3. Verify them and preserve
+Accepted. ADR-0011's linear-v1 causal rebase, ADR-0012's conservative workspace
+lifecycle/immutable source-checkpoint forecasting, and ADR-0013's repository
+scale evidence gate are implemented as described in sections 10.2 through
+10.4. Verify them and preserve
 omit/review/replay, explicit candidate acceptance, unexpected-empty, identity,
 tree-pinning, recovery, delayed publication, no-data-loss lifecycle, and
-immutable checkpoint-input invariants while selecting the next bounded product
-increment. Preserve all invariants listed in section 8.
+immutable checkpoint-input and benchmark-safety invariants. The measured next
+bounded increment is invocation-local batching for workspace status and
+resolution catalog traversal, followed by a rerun of the same scale schema.
+Preserve all invariants listed in section 8.
 
 Implement the agreed increment, add disposable-repository integration tests,
 run the suite with the persistent Git session both disabled and enabled, and
@@ -653,7 +694,8 @@ the repository, not from chat memory:
 - Why does envelope integrity not establish actor trust or authorization?
 - What has passed on the release host versus been independently observed on
   the user's Windows machine?
-- What is the next proposed scope, and which parts are deliberately excluded?
+- What did the repository-scale schema measure, why is batching next, and what
+  evidence still gates an index or resident service?
 
 If any answer is unclear, correct the durable docs before starting a broad new
 implementation.
