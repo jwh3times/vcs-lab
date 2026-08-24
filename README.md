@@ -36,6 +36,9 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 - [SESSION_HANDOFF.md](SESSION_HANDOFF.md) is the detailed new-session pickup
   guide, including the exact source map, validation commands, preserved user
   intent, and recommended next release track.
+- [SCAN_BATCHING_HANDOFF.md](SCAN_BATCHING_HANDOFF.md) is the bounded
+  fresh-worktree brief for the next measured workspace-status and
+  resolution-catalog optimization.
 - [TEST_PLAN.md](TEST_PLAN.md) is the complete PowerShell development, manual
   acceptance, portability, integrity, and conditional release test procedure.
 - [TEST_RESULTS.md](TEST_RESULTS.md) records the 2026-08-22 execution evidence,

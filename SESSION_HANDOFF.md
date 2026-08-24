@@ -29,6 +29,9 @@ replace the authoritative documents:
 11. [REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md) —
     passing clean-checkout evidence and exact representative measurements for
     ADR-0013's repository-scale decision fixture.
+12. [SCAN_BATCHING_HANDOFF.md](SCAN_BATCHING_HANDOFF.md) — the concrete
+    fresh-worktree implementation and validation brief selected by those
+    measurements.
 
 If this handoff becomes stale, update it rather than allowing a new session to
 guess.
@@ -447,7 +450,8 @@ Workspace lifecycle, immutable source-checkpoint forecasting, and the bounded
 repository-scale evidence fixture are implemented. The fixture selects the
 highest-value next implementation: batch workspace status discovery and
 resolution-catalog traversal, then rerun the same schema before considering a
-persistent catalog.
+persistent catalog. The execution brief is
+[SCAN_BATCHING_HANDOFF.md](SCAN_BATCHING_HANDOFF.md).
 
 ### Other material gaps
 
