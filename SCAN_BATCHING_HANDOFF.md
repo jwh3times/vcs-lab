@@ -32,11 +32,14 @@ integration scenarios, and six maintained demos. The complete evidence is in
 [REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md).
 
 During integration into `main`, four pre-existing intermediate forced-session
-files from commit `ca1df46` were preserved in a named stash rather than
-discarded. Look for stash message
-`pre-main-integration-ca1df46-20260824`. It predates and is superseded by the
-qualified forced-session implementation on `main`; do not pop or drop it
-without a deliberate maintainer review.
+files from commit `ca1df46` were preserved as committed history rather than
+discarded or reapplied over the qualified versions. Tree-preserving merge
+`282950cf0e666caf5c1dee7ecec0a3b4fb044d6e` has snapshot commit
+`8913c3aad1269f98ba680bf75bdf6ec3816fd904` as its second parent; that snapshot's
+third parent `ff636fe5bfac266aaf1be96c0f241fd9628039cb` contains the formerly
+untracked investigation result. No stash remains. These intermediate versions
+are superseded by the current files and should be inspected from history, not
+restored into a worktree.
 
 ## Create and verify a fresh worktree
 
@@ -47,7 +50,7 @@ name:
 Set-Location C:\Users\jerry\OneDrive\Documents\VSCodeProjects\vcs-lab
 git status --short --branch
 git log -5 --oneline --decorate
-git stash list
+git stash list # expected to be empty at this handoff
 
 $freshPath = "C:\path\to\a\new\vcs-lab-scan-batching-worktree"
 git worktree add -b scan-batching $freshPath main
