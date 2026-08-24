@@ -1,7 +1,28 @@
 import { spawn } from "node:child_process";
-import { parentPort, workerData } from "node:worker_threads";
+import { appendFileSync } from "node:fs";
+import { parentPort, threadId, workerData } from "node:worker_threads";
 
-const git = spawn(workerData.gitCommand ?? "git", ["cat-file", "--batch-command"], {
+function sessionDiagnostic(event, details = {}) {
+  if (process.env.VLAB_GIT_SESSION_DIAGNOSTICS !== "1") return;
+  const line = `[vlab session-worker] ${JSON.stringify({
+    at: new Date().toISOString(),
+    pid: process.pid,
+    threadId,
+    event,
+    ...details,
+  })}\n`;
+  process.stderr.write(line);
+  const filePath = process.env.VLAB_GIT_SESSION_DIAGNOSTICS_FILE;
+  if (!filePath) return;
+  try {
+    appendFileSync(filePath, line, "utf8");
+  } catch {
+    // Diagnostics must never change session behavior.
+  }
+}
+
+const gitCommand = workerData.gitCommand ?? "git";
+const git = spawn(gitCommand, ["cat-file", "--batch-command"], {
   cwd: workerData.cwd,
   env: {
     ...process.env,
@@ -16,17 +37,38 @@ let stderr = "";
 let startupError = null;
 const pending = [];
 
+sessionDiagnostic("worker-start", {
+  cwd: workerData.cwd,
+  gitCommand,
+});
+
 git.stderr.setEncoding("utf8");
 git.stderr.on("data", (chunk) => {
   stderr += chunk;
   if (stderr.length > 64 * 1024) stderr = stderr.slice(-64 * 1024);
+  sessionDiagnostic("git-stderr", {
+    bytes: Buffer.byteLength(chunk, "utf8"),
+    pending: pending.length,
+    tail: stderr.slice(-512),
+  });
 });
 git.on("error", (error) => {
   startupError = error;
+  sessionDiagnostic("git-error", {
+    message: error.message,
+    code: error.code ?? null,
+    pending: pending.length,
+  });
   while (pending.length) pending.shift().reject(error);
 });
 git.on("exit", (code, signal) => {
-  if (code === 0 || signal === "SIGTERM") return;
+  sessionDiagnostic("git-exit", {
+    code,
+    signal,
+    pending: pending.length,
+    stderr: stderr.trim() || null,
+  });
+  if (pending.length === 0) return;
   const error = new Error(
     `git cat-file session exited with status ${code ?? signal}.${stderr.trim() ? ` ${stderr.trim()}` : ""}`,
   );
@@ -39,9 +81,23 @@ function parseResponse() {
     if (newline < 0) return;
     const header = stdout.subarray(0, newline).toString("utf8");
     const request = pending[0];
+    sessionDiagnostic("git-response-header", {
+      requestId: request.requestId,
+      command: request.command,
+      expression: request.expression,
+      header,
+      bufferedBytes: stdout.length,
+      pending: pending.length,
+    });
     if (header.endsWith(" missing")) {
       stdout = stdout.subarray(newline + 1);
       pending.shift();
+      sessionDiagnostic("request-resolved", {
+        requestId: request.requestId,
+        command: request.command,
+        expression: request.expression,
+        exists: false,
+      });
       request.resolve({
         expression: request.expression,
         exists: false,
@@ -55,6 +111,12 @@ function parseResponse() {
     const match = header.match(/^([0-9a-f]+) (\S+) (\d+)$/);
     if (!match) {
       pending.shift();
+      sessionDiagnostic("request-rejected", {
+        requestId: request.requestId,
+        command: request.command,
+        expression: request.expression,
+        error: `Unexpected git cat-file session header: ${header}`,
+      });
       request.reject(new Error(`Unexpected git cat-file session header: ${header}`));
       stdout = stdout.subarray(newline + 1);
       continue;
@@ -63,6 +125,13 @@ function parseResponse() {
     if (request.command === "info") {
       stdout = stdout.subarray(newline + 1);
       pending.shift();
+      sessionDiagnostic("request-resolved", {
+        requestId: request.requestId,
+        command: request.command,
+        expression: request.expression,
+        exists: true,
+        infoOnly: true,
+      });
       request.resolve({
         expression: request.expression,
         exists: true,
@@ -78,6 +147,12 @@ function parseResponse() {
     if (stdout.length <= contentEnd) return;
     if (stdout[contentEnd] !== 0x0a) {
       pending.shift();
+      sessionDiagnostic("request-rejected", {
+        requestId: request.requestId,
+        command: request.command,
+        expression: request.expression,
+        error: "Git returned malformed session object content.",
+      });
       request.reject(new Error("Git returned malformed session object content."));
       stdout = stdout.subarray(contentEnd);
       continue;
@@ -85,6 +160,13 @@ function parseResponse() {
     const content = stdout.subarray(contentStart, contentEnd);
     stdout = stdout.subarray(contentEnd + 1);
     pending.shift();
+    sessionDiagnostic("request-resolved", {
+      requestId: request.requestId,
+      command: request.command,
+      expression: request.expression,
+      exists: true,
+      size,
+    });
     request.resolve({
       expression: request.expression,
       exists: true,
@@ -98,17 +180,35 @@ function parseResponse() {
 
 git.stdout.on("data", (chunk) => {
   stdout = Buffer.concat([stdout, chunk]);
+  sessionDiagnostic("git-stdout", {
+    bytes: chunk.length,
+    bufferedBytes: stdout.length,
+    pending: pending.length,
+  });
   parseResponse();
 });
 
-function query(command, expression) {
+function query(command, expression, requestId) {
   if (startupError) return Promise.reject(startupError);
   return new Promise((resolve, reject) => {
-    pending.push({ command, expression, resolve, reject });
+    pending.push({ command, expression, requestId, resolve, reject });
+    sessionDiagnostic("git-request-writing", {
+      requestId,
+      command,
+      expression,
+      pending: pending.length,
+    });
     git.stdin.write(`${command} ${expression}\n`, "utf8", (error) => {
+      sessionDiagnostic("git-request-write-callback", {
+        requestId,
+        command,
+        expression,
+        ok: !error,
+        error: error?.message ?? null,
+      });
       if (!error) return;
       const index = pending.findIndex(
-        (item) => item.command === command && item.expression === expression,
+        (item) => item.requestId === requestId,
       );
       if (index >= 0) pending.splice(index, 1);
       reject(error);
@@ -116,7 +216,7 @@ function query(command, expression) {
   });
 }
 
-function respond(shared, value) {
+function respond(shared, value, details = {}) {
   const header = new Int32Array(shared, 0, 4);
   const payload = new Uint8Array(shared, 16);
   let encoded = Buffer.from(JSON.stringify(value), "utf8");
@@ -134,14 +234,25 @@ function respond(shared, value) {
   Atomics.store(header, 1, encoded.length);
   Atomics.store(header, 0, 1);
   Atomics.notify(header, 0);
+  sessionDiagnostic("shared-response", {
+    ...details,
+    ok: value?.ok ?? null,
+    encodedBytes: encoded.length,
+  });
 }
 
 function closeGitSession(shared) {
   let finished = false;
+  sessionDiagnostic("close-start", {
+    pending: pending.length,
+    gitExitCode: git.exitCode,
+    gitSignalCode: git.signalCode,
+  });
   const finish = () => {
     if (finished) return;
     finished = true;
-    respond(shared, { ok: true });
+    sessionDiagnostic("close-finish", { pending: pending.length });
+    respond(shared, { ok: true }, { type: "close" });
     process.exit(0);
   };
   if (git.exitCode !== null || git.signalCode !== null) {
@@ -149,9 +260,13 @@ function closeGitSession(shared) {
     return;
   }
   git.once("exit", finish);
+  sessionDiagnostic("close-stdin-end", { pending: pending.length });
   git.stdin.end();
   const terminate = setTimeout(() => {
-    if (!finished) git.kill();
+    if (!finished) {
+      sessionDiagnostic("close-git-kill", { pending: pending.length });
+      git.kill();
+    }
   }, 2_000);
   terminate.unref();
   const fallback = setTimeout(finish, 4_000);
@@ -159,6 +274,13 @@ function closeGitSession(shared) {
 }
 
 parentPort.on("message", async (message) => {
+  sessionDiagnostic("parent-message", {
+    type: message.type,
+    requestId: message.requestId ?? null,
+    command: message.command ?? null,
+    expressionCount: Array.isArray(message.expressions) ? message.expressions.length : 0,
+    pending: pending.length,
+  });
   if (message.type === "close") {
     closeGitSession(message.shared);
     return;
@@ -166,13 +288,25 @@ parentPort.on("message", async (message) => {
   try {
     const expressions = message.expressions.map(String);
     const results = await Promise.all(
-      expressions.map((expression) => query(message.command, expression)),
+      expressions.map((expression, index) =>
+        query(message.command, expression, `${message.requestId}.${index + 1}`),
+      ),
     );
-    respond(message.shared, { ok: true, results });
-  } catch (error) {
-    respond(message.shared, {
-      ok: false,
-      error: error?.message ?? String(error),
+    respond(message.shared, { ok: true, results }, {
+      type: "query",
+      requestId: message.requestId,
     });
+  } catch (error) {
+    const messageText = error?.message ?? String(error);
+    sessionDiagnostic("query-failed", {
+      requestId: message.requestId,
+      error: messageText,
+      pending: pending.length,
+    });
+    respond(
+      message.shared,
+      { ok: false, error: messageText },
+      { type: "query", requestId: message.requestId },
+    );
   }
 });

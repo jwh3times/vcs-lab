@@ -5,7 +5,7 @@
 | Field | Value |
 | --- | --- |
 | Product | causal-vcs-lab |
-| Process revision | 1 |
+| Process revision | 2 |
 | Prepared | 2026-08-23 |
 | Branch | `main` |
 | Evidence baseline | `d90f67ded25fb772715537c6fbfad03b7bf1d56d` |
@@ -272,16 +272,24 @@ function Get-ProcessTreeSnapshot {
             Where-Object { [int]$_.ProcessId -eq $processId } |
             Select-Object -First 1
         $runtime = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        $cpuSeconds = $null
+        $workingSet = $null
+        $startTime = $null
+        if ($runtime) {
+            try { $cpuSeconds = [math]::Round($runtime.CPU, 3) } catch { }
+            try { $workingSet = $runtime.WorkingSet64 } catch { }
+            try { $startTime = $runtime.StartTime.ToString("o") } catch { }
+        }
 
         [pscustomobject]@{
             CapturedAt = Get-Date -Format "o"
             RootProcessId = $RootProcessId
             ProcessId = $processId
             ParentProcessId = if ($cim) { [int]$cim.ParentProcessId } else { $null }
-            Name = if ($cim) { $cim.Name } else { $runtime.ProcessName }
-            CpuSeconds = if ($runtime) { [math]::Round($runtime.CPU, 3) } else { $null }
-            WorkingSet = if ($runtime) { $runtime.WorkingSet64 } else { $null }
-            StartTime = if ($runtime) { $runtime.StartTime.ToString("o") } else { $null }
+            Name = if ($cim) { $cim.Name } elseif ($runtime) { $runtime.ProcessName } else { "<exited>" }
+            CpuSeconds = $cpuSeconds
+            WorkingSet = $workingSet
+            StartTime = $startTime
             CommandLine = if ($cim) { $cim.CommandLine } else { $null }
         }
     }
@@ -336,7 +344,8 @@ function Invoke-MonitoredNodeTest {
         [Parameter(Mandatory)] [string[]]$NodeArguments,
         [ValidateSet("0", "1")] [string]$SessionMode,
         [int]$TimeoutSeconds = 900,
-        [switch]$EnableTrace
+        [switch]$EnableTrace,
+        [switch]$EnableSessionDiagnostics
     )
 
     $runDirectory = Join-Path $investigationRoot $Name
@@ -349,6 +358,7 @@ function Invoke-MonitoredNodeTest {
     $stderrPath = Join-Path $runDirectory "stderr.log"
     $snapshotPath = Join-Path $runDirectory "process-snapshots.csv"
     $gitTracePath = Join-Path $runDirectory "git-trace2.json"
+    $sessionDiagnosticsPath = Join-Path $runDirectory "session-diagnostics.log"
     $startedAt = Get-Date
     $deadline = $startedAt.AddSeconds($TimeoutSeconds)
     $timedOut = $false
@@ -371,6 +381,14 @@ function Invoke-MonitoredNodeTest {
             "GIT_TRACE2_EVENT",
             "Process"
         )
+        VLAB_GIT_SESSION_DIAGNOSTICS = [Environment]::GetEnvironmentVariable(
+            "VLAB_GIT_SESSION_DIAGNOSTICS",
+            "Process"
+        )
+        VLAB_GIT_SESSION_DIAGNOSTICS_FILE = [Environment]::GetEnvironmentVariable(
+            "VLAB_GIT_SESSION_DIAGNOSTICS_FILE",
+            "Process"
+        )
     }
 
     try {
@@ -382,6 +400,14 @@ function Invoke-MonitoredNodeTest {
         else {
             Remove-Item Env:VLAB_TRACE -ErrorAction SilentlyContinue
             Remove-Item Env:GIT_TRACE2_EVENT -ErrorAction SilentlyContinue
+        }
+        if ($EnableSessionDiagnostics) {
+            $env:VLAB_GIT_SESSION_DIAGNOSTICS = "1"
+            $env:VLAB_GIT_SESSION_DIAGNOSTICS_FILE = $sessionDiagnosticsPath
+        }
+        else {
+            Remove-Item Env:VLAB_GIT_SESSION_DIAGNOSTICS -ErrorAction SilentlyContinue
+            Remove-Item Env:VLAB_GIT_SESSION_DIAGNOSTICS_FILE -ErrorAction SilentlyContinue
         }
 
         $process = Start-Process `
@@ -483,6 +509,14 @@ function Invoke-MonitoredNodeTest {
     }
     $stdoutText = if ($null -eq $stdout) { "" } else { [string]$stdout }
     $stderrText = if ($null -eq $stderr) { "" } else { [string]$stderr }
+    $stdoutAvailable = Test-Path -LiteralPath $stdoutPath
+    $stderrAvailable = Test-Path -LiteralPath $stderrPath
+    $sessionDiagnosticsAvailable = Test-Path -LiteralPath $sessionDiagnosticsPath
+    $lastOutputInfo = @(
+        Get-Item -LiteralPath $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
+    ) |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
 
     $result = [pscustomobject]@{
         Name = $Name
@@ -496,6 +530,11 @@ function Invoke-MonitoredNodeTest {
         RootProcessId = $process.Id
         StdoutBytes = [Text.Encoding]::UTF8.GetByteCount($stdoutText)
         StderrBytes = [Text.Encoding]::UTF8.GetByteCount($stderrText)
+        StdoutAvailable = $stdoutAvailable
+        StderrAvailable = $stderrAvailable
+        LastOutputTime = if ($lastOutputInfo) { $lastOutputInfo.LastWriteTime.ToString("o") } else { $null }
+        SessionDiagnosticsEnabled = $EnableSessionDiagnostics.IsPresent
+        SessionDiagnosticsAvailable = $sessionDiagnosticsAvailable
         ReportedTests = [regex]::Match(
             $stdoutText,
             '(?m)^(?:#|ℹ)\s*tests\s+(\d+)\s*$'
@@ -539,6 +578,31 @@ Assert-Equal 0 $harnessProbe.NewFixtures.Count "Harness probe creates no test fi
 Assert-Equal "harness-probe" $harnessProbe.Name "Harness preserves the case name"
 ```
 
+### 9.5 Gated session diagnostics
+
+The product emits session lifecycle diagnostics only when both of these
+process-level variables are set:
+
+```powershell
+$env:VLAB_GIT_SESSION_DIAGNOSTICS = "1"
+$env:VLAB_GIT_SESSION_DIAGNOSTICS_FILE = Join-Path $runDirectory "session-diagnostics.log"
+```
+
+The diagnostic stream records request identifiers, request posting, the
+`Atomics.wait` return state, worker errors and exits, Git stdin writes and
+responses, and close/disable handling. It must remain disabled for ordinary
+tests unless a targeted investigation explicitly enables it. During the
+investigation, run only the localized targeted forced case until the exact
+unanswered request and its worker/Git state are identified; do not start the
+full suite or release gates.
+
+The corrected session lifecycle is lazy: entering a VCS Lab operation records a
+session but does not start its persistent Git worker. The worker starts only
+when the first object request is posted, after ordinary checks such as
+`git status` have completed. If the worker's Git process exits while requests
+are pending, the worker rejects those requests immediately so the parent can
+fall back instead of waiting for the session deadline.
+
 ## 10. FS-03 — Targeted ordinary control
 
 Run only the test localized by the failed evidence, with the persistent session
@@ -556,7 +620,8 @@ $targetOrdinary = Invoke-MonitoredNodeTest `
     -NodeArguments $targetArguments `
     -SessionMode "0" `
     -TimeoutSeconds 300 `
-    -EnableTrace
+    -EnableTrace `
+    -EnableSessionDiagnostics
 
 Assert-True (-not $targetOrdinary.TimedOut) "Target ordinary control completes"
 Assert-Equal 0 $targetOrdinary.ExitCode "Target ordinary control exits successfully"
@@ -581,6 +646,14 @@ $previousDirectEnvironment = @{
         "Process"
     )
     VLAB_TRACE = [Environment]::GetEnvironmentVariable("VLAB_TRACE", "Process")
+    VLAB_GIT_SESSION_DIAGNOSTICS = [Environment]::GetEnvironmentVariable(
+        "VLAB_GIT_SESSION_DIAGNOSTICS",
+        "Process"
+    )
+    VLAB_GIT_SESSION_DIAGNOSTICS_FILE = [Environment]::GetEnvironmentVariable(
+        "VLAB_GIT_SESSION_DIAGNOSTICS_FILE",
+        "Process"
+    )
 }
 
 foreach ($iteration in 1..10) {
@@ -590,7 +663,11 @@ foreach ($iteration in 1..10) {
 
     $env:VLAB_GIT_SESSION = "1"
     $env:VLAB_TRACE = "1"
+    $env:VLAB_GIT_SESSION_DIAGNOSTICS = "1"
+    $env:VLAB_GIT_SESSION_DIAGNOSTICS_FILE = Join-Path $runDirectory "session-diagnostics.log"
     $directTimedOut = $false
+    $exitCode = $null
+    $elapsed = [timespan]::Zero
     try {
         $started = Get-Date
         $deadline = $started.AddMinutes(5)
@@ -649,6 +726,8 @@ foreach ($iteration in 1..10) {
         TimedOut = $directTimedOut
         ExitCode = $exitCode
         ElapsedSeconds = [math]::Round($elapsed.TotalSeconds, 3)
+        OutputMode = "direct-console"
+        SessionDiagnosticsPath = Join-Path $runDirectory "session-diagnostics.log"
         EvidenceDirectory = $runDirectory
     }
     $targetDirectResults += $item
@@ -682,7 +761,8 @@ foreach ($iteration in 1..20) {
         -NodeArguments $targetArguments `
         -SessionMode "1" `
         -TimeoutSeconds 300 `
-        -EnableTrace
+        -EnableTrace `
+        -EnableSessionDiagnostics
 
     $targetForcedResults += $result
 
@@ -831,8 +911,28 @@ Get-ChildItem -LiteralPath $failedRun.FullName -Force |
     Select-Object Name, Length, LastWriteTime |
     Format-Table -AutoSize
 
-Get-Content -LiteralPath (Join-Path $failedRun.FullName "stdout.log") -Tail 120
-Get-Content -LiteralPath (Join-Path $failedRun.FullName "stderr.log") -Tail 120
+foreach ($streamName in @("stdout", "stderr")) {
+    $streamPath = Join-Path $failedRun.FullName "$streamName.log"
+    if (Test-Path -LiteralPath $streamPath) {
+        Write-Host "--- $streamName ---"
+        Get-Content -LiteralPath $streamPath -Tail 120
+    }
+    else {
+        Write-Host "No redirected $streamName.log exists for this run; consult the transcript and direct-console evidence."
+    }
+}
+
+$diagnosticsPath = Join-Path $failedRun.FullName "session-diagnostics.log"
+if (Test-Path -LiteralPath $diagnosticsPath) {
+    Write-Host "--- session diagnostics ---"
+    Get-Content -LiteralPath $diagnosticsPath -Tail 240
+}
+
+$transcriptPath = Join-Path $investigationRoot "investigation.log"
+if (Test-Path -LiteralPath $transcriptPath) {
+    Write-Host "--- transcript tail ---"
+    Get-Content -LiteralPath $transcriptPath -Tail 160
+}
 
 $snapshots = Import-Csv -LiteralPath (
     Join-Path $failedRun.FullName "process-snapshots.csv"
