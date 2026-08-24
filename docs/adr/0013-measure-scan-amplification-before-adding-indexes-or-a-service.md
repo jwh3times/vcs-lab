@@ -76,17 +76,19 @@ repositories and cross-command cost remains material.
 
 ## Initial evidence
 
-The representative profile on the 2026-08-24 Windows development host produced:
+The representative profile from clean commit
+`fd8ade038995df36c98f992e051c8a4cf5d93065` on the 2026-08-24 Windows
+development host produced:
 
 | Phase | Median | Git processes | Interpretation |
 | --- | ---: | ---: | --- |
-| History, 250 commits | 77.91 ms | 1 | Bounded streaming scan |
-| Git worktree list, 13 worktrees | 56.06 ms | 1 | Bounded stock Git scan |
-| Registry read, 12 workspaces | 0.30 ms | 0 | No registry index indicated |
-| Workspace status, 12 workspaces | 1,784.51 ms | 36 | Three processes per workspace; batch first |
-| Note catalog, 300 targets | 185.55 ms | 2 | Existing batch path is effective |
-| Resolution catalog, 50 records | 6,287.27 ms | 103 | Per-ref traversal dominates; batch first |
-| Complete metadata status | 911.17 ms | 11 | Within the default median budget |
+| History, 250 commits | 72.74 ms | 1 | Bounded streaming scan |
+| Git worktree list, 13 worktrees | 59.29 ms | 1 | Bounded stock Git scan |
+| Registry read, 12 workspaces | 0.31 ms | 0 | No registry index indicated |
+| Workspace status, 12 workspaces | 1,597.78 ms | 36 | Three processes per workspace; batch first |
+| Note catalog, 300 targets | 172.67 ms | 2 | Existing batch path is effective |
+| Resolution catalog, 50 records | 5,503.66 ms | 103 | Per-ref traversal dominates; batch first |
+| Complete metadata status | 780.25 ms | 11 | Within the default median budget |
 
 The evidence selects one bounded next optimization: batch workspace status and
 resolution catalog scans, then rerun the same schema. It does not justify a new
@@ -139,3 +141,5 @@ persisted index or resident service.
 - CLI surface and human summary: `src/cli.js`
 - Acceptance coverage: `test/integration.test.js`
 - Companion documentation benchmark: `src/specs.js`
+- Clean-commit qualification and representative measurements:
+  [REPOSITORY_SCALE_TEST_RESULTS.md](../../REPOSITORY_SCALE_TEST_RESULTS.md)

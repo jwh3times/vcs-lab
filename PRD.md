@@ -630,14 +630,15 @@ The committed workspace lifecycle and immutable source-checkpoint increment
 also passed that complete gate; see
 [WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md).
 
-The initial `vcs-lab.repository-scale-benchmark/v1` representative Windows
-profile measured the plain registry read at 0.30 ms with no Git processes and
-the batched 300-target note catalog at 185.55 ms with two processes. In
-contrast, status for 12 workspaces used 36 processes and a 1,784.51 ms median,
-while 50 retained resolutions used 103 processes and a 6,287.27 ms median.
+The clean-commit `vcs-lab.repository-scale-benchmark/v1` representative Windows
+profile measured the plain registry read at 0.31 ms with no Git processes and
+the batched 300-target note catalog at 172.67 ms with two processes. In
+contrast, status for 12 workspaces used 36 processes and a 1,597.78 ms median,
+while 50 retained resolutions used 103 processes and a 5,503.66 ms median.
 This is host-specific synthetic evidence: it selects batching for those two
 paths and does not establish a production scale target. See
-[ADR-0013](docs/adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md).
+[ADR-0013](docs/adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md)
+and [REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md).
 
 ## 14. Release and quality gates
 

@@ -26,6 +26,9 @@ replace the authoritative documents:
    TP-01–TP-18 development evidence and the remaining release boundary.
 10. [WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md) —
     passing clean-checkout evidence for ADR-0012's implementation.
+11. [REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md) —
+    passing clean-checkout evidence and exact representative measurements for
+    ADR-0013's repository-scale decision fixture.
 
 If this handoff becomes stale, update it rather than allowing a new session to
 guess.
@@ -80,6 +83,9 @@ race. Focused qualification and the full clean-checkout `TEST_PLAN.md` gate are
 complete for correction commit `621eb71771fddacba53a30e22ab25ffbc0397590`.
 ADR-0012's workspace lifecycle and source-checkpoint forecast increment also
 passed the complete gate at `c4d16c244d79ec02c214304958af488e978f7ba9`.
+ADR-0013's repository-scale fixture passed the same gate and its representative
+profile at `fd8ade038995df36c98f992e051c8a4cf5d93065`; see
+[REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md).
 No release artifacts were created; resolve the current repository state from Git
 rather than relying only on this handoff.
 
@@ -546,7 +552,8 @@ resolution traversal. The next bounded product track is therefore to batch
 those two paths and rerun this schema. Target overlays, native draft stacks,
 broader rebase forms, persistent indexes, and a resident service require fresh
 post-batching evidence or scope rather than silent expansion of their current
-contracts.
+contracts. Exact clean-commit results are in
+[REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md).
 
 ## 11. Test and release discipline
 

@@ -54,6 +54,9 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 - [WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md)
   records the passing clean TP-01–TP-18 gate for workspace lifecycle and
   immutable source-checkpoint forecasting.
+- [REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md) records
+  the clean TP-01–TP-18 gate and representative repository/specification scale
+  measurements for ADR-0013.
 - [DESIGN.md](DESIGN.md) retains the chronological experiment rationale, while
   [CHANGELOG.md](CHANGELOG.md) records delivered behavior by version.
 
@@ -649,12 +652,13 @@ is separate, every sample must return the same semantic result, and JSON omits
 fixture paths, object IDs, file content, and commit messages. Documentation
 volume is covered by `vlab spec benchmark`.
 
-On the initial Windows host run, registry parsing took a 0.30 ms median with no
-Git processes and the 300-target note catalog took 185.55 ms with two. Status
-for 12 workspaces took 1,784.51 ms and 36 processes; 50 resolutions took
-6,287.27 ms and 103 processes. This synthetic observation selects batching for
+On the clean-commit Windows host run, registry parsing took a 0.31 ms median
+with no Git processes and the 300-target note catalog took 172.67 ms with two.
+Status for 12 workspaces took 1,597.78 ms and 36 processes; 50 resolutions took
+5,503.66 ms and 103 processes. This synthetic observation selects batching for
 workspace status and resolution traversal. It does not justify an incremental
-index, a resident service, or a production scale claim.
+index, a resident service, or a production scale claim. See
+[REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md).
 
 For command-by-command timings, enable tracing directly on one invocation:
 

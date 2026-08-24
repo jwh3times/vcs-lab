@@ -845,7 +845,9 @@ three Git processes per workspace status and 103 processes for the 50-item
 resolution catalog, while the registry read used none and the 300-target note
 catalog used two. ADR-0013 therefore selects invocation-local batching for
 workspace status and resolution traversal before persistent indexes. One local
-synthetic run cannot recommend a resident service.
+synthetic run cannot recommend a resident service. Exact clean-commit evidence
+is recorded in
+[REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md).
 
 ## 19. Testing architecture
 
