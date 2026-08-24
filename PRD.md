@@ -624,6 +624,9 @@ start/exit traces and no leaked descendants. See
 The committed correction then passed the complete clean-checkout TP-01 through
 TP-18 development gate; see
 [POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md).
+The committed workspace lifecycle and immutable source-checkpoint increment
+also passed that complete gate; see
+[WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md).
 
 ## 14. Release and quality gates
 

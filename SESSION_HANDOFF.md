@@ -24,6 +24,8 @@ replace the authoritative documents:
    persistent-session correction evidence.
 9. [POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md) — passing clean-checkout
    TP-01–TP-18 development evidence and the remaining release boundary.
+10. [WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md) —
+    passing clean-checkout evidence for ADR-0012's implementation.
 
 If this handoff becomes stale, update it rather than allowing a new session to
 guess.
@@ -75,8 +77,10 @@ integration tests and retains all six maintained demos.
 The current correction fixes the reproduced Windows forced-session startup
 race. Focused qualification and the full clean-checkout `TEST_PLAN.md` gate are
 complete for correction commit `621eb71771fddacba53a30e22ab25ffbc0397590`.
-No release artifacts were created; resolve the current repository state from
-Git rather than relying only on this handoff.
+ADR-0012's workspace lifecycle and source-checkpoint forecast increment also
+passed the complete gate at `c4d16c244d79ec02c214304958af488e978f7ba9`.
+No release artifacts were created; resolve the current repository state from Git
+rather than relying only on this handoff.
 
 Do not trust a hard-coded commit from a handoff; establish the exact checkout
 first:
@@ -497,7 +501,8 @@ is Accepted. Conservative move, archive, restore, repair, and preview/apply
 prune preserve logical workspace identity and fail closed around data loss.
 Checkpoint history is retained, and a source checkpoint can be forecast and
 applied through the existing pinned reconciliation path without reading live
-dirty bytes.
+dirty bytes. The committed increment passed the clean TP-01 through TP-18 gate;
+see [WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md).
 
 The strongest next bounded product track is a large-workspace/metadata scale
 fixture followed by evidence-based incremental registry or metadata indexes.

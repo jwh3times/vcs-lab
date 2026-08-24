@@ -49,6 +49,9 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
   and balanced Git-process evidence.
 - [POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md) records the passing clean
   TP-01–TP-18 development gate for the committed correction.
+- [WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md)
+  records the passing clean TP-01–TP-18 gate for workspace lifecycle and
+  immutable source-checkpoint forecasting.
 - [DESIGN.md](DESIGN.md) retains the chronological experiment rationale, while
   [CHANGELOG.md](CHANGELOG.md) records delivered behavior by version.
 
