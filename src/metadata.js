@@ -22,6 +22,7 @@ import {
 const NOTES_REF = "refs/notes/vcs-lab";
 const RESOLUTION_REFS = "refs/vcs-lab/resolutions";
 const CHECKPOINT_REFS = "refs/vcs-lab/checkpoints";
+const CHECKPOINT_HISTORY_REFS = "refs/vcs-lab/checkpoint-history";
 
 function canonicalValue(value) {
   if (Array.isArray(value)) return value.map(canonicalValue);
@@ -525,7 +526,7 @@ function validateSharedLocal(context, diagnostics) {
             id: workspace?.id ?? null,
             name: workspace?.name ?? null,
             path: workspace?.path ?? null,
-            lifecycle: workspace?.lifecycle ?? null,
+            lifecycle: workspace?.lifecycle ?? "active",
             pathExists: typeof workspace?.path === "string" && fs.existsSync(workspace.path),
           }))
           .sort((left, right) => String(left.id).localeCompare(String(right.id))),
@@ -534,7 +535,17 @@ function validateSharedLocal(context, diagnostics) {
         addDiagnostic(diagnostics, "malformed-record", "error", "shared-local", workspacePath, "Workspace registry does not match vcs-lab.workspaces/v1.");
       }
       for (const workspace of registry.workspaces) {
-        if (!workspace.pathExists) {
+        if (!["active", "archived"].includes(workspace.lifecycle)) {
+          addDiagnostic(
+            diagnostics,
+            "workspace-lifecycle-invalid",
+            "error",
+            "shared-local",
+            workspace.id ?? workspace.name ?? workspacePath,
+            `Workspace lifecycle '${workspace.lifecycle ?? "(missing)"}' is not supported.`,
+          );
+        }
+        if (workspace.lifecycle !== "archived" && !workspace.pathExists) {
           addDiagnostic(
             diagnostics,
             "workspace-path-missing",
@@ -544,6 +555,16 @@ function validateSharedLocal(context, diagnostics) {
             `Workspace path '${workspace.path ?? "(missing)"}' does not exist.`,
           );
         }
+        if (workspace.lifecycle === "archived" && workspace.pathExists) {
+          addDiagnostic(
+            diagnostics,
+            "workspace-archived-path-present",
+            "warning",
+            "shared-local",
+            workspace.id ?? workspace.name ?? workspacePath,
+            `Archived workspace path '${workspace.path}' still exists; repair or remove the stale materialization.`,
+          );
+        }
       }
     } catch {
       addDiagnostic(diagnostics, "malformed-record", "error", "shared-local", workspacePath, "Workspace registry is not valid JSON.");
@@ -551,8 +572,16 @@ function validateSharedLocal(context, diagnostics) {
     }
   }
   const checkpointRefs = listRefs(CHECKPOINT_REFS, context.root);
-  const checkpointObjects = objectLookup(checkpointRefs.map((entry) => entry.oid), context.root);
-  for (const checkpoint of checkpointRefs) {
+  const checkpointHistoryRefs = listRefs(
+    CHECKPOINT_HISTORY_REFS,
+    context.root,
+  );
+  const allCheckpointRefs = [...checkpointRefs, ...checkpointHistoryRefs];
+  const checkpointObjects = objectLookup(
+    allCheckpointRefs.map((entry) => entry.oid),
+    context.root,
+  );
+  for (const checkpoint of allCheckpointRefs) {
     const object = checkpointObjects.get(checkpoint.oid);
     if (!object?.exists || object.type !== "commit") {
       addDiagnostic(diagnostics, "missing-referenced-object", "error", "shared-local", checkpoint.ref, "Checkpoint ref does not resolve to a commit.");
@@ -560,7 +589,13 @@ function validateSharedLocal(context, diagnostics) {
   }
   return {
     workspaceRegistry: registry,
-    checkpoints: { refCount: checkpointRefs.length, refs: checkpointRefs },
+    checkpoints: {
+      refCount: checkpointRefs.length,
+      refs: checkpointRefs,
+      historyRefCount: checkpointHistoryRefs.length,
+      historyRefs: checkpointHistoryRefs,
+      totalRefCount: allCheckpointRefs.length,
+    },
   };
 }
 
@@ -672,7 +707,13 @@ export function metadataSnapshot(options = {}) {
   } : validateSpecs(context, diagnostics);
   const sharedLocal = options.portableOnly ? {
     workspaceRegistry: { present: false, schema: null, count: 0, workspaces: [] },
-    checkpoints: { refCount: 0, refs: [] },
+    checkpoints: {
+      refCount: 0,
+      refs: [],
+      historyRefCount: 0,
+      historyRefs: [],
+      totalRefCount: 0,
+    },
   } : validateSharedLocal(context, diagnostics);
   const worktreePrivate = options.portableOnly ? {
     worktreeCount: 0,

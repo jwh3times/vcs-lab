@@ -129,7 +129,7 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
 | `src/resolutions.js` | Exact three-way conflict signatures, candidate selection, result retention, outcome audit | Git adapter, notes, reconciliation state |
-| `src/workspaces.js` | Workspace registry, linked-worktree creation/listing, temporary-index checkpoints | Git adapter, store |
+| `src/workspaces.js` | Workspace registry/lifecycle, linked-worktree materialization, temporary-index checkpoints/history | Git adapter, store |
 | `src/specs.js` | Markdown parsing, sparse manifest migration/indexing, deterministic merge, semantic resolution, benchmark | Git adapter, IDs, reconciliation state |
 | `src/version.js` | Runtime version constant | None |
 | `test/integration.test.js` | Disposable-repository end-to-end contract suite | CLI and Git |
@@ -199,7 +199,7 @@ identity belongs in tracked files.
 | Causal notes | Shared repository | `refs/notes/vcs-lab` | Portable through a validated metadata envelope |
 | Resolution result objects | Shared repository | `refs/vcs-lab/resolutions/<signature>/<result-blob>` | Hidden ref prevents GC; envelope transports accepted refs |
 | Workspace registry | Shared repository installation | `<common-git-dir>/vcs-lab/workspaces.json` | Local; not automatically remote-portable |
-| Checkpoints | Shared repository | `refs/vcs-lab/checkpoints/<workspace-id>` | One ref chain per workspace |
+| Checkpoints | Shared repository | Latest under `refs/vcs-lab/checkpoints/<workspace-id>`; prior snapshots under `refs/vcs-lab/checkpoint-history/<workspace-id>/<oid>` | Local immutable snapshots retained across materialization changes |
 | Pending reconciliation | One linked worktree | `<worktree-git-dir>/vcs-lab/reconciliation.json` | Cleared on complete/abort |
 | Pending causal rebase | One linked worktree | `<worktree-git-dir>/vcs-lab/rebase.json` | Cleared on complete/abort |
 | Saved forecasts | One linked worktree | `<worktree-git-dir>/vcs-lab/forecasts/<id>.json` | Private approval artifact |
@@ -235,6 +235,7 @@ use at the current development baseline:
 | `vcs-lab.workspaces/v1` | Workspace registry container | `workspaces.js` |
 | `vcs-lab.workspace/v1` | Workspace descriptor | `workspaces.js` |
 | `vcs-lab.checkpoint/v1` | Checkpoint command result | `workspaces.js` |
+| `vcs-lab.workspace-prune/v1` | Preview/apply stale-path prune result | `workspaces.js` |
 | `vcs-lab.spec-manifest/v3` | Sparse Markdown identity manifest | `specs.js` |
 | `vcs-lab.spec-merge-plan/v1` | Deterministic three-way semantic plan | `specs.js` |
 | `vcs-lab.spec-benchmark/v2` | Generated corpus measurements | `specs.js` |
@@ -435,8 +436,10 @@ simulation there, aborts any in-progress cherry-pick, and removes/prunes the
 temporary worktree in cleanup. The caller's head, tree, and porcelain status
 are captured before and after. A difference is an invariant violation.
 
-Forecasts use committed heads only. Dirty-file counts may be reported, but
-uncommitted bytes are not silently treated as stable causal inputs.
+Forecasts use committed heads by default. A workspace forecast may explicitly
+select one immutable source checkpoint and records that distinct scope. Dirty
+file counts may be reported, but live uncommitted bytes are never silently
+treated as stable causal inputs.
 
 ## 10. Reconciliation state machine
 
@@ -543,11 +546,24 @@ engine. Future learned candidates must be a visibly lower confidence tier.
 `vlab workspace create` records a logical descriptor and creates a normal
 linked worktree on `vlab/ws/<slug>`. The compatibility branch is necessary for
 Git's current worktree retention semantics, not the desired final workspace
-model.
+model. [ADR-0012](docs/adr/0012-treat-workspace-lifecycle-as-reversible-materialization-and-drafts-as-checkpoint-inputs.md)
+defines `active` and `archived` as materialization states of that stable logical
+descriptor.
 
 The registry resides in the common Git directory so every linked worktree can
 discover it. A descriptor includes logical ID, name, path, branch, pinned base,
 target label, optional owner/focus, creation time, and lifecycle.
+
+Lifecycle commands preserve workspace ID, compatibility branch, and checkpoint
+identity:
+
+- move delegates to `git worktree move` and preserves dirty bytes in place;
+- archive removes only a clean worktree with no ignored files;
+- restore materializes the retained branch at the recorded or requested path;
+- repair validates common-repository and branch identity before delegating to
+  `git worktree repair`; and
+- prune previews missing active paths, then requires `--apply` to clean stale
+  Git administration and mark their descriptors archived.
 
 ### 12.1 Non-disruptive checkpoint
 
@@ -555,13 +571,25 @@ target label, optional owner/focus, creation time, and lifecycle.
 2. Read `HEAD` into that index.
 3. Add the current working tree through the temporary index.
 4. Write a tree.
-5. Create a commit whose parent is the previous workspace checkpoint or current
-   `HEAD`.
-6. update `refs/vcs-lab/checkpoints/<workspace-id>`.
-7. Remove the temporary index directory.
+5. Create a commit whose parent is the captured `HEAD` and whose trailers pin
+   workspace, base, tree, and deterministic `draft_` identity.
+6. Retain the prior latest snapshot under
+   `refs/vcs-lab/checkpoint-history/<workspace-id>/<checkpoint-oid>`.
+7. Update `refs/vcs-lab/checkpoints/<workspace-id>`.
+8. Remove the temporary index directory.
 
 The real index, `HEAD`, and working files never change. Ignored files remain
 excluded by normal Git rules.
+
+### 12.2 Immutable source-checkpoint forecast
+
+`workspace forecast <target> <source> --source-checkpoint` verifies that the
+source's latest checkpoint belongs to that workspace, pins its commit/tree/base,
+and rejects it if the source branch moved or the checkpoint has no overlay. The
+target remains its committed workspace head. Forecast simulation and reviewed
+application reuse the existing reconciliation path, while current live dirty
+files in both worktrees remain unread and unchanged. Forecast scope explicitly
+states `source-checkpoint`; it is never presented as a committed-head comparison.
 
 ## 13. Specification architecture
 
@@ -864,9 +892,10 @@ New capabilities should enter through versioned contracts:
   JSON Schema documents.
 - Some historical schema/proof labels no longer describe their trust level
   cleanly.
-- Workspace registry stores local absolute paths and has limited lifecycle
-  repair.
-- Forecasts cannot yet consume checkpoint/draft overlays.
+- Workspace registry stores local absolute paths and still probes materialized
+  worktrees serially.
+- Forecasts can consume one immutable source checkpoint, but not a target
+  checkpoint, live dirty bytes, or a native private draft stack.
 - Causal rebase v1 is deliberately linear and current-branch-only; it does not
   preserve merge topology or provide interactive edit/reword/squash, arbitrary
   range selection, or dirty/checkpoint overlays.
@@ -886,8 +915,9 @@ Metadata portability is implemented without a server. [ADR-0011](docs/adr/0011-m
 is Accepted, and its linear plan, isolated forecast, supervised application,
 recovery journal, and portable completed-receipt slices are implemented.
 
-Workspace lifecycle/draft-overlay forecasting is now the strongest bounded
-product track. In parallel, larger note/resolution/worktree fixtures should
-measure when inventory scans or explicit envelopes need an index or remote
-capability negotiation. A server or native database still requires the PRD's
-measured exit criteria.
+Workspace lifecycle and immutable source-checkpoint forecasting now have a
+bounded worktree-backed implementation. The strongest next increment is a
+large-workspace/metadata scale fixture that measures registry, note, resolution,
+and worktree scans before choosing incremental indexes or a resident service.
+Target overlays and native draft stacks require a separate accepted contract. A
+server or native database still requires the PRD's measured exit criteria.

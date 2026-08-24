@@ -172,7 +172,8 @@ The v0.x laboratory does not claim to provide:
 - safe AI-authored conflict resolution without explicit review;
 - semantic merge for arbitrary programming languages or binary documents;
 - requirement-level byte merging nested inside a heading section;
-- forecasting of uncommitted drafts as though they were committed causal state;
+- forecasting of live uncommitted drafts as though they were committed causal
+  state; explicitly captured immutable checkpoints remain a distinct input;
 - server-side policy, atomic multi-ref landing, or protected-branch enforcement;
 - compatibility with every Git implementation or hosting provider during the
   laboratory phase.
@@ -344,7 +345,7 @@ baseline after v0.8.0.
 | FR-REC-09 | P0 | Abort shall restore the exact reconciliation starting commit, including after earlier queue entries applied. | Implemented | Mid-queue abort test verifies restoration and no receipts. |
 | FR-REC-10 | P1 | Completion shall publish application receipts and one reconciliation receipt only after all invariants pass. | Implemented | Partial records remain in the private journal until finalization. |
 | FR-REC-11 | P1 | Output shall distinguish active application time from elapsed time waiting on a human or agent. | Implemented | Receipt timings include active and elapsed values. |
-| FR-REC-12 | P2 | Forecasting shall support explicitly captured workspace drafts/checkpoints without pretending mutable bytes are committed state. | Planned | Overlay/checkpoint forecast has stable input identity and never reads unrelated dirty files. |
+| FR-REC-12 | P2 | Forecasting shall support explicitly captured workspace drafts/checkpoints without pretending mutable bytes are committed state. | Implemented for source checkpoints | `workspace forecast --source-checkpoint` pins checkpoint/base/tree identity and ignores live dirty bytes. |
 
 ### 9.6 Conflict resolution memory
 
@@ -366,10 +367,10 @@ baseline after v0.8.0.
 | FR-WS-01 | P0 | Each active workspace shall have an ordinary linked Git worktree. | Implemented | `vlab workspace create` uses `git worktree add`. |
 | FR-WS-02 | P0 | Pending reconciliation and forecasts shall be isolated by worktree. | Implemented | Concurrent-worktree integration tests pass. |
 | FR-WS-03 | P0 | Shared receipts and exact resolution records shall be visible from all linked worktrees. | Implemented | Common Git refs/notes back shared facts. |
-| FR-WS-04 | P1 | Workspace metadata shall include stable ID, name, base snapshot, path, owner/focus fields, branch, and lifecycle. | Implemented | Workspace registry schema v1 stores these fields; lifecycle management remains limited. |
+| FR-WS-04 | P1 | Workspace metadata shall include stable ID, name, base snapshot, path, owner/focus fields, branch, and lifecycle. | Implemented | Workspace registry schema v1 stores these fields and an active/archived materialization state. |
 | FR-WS-05 | P1 | A checkpoint shall capture tracked and non-ignored untracked files without changing the real `HEAD`, index, or worktree. | Implemented | Temporary-index checkpoint test verifies invariants. |
 | FR-WS-06 | P1 | Two workspace heads shall be forecastable without switching either worktree. | Implemented | `workspace forecast` compares committed heads. |
-| FR-WS-07 | P2 | Workspace lifecycle shall support archive, restore, move, prune, and stale-path repair. | Planned | Commands preserve checkpoint and causal identity across path changes. |
+| FR-WS-07 | P2 | Workspace lifecycle shall support archive, restore, move, prune, and stale-path repair. | Implemented for conservative v1 lifecycle | Commands preserve workspace/branch/checkpoint identity; archive refuses dirty or ignored files and prune requires `--apply`. |
 | FR-WS-08 | P2 | A native workspace model shall support private draft stacks without requiring a public compatibility branch. | Deferred | Requires a later storage/protocol layer; Git branch remains v0.x compatibility mechanism. |
 | FR-WS-09 | P2 | Workspace creation and status shall scale to many parallel agents without serial scans of unrelated worktrees. | Planned | Benchmark-defined limits and incremental registry/status path exist. |
 
@@ -536,7 +537,10 @@ final record distinguishes adaptation from changed intent.
 3. One agent may pause reconciliation without overwriting another agent's
    journal.
 4. Completed receipts and exact resolutions become visible across worktrees.
-5. Maintainer forecasts committed workspace heads without switching either.
+5. Maintainer may forecast committed workspace heads or an explicitly captured
+   immutable source checkpoint without switching either worktree.
+6. A workspace can move, archive/restore, or repair a stale machine-local path
+   without changing its logical ID, branch, or retained checkpoint identity.
 
 **Success:** private mutable state is isolated while reusable facts are shared.
 
@@ -564,7 +568,7 @@ stable IDs, or auditability.
 | Resumable reconciliation | Complete for current queue model | Continue, abort, fork, multi-worktree tests |
 | Exact resolution reuse | Complete locally | Cross-path/worktree and provenance tests |
 | Forecast and pinned batch application | Complete locally | Non-mutation, stale, mismatch, batch tests |
-| Workspaces/checkpoints | Experimental but usable | Create/list/checkpoint/forecast tests |
+| Workspaces/checkpoints | Experimental but usable | Create/list/checkpoint/lifecycle and committed/checkpoint forecast tests |
 | Stable Markdown entities | Complete for parser v1 | Edit/move and migration tests |
 | Deterministic Markdown merge | Complete for section-level rules | Clean and blocked merge tests |
 | Sparse metadata and incremental indexing | Complete for manifest v3 | Corpus, migration, zero-read tests |
@@ -659,7 +663,8 @@ scope is accepted in an issue, plan, or ADR.
   deterministic Git-bundle export/import between clones.
 - **v0.9 (in development):** accepted causal rebase model with deterministic
   planning, isolated pinned forecasting, supervised current-branch replay,
-  worktree-private recovery, and portable completed receipts for linear history.
+  worktree-private recovery, portable completed receipts for linear history,
+  conservative workspace lifecycle, and immutable source-checkpoint forecasts.
 
 ### Completed theme: metadata integrity and portability
 
@@ -678,7 +683,8 @@ manifest. It is not a signing or authorization layer.
 
 ### Subsequent candidate themes
 
-- Workspace lifecycle, private draft stacks, and checkpoint-overlay forecasts.
+- Target-checkpoint forecasts and native private draft stacks beyond the
+  conservative worktree-backed implementation.
 - Broader causal rebase forms beyond linear v1: merge preservation, interactive
   editing, arbitrary ranges, and checkpoint/draft overlays.
 - Large-repository scale fixtures and incremental metadata indexes.
@@ -735,8 +741,8 @@ These questions are intentionally unresolved:
    a landing-service attestation, or both?
 5. Does the accepted target-context application model for causal rebase remain
    intuitive once forecast, conflict recovery, and application are exercised?
-6. How should a workspace draft/checkpoint participate in a forecast while
-   remaining distinct from committed causal state?
+6. Should the accepted immutable source-checkpoint model expand to a captured
+   target overlay, and what approval/application semantics should that require?
 7. At what measured thresholds does a long-lived repository service outperform
    invocation-scoped Git plumbing enough to justify lifecycle and security
    costs?

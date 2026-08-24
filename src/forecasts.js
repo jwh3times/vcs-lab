@@ -8,6 +8,7 @@ import {
   endGitMetrics,
   repoContext,
   resolveObjectIds,
+  resolveRevision,
   runGit,
   treeId,
   withGitObjectSession,
@@ -26,7 +27,10 @@ import {
 } from "./reconcile-state.js";
 import { readRebaseState } from "./rebase-state.js";
 import { readJson, writeJson } from "./store.js";
-import { listWorkspaces } from "./workspaces.js";
+import {
+  latestWorkspaceCheckpoint,
+  listWorkspaces,
+} from "./workspaces.js";
 import { CliError } from "./errors.js";
 import {
   compactSpecMerge,
@@ -454,7 +458,7 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
     sourceHead: plan.sourceHead,
     targetHead: plan.targetHead,
     targetWorktree: context.root,
-    scope: "committed-heads",
+    scope: options.scope ?? "committed-heads",
     ignoredTargetDirtyFiles: before.status
       ? before.status.split(/\r?\n/).filter(Boolean).length
       : 0,
@@ -504,6 +508,49 @@ export function forecastForPlan(id, plan, cwd = process.cwd()) {
         "A branch head or causal record changed. Generate and review a new forecast.",
     });
   }
+  if (forecast.scope === "source-checkpoint") {
+    const comparison = forecast.workspaceComparison;
+    const checkpoint = comparison?.source?.checkpoint;
+    if (
+      comparison?.scope !== "source-checkpoint" ||
+      !comparison.source?.id ||
+      checkpoint?.id !== forecast.sourceHead ||
+      !checkpoint.baseHead
+    ) {
+      throw new CliError(`Forecast '${id}' has invalid checkpoint metadata.`);
+    }
+    const sourceWorkspace = listWorkspaces(cwd).find(
+      (workspace) => workspace.id === comparison.source.id,
+    );
+    if (!sourceWorkspace) {
+      throw new CliError(
+        `Forecast '${id}' no longer matches its source workspace.`,
+      );
+    }
+    let sourceWorkspaceHead;
+    try {
+      sourceWorkspaceHead = resolveRevision(
+        `refs/heads/${sourceWorkspace.compatibilityBranch}`,
+        cwd,
+      );
+    } catch {
+      throw new CliError(
+        `Forecast '${id}' no longer matches its source workspace branch.`,
+      );
+    }
+    if (
+      sourceWorkspaceHead !== comparison.source.head ||
+      sourceWorkspaceHead !== checkpoint.baseHead
+    ) {
+      throw new CliError(
+        `Forecast '${id}' no longer matches its source workspace head.`,
+        {
+          details:
+            "The source branch moved after its checkpoint was reviewed. Capture a new checkpoint and forecast.",
+        },
+      );
+    }
+  }
   return forecast;
 }
 
@@ -526,9 +573,30 @@ export function forecastWorkspaces(targetName, sourceName, options = {}) {
   if (target.id === source.id) {
     throw new CliError("Choose two different workspaces to compare.");
   }
-  return forecastReconciliation(source.compatibilityBranch, {
+  const checkpoint = options.sourceCheckpoint
+    ? latestWorkspaceCheckpoint(source, cwd)
+    : null;
+  if (options.sourceCheckpoint && !checkpoint) {
+    throw new CliError(
+      `Source workspace '${source.name}' has no checkpoint. Capture one before requesting a checkpoint forecast.`,
+    );
+  }
+  if (checkpoint && checkpoint.baseHead !== source.head) {
+    throw new CliError(
+      `Source workspace '${source.name}' moved after checkpoint '${checkpoint.id}'. Capture a new checkpoint before forecasting its draft.`,
+    );
+  }
+  if (checkpoint && checkpoint.tree === treeId(source.head, source.path)) {
+    throw new CliError(
+      `Source checkpoint '${checkpoint.id}' contains no draft overlay beyond the committed workspace head.`,
+    );
+  }
+
+  const sourceRef = checkpoint?.id ?? source.compatibilityBranch;
+  return forecastReconciliation(sourceRef, {
     cwd: target.path,
     acceptCandidates: options.acceptCandidates,
+    scope: checkpoint ? "source-checkpoint" : "committed-heads",
     workspaceComparison: {
       target: {
         id: target.id,
@@ -543,8 +611,9 @@ export function forecastWorkspaces(targetName, sourceName, options = {}) {
         path: source.path,
         head: source.head,
         ignoredDirtyFiles: source.dirtyFiles,
+        checkpoint,
       },
-      scope: "committed-heads",
+      scope: checkpoint ? "source-checkpoint" : "committed-heads",
     },
   });
 }

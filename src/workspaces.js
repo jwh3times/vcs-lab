@@ -2,16 +2,34 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  commitMessage,
   currentHead,
+  extractTrailer,
   gitText,
   refExists,
   repoContext,
   resolveRevision,
   runGit,
+  treeId,
 } from "./git.js";
-import { newId, slug } from "./ids.js";
+import { newId, sha256, slug } from "./ids.js";
 import { ensureLabRuntime, readJson, writeJson } from "./store.js";
 import { CliError } from "./errors.js";
+
+const ACTIVE = "active";
+const ARCHIVED = "archived";
+
+function workspaceLifecycle(workspace) {
+  return workspace.lifecycle ?? ACTIVE;
+}
+
+function workspaceCheckpointRef(workspace) {
+  return `refs/vcs-lab/checkpoints/${workspace.id}`;
+}
+
+function workspaceCheckpointHistoryRef(workspace, checkpoint) {
+  return `refs/vcs-lab/checkpoint-history/${workspace.id}/${checkpoint}`;
+}
 
 function workspaceFile(cwd) {
   return path.join(ensureLabRuntime(cwd), "workspaces.json");
@@ -26,6 +44,90 @@ export function readWorkspaces(cwd = process.cwd()) {
 
 function saveWorkspaces(value, cwd) {
   writeJson(workspaceFile(cwd), value);
+}
+
+function findWorkspace(state, value) {
+  const index = state.workspaces.findIndex(
+    (workspace) => workspace.name === value || workspace.id === value,
+  );
+  if (index < 0) throw new CliError(`Workspace '${value}' was not found.`);
+  return { index, workspace: state.workspaces[index] };
+}
+
+function inspectWorkspace(workspace) {
+  const lifecycle = workspaceLifecycle(workspace);
+  let pathStatus = "missing";
+  let head = null;
+  let dirtyFiles = null;
+  if (fs.existsSync(workspace.path)) {
+    const probe = runGit(["rev-parse", "--is-inside-work-tree"], {
+      cwd: workspace.path,
+      allowFailure: true,
+    });
+    if (probe.ok) {
+      pathStatus = "active";
+      head = currentHead(workspace.path);
+      const porcelain = gitText(["status", "--porcelain=v1"], {
+        cwd: workspace.path,
+      });
+      dirtyFiles = porcelain ? porcelain.split(/\r?\n/).length : 0;
+    } else {
+      pathStatus = "invalid";
+    }
+  }
+  return {
+    ...workspace,
+    lifecycle,
+    status: lifecycle === ARCHIVED ? ARCHIVED : pathStatus,
+    pathStatus,
+    head,
+    dirtyFiles,
+  };
+}
+
+function updateWorkspace(state, index, updates, cwd) {
+  state.workspaces[index] = {
+    ...state.workspaces[index],
+    ...updates,
+  };
+  saveWorkspaces(state, cwd);
+  return state.workspaces[index];
+}
+
+function requireLifecycle(workspace, lifecycle, action) {
+  const actual = workspaceLifecycle(workspace);
+  if (actual !== lifecycle) {
+    throw new CliError(
+      `Workspace '${workspace.name}' must be ${lifecycle} before it can be ${action}.`,
+    );
+  }
+}
+
+function requireMaterialized(workspace, action) {
+  const inspected = inspectWorkspace(workspace);
+  if (inspected.pathStatus !== ACTIVE) {
+    throw new CliError(
+      `Workspace '${workspace.name}' is not a usable linked worktree. Repair or prune its stale path before ${action}.`,
+    );
+  }
+  return inspected;
+}
+
+function assertCallerOutsideWorkspace(cwd, workspace, action) {
+  if (path.resolve(repoContext(cwd).root) === path.resolve(workspace.path)) {
+    throw new CliError(
+      `Run workspace ${action} from another linked worktree; the command changes '${workspace.path}'.`,
+    );
+  }
+}
+
+function appendPreviousPath(workspace, previousPath) {
+  return [
+    ...new Set([
+      ...(workspace.previousPaths ?? []),
+      previousPath,
+    ].map((item) => path.resolve(item))),
+  ];
 }
 
 export function createWorkspace(name, options = {}) {
@@ -73,26 +175,7 @@ export function createWorkspace(name, options = {}) {
 
 export function listWorkspaces(cwd = process.cwd()) {
   const state = readWorkspaces(cwd);
-  return state.workspaces.map((workspace) => {
-    let status = "missing";
-    let head = null;
-    let dirtyFiles = null;
-    if (fs.existsSync(workspace.path)) {
-      const probe = runGit(["rev-parse", "--is-inside-work-tree"], {
-        cwd: workspace.path,
-        allowFailure: true,
-      });
-      if (probe.ok) {
-        status = "active";
-        head = currentHead(workspace.path);
-        const porcelain = gitText(["status", "--porcelain=v1"], {
-          cwd: workspace.path,
-        });
-        dirtyFiles = porcelain ? porcelain.split(/\r?\n/).length : 0;
-      }
-    }
-    return { ...workspace, status, head, dirtyFiles };
-  });
+  return state.workspaces.map(inspectWorkspace);
 }
 
 function currentWorkspace(cwd) {
@@ -101,7 +184,10 @@ function currentWorkspace(cwd) {
   const match = state.workspaces.find(
     (workspace) => path.resolve(workspace.path) === path.resolve(context.root),
   );
-  if (match) return match;
+  if (match) {
+    requireLifecycle(match, ACTIVE, "checkpointed");
+    return match;
+  }
   return {
     id: "main",
     name: path.basename(context.root),
@@ -118,25 +204,49 @@ export function checkpointWorkspace(label, options = {}) {
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "vlab-index-"));
   const indexPath = path.join(temporaryDirectory, "index");
   const env = { GIT_INDEX_FILE: indexPath };
-  const ref = `refs/vcs-lab/checkpoints/${workspace.id}`;
+  const ref = workspaceCheckpointRef(workspace);
 
   try {
     runGit(["read-tree", "HEAD"], { cwd: context.root, env });
     runGit(["add", "-A"], { cwd: context.root, env });
     const tree = gitText(["write-tree"], { cwd: context.root, env });
-    const parent = refExists(ref, context.root)
+    const baseHead = currentHead(context.root);
+    const previousCheckpoint = refExists(ref, context.root)
       ? resolveRevision(ref, context.root)
-      : currentHead(context.root);
+      : null;
+    const draftChangeId = `draft_${sha256(JSON.stringify({
+      workspaceId: workspace.id,
+      baseHead,
+      tree,
+    }))}`;
+    const trailers = [
+      `Change-Id: ${draftChangeId}`,
+      `Workspace-Id: ${workspace.id}`,
+      `Workspace-Base: ${baseHead}`,
+      `Workspace-Tree: ${tree}`,
+      previousCheckpoint
+        ? `Workspace-Previous-Checkpoint: ${previousCheckpoint}`
+        : null,
+    ].filter(Boolean);
     const message = [
       label || `Checkpoint ${workspace.name}`,
       "",
-      `Workspace-Id: ${workspace.id}`,
-      `Workspace-Base: ${currentHead(context.root)}`,
+      ...trailers,
     ].join("\n");
     const checkpoint = gitText(
-      ["commit-tree", tree, "-p", parent, "-F", "-"],
+      ["commit-tree", tree, "-p", baseHead, "-F", "-"],
       { cwd: context.root, env, input: `${message}\n` },
     );
+    let historyRef = null;
+    if (previousCheckpoint) {
+      historyRef = workspaceCheckpointHistoryRef(
+        workspace,
+        previousCheckpoint,
+      );
+      runGit(["update-ref", historyRef, previousCheckpoint], {
+        cwd: context.root,
+      });
+    }
     runGit(["update-ref", ref, checkpoint], { cwd: context.root });
     return {
       schema: "vcs-lab.checkpoint/v1",
@@ -145,7 +255,11 @@ export function checkpointWorkspace(label, options = {}) {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
       tree,
-      parent,
+      parent: baseHead,
+      baseHead,
+      previousCheckpoint,
+      historyRef,
+      draftChangeId,
       ref,
       label: label || null,
       createdAt: new Date().toISOString(),
@@ -153,4 +267,257 @@ export function checkpointWorkspace(label, options = {}) {
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
+}
+
+export function latestWorkspaceCheckpoint(workspace, cwd = process.cwd()) {
+  const ref = workspaceCheckpointRef(workspace);
+  if (!refExists(ref, cwd)) return null;
+  const id = resolveRevision(ref, cwd);
+  const message = commitMessage(id, cwd);
+  const workspaceId = extractTrailer(message, "Workspace-Id");
+  const baseHead = extractTrailer(message, "Workspace-Base");
+  const recordedTree = extractTrailer(message, "Workspace-Tree");
+  const draftChangeId = extractTrailer(message, "Change-Id");
+  const checkpointTree = treeId(id, cwd);
+  if (workspaceId !== workspace.id) {
+    throw new CliError(
+      `Checkpoint '${id}' does not belong to workspace '${workspace.name}'.`,
+    );
+  }
+  if (!baseHead) {
+    throw new CliError(`Checkpoint '${id}' has no Workspace-Base identity.`);
+  }
+  if (!recordedTree) {
+    throw new CliError(
+      `Checkpoint '${id}' predates checkpoint tree identity. Capture a new checkpoint before forecasting it.`,
+    );
+  }
+  if (recordedTree !== checkpointTree) {
+    throw new CliError(`Checkpoint '${id}' has inconsistent tree metadata.`);
+  }
+  if (!/^draft_[0-9a-f]{64}$/.test(draftChangeId ?? "")) {
+    throw new CliError(
+      `Checkpoint '${id}' has no valid draft Change-Id. Capture a new checkpoint before forecasting it.`,
+    );
+  }
+  return {
+    id,
+    ref,
+    tree: checkpointTree,
+    workspaceId,
+    baseHead,
+    draftChangeId,
+    previousCheckpoint: extractTrailer(
+      message,
+      "Workspace-Previous-Checkpoint",
+    ),
+  };
+}
+
+export function moveWorkspace(value, destination, options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  const context = repoContext(cwd);
+  const state = readWorkspaces(cwd);
+  const { index, workspace } = findWorkspace(state, value);
+  requireLifecycle(workspace, ACTIVE, "moved");
+  requireMaterialized(workspace, "moving it");
+  assertCallerOutsideWorkspace(cwd, workspace, "move");
+
+  const nextPath = path.resolve(destination);
+  if (nextPath === path.resolve(workspace.path)) {
+    return { ...inspectWorkspace(workspace), changed: false };
+  }
+  if (fs.existsSync(nextPath)) {
+    throw new CliError(`Workspace destination already exists: ${nextPath}`);
+  }
+  fs.mkdirSync(path.dirname(nextPath), { recursive: true });
+  runGit(["worktree", "move", workspace.path, nextPath], {
+    cwd: context.root,
+  });
+  const now = new Date().toISOString();
+  const updated = updateWorkspace(state, index, {
+    path: nextPath,
+    previousPaths: appendPreviousPath(workspace, workspace.path),
+    movedAt: now,
+    updatedAt: now,
+  }, cwd);
+  return { ...inspectWorkspace(updated), changed: true };
+}
+
+export function archiveWorkspace(value, options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  const context = repoContext(cwd);
+  const state = readWorkspaces(cwd);
+  const { index, workspace } = findWorkspace(state, value);
+  requireLifecycle(workspace, ACTIVE, "archived");
+  requireMaterialized(workspace, "archiving it");
+  assertCallerOutsideWorkspace(cwd, workspace, "archive");
+
+  const status = gitText(["status", "--porcelain=v1"], {
+    cwd: workspace.path,
+  });
+  if (status) {
+    throw new CliError(
+      `Workspace '${workspace.name}' has tracked or untracked changes. Commit or remove them before archiving.`,
+      { details: status },
+    );
+  }
+  const ignored = gitText(
+    ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+    { cwd: workspace.path, trim: false },
+  ).split("\0").filter(Boolean);
+  if (ignored.length) {
+    throw new CliError(
+      `Workspace '${workspace.name}' contains ignored files. Move or remove them before archiving.`,
+      { details: ignored.join("\n") },
+    );
+  }
+
+  const lastHead = currentHead(workspace.path);
+  runGit(["worktree", "remove", workspace.path], { cwd: context.root });
+  const now = new Date().toISOString();
+  const updated = updateWorkspace(state, index, {
+    lifecycle: ARCHIVED,
+    archivedAt: now,
+    archiveReason: "user",
+    lastHead,
+    updatedAt: now,
+  }, cwd);
+  return { ...inspectWorkspace(updated), changed: true };
+}
+
+export function restoreWorkspace(value, options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  const context = repoContext(cwd);
+  const state = readWorkspaces(cwd);
+  const { index, workspace } = findWorkspace(state, value);
+  requireLifecycle(workspace, ARCHIVED, "restored");
+  if (!refExists(`refs/heads/${workspace.compatibilityBranch}`, cwd)) {
+    throw new CliError(
+      `Workspace branch '${workspace.compatibilityBranch}' no longer exists.`,
+    );
+  }
+  const restoredPath = path.resolve(options.path ?? workspace.path);
+  if (fs.existsSync(restoredPath)) {
+    throw new CliError(`Workspace restore path already exists: ${restoredPath}`);
+  }
+  fs.mkdirSync(path.dirname(restoredPath), { recursive: true });
+  runGit(
+    ["worktree", "add", restoredPath, workspace.compatibilityBranch],
+    { cwd: context.root },
+  );
+  const now = new Date().toISOString();
+  const updates = {
+    path: restoredPath,
+    lifecycle: ACTIVE,
+    archivedAt: null,
+    archiveReason: null,
+    restoredAt: now,
+    updatedAt: now,
+  };
+  if (restoredPath !== path.resolve(workspace.path)) {
+    updates.previousPaths = appendPreviousPath(workspace, workspace.path);
+  }
+  const updated = updateWorkspace(state, index, updates, cwd);
+  return { ...inspectWorkspace(updated), changed: true };
+}
+
+export function repairWorkspace(value, destination, options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  const context = repoContext(cwd);
+  const state = readWorkspaces(cwd);
+  const { index, workspace } = findWorkspace(state, value);
+  const repairedPath = path.resolve(destination);
+  if (!fs.existsSync(repairedPath)) {
+    throw new CliError(`Workspace repair path does not exist: ${repairedPath}`);
+  }
+  if (
+    path.resolve(workspace.path) !== repairedPath &&
+    fs.existsSync(workspace.path)
+  ) {
+    throw new CliError(
+      `Recorded workspace path still exists: ${workspace.path}. Use workspace move instead.`,
+    );
+  }
+
+  let repairedContext;
+  try {
+    repairedContext = repoContext(repairedPath);
+  } catch {
+    throw new CliError(`Repair path is not a linked Git worktree: ${repairedPath}`);
+  }
+  if (path.resolve(repairedContext.commonDir) !== path.resolve(context.commonDir)) {
+    throw new CliError("Repair path belongs to a different Git repository.");
+  }
+  const branch = gitText(["branch", "--show-current"], { cwd: repairedPath });
+  if (branch !== workspace.compatibilityBranch) {
+    throw new CliError(
+      `Repair path has branch '${branch || "(detached)"}', expected '${workspace.compatibilityBranch}'.`,
+    );
+  }
+
+  runGit(["worktree", "repair", repairedPath], { cwd: context.root });
+  const now = new Date().toISOString();
+  const updates = {
+    path: repairedPath,
+    lifecycle: ACTIVE,
+    archivedAt: null,
+    archiveReason: null,
+    repairedAt: now,
+    updatedAt: now,
+  };
+  if (repairedPath !== path.resolve(workspace.path)) {
+    updates.previousPaths = appendPreviousPath(workspace, workspace.path);
+  }
+  const updated = updateWorkspace(state, index, updates, cwd);
+  return { ...inspectWorkspace(updated), changed: true };
+}
+
+export function pruneWorkspaces(options = {}) {
+  const cwd = options.cwd ?? process.cwd();
+  if (options.apply && options.dryRun) {
+    throw new CliError("Choose either --dry-run or --apply for workspace prune.");
+  }
+  const context = repoContext(cwd);
+  const state = readWorkspaces(cwd);
+  const candidates = state.workspaces
+    .map((workspace, index) => ({ workspace, index }))
+    .filter(({ workspace }) =>
+      workspaceLifecycle(workspace) === ACTIVE &&
+      !fs.existsSync(workspace.path),
+    );
+  const result = {
+    schema: "vcs-lab.workspace-prune/v1",
+    dryRun: !options.apply,
+    applied: Boolean(options.apply),
+    changed: false,
+    count: candidates.length,
+    candidates: candidates.map(({ workspace }) => ({
+      id: workspace.id,
+      name: workspace.name,
+      path: workspace.path,
+      compatibilityBranch: workspace.compatibilityBranch,
+    })),
+  };
+  if (!options.apply || candidates.length === 0) return result;
+
+  runGit(["worktree", "prune"], { cwd: context.root });
+  const now = new Date().toISOString();
+  for (const { index } of candidates) {
+    const workspace = state.workspaces[index];
+    const branchRef = `refs/heads/${workspace.compatibilityBranch}`;
+    state.workspaces[index] = {
+      ...workspace,
+      lifecycle: ARCHIVED,
+      archivedAt: now,
+      archiveReason: "missing-path-pruned",
+      lastHead: refExists(branchRef, cwd)
+        ? resolveRevision(branchRef, cwd)
+        : workspace.lastHead ?? null,
+      updatedAt: now,
+    };
+  }
+  saveWorkspaces(state, cwd);
+  result.changed = true;
+  return result;
 }

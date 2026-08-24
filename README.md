@@ -381,17 +381,40 @@ echo draft > agent-plan.md
 vlab workspace checkpoint --label "agent handoff"
 ```
 
+From the original or another linked worktree, move or temporarily dematerialize
+a workspace without changing its identity:
+
+```bash
+vlab workspace move agent-auth ../vlab-playground.workspaces/agent-auth-2
+vlab workspace archive agent-auth
+vlab workspace restore agent-auth --path ../vlab-playground.workspaces/agent-auth-3
+vlab workspace repair agent-auth --path ../vlab-playground.workspaces/agent-auth-3
+vlab workspace prune --dry-run
+```
+
+Archive refuses tracked changes and ignored files, so it cannot silently discard
+private bytes. Prune is also conservative: it only changes stale registry entries
+when `--apply` is explicit. Branch and checkpoint refs remain available while a
+workspace is archived.
+
 Compare two workspace branches without disturbing either worktree:
 
 ```bash
 vlab workspace forecast agent-auth agent-payments
+vlab workspace forecast agent-auth agent-payments --source-checkpoint
 ```
 
 The ordering is `target <= source`: this previews applying the committed head
-of `agent-payments` onto `agent-auth`. The forecast is stored privately in the
-target worktree, where its printed reconciliation command should be run.
+of `agent-payments` onto `agent-auth`. With `--source-checkpoint`, the source is
+the latest immutable checkpoint whose base still matches the source head. Live
+dirty bytes after that checkpoint remain excluded. The target is always its
+committed head. The forecast is stored privately in the target worktree, where
+its printed reconciliation command should be run.
 
-The checkpoint captures tracked, modified, and untracked non-ignored files in an immutable Git commit referenced under `refs/vcs-lab/checkpoints/...`. It does not alter `HEAD`, the index, or the working directory.
+The checkpoint captures tracked, modified, and untracked non-ignored files in
+an immutable Git commit referenced under `refs/vcs-lab/checkpoints/...`. When a
+new checkpoint replaces it, a history ref retains the previous checkpoint. The
+operation does not alter `HEAD`, the index, or the working directory.
 
 This approximates the proposed distinction:
 
@@ -508,7 +531,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab resolve ...` | Inspect, apply, reject, and audit exact resolution suggestions |
 | `vlab cherry-pick` | Preserve or deliberately fork a Change ID |
 | `vlab graph` | Branch history plus causal relationships, without metadata-ref noise |
-| `vlab workspace ...` | Worktree-backed workspaces, checkpoints, and committed-head forecasts |
+| `vlab workspace ...` | Worktree-backed lifecycle, checkpoints, and committed/checkpoint forecasts |
 | `vlab spec ...` | Incremental indexing, block merge planning, explicit resolution, and corpus benchmarks |
 | `vlab receipts` | Inspect causal records as text or JSON |
 | `vlab metadata ...` | Inventory, validate, export, preview, and import accepted metadata facts |
@@ -658,7 +681,7 @@ manifest representation from 655,545 equivalent v2 bytes to 11,240 v3 bytes.
 - a binary or content-addressed native structured-document object store;
 - server-side branch policy and atomic multi-ref landing;
 - virtual/lazy filesystem materialization;
-- forecasting uncommitted workspace drafts or checkpoints;
+- target-checkpoint overlays or forecasts over uncaptured live workspace bytes;
 - a complete Git protocol gateway;
 - safe automatic equivalence inference for independently created near-identical code.
 
@@ -674,7 +697,8 @@ The 43-test integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
 non-mutating and stale-safe forecasts, pinned batch application, committed-head
-workspace comparison, independent worktree operations, checkpoints, annotated
+and immutable source-checkpoint workspace comparison, reversible workspace
+lifecycle, independent worktree operations, checkpoint history, annotated
 Markdown stability, sparse-manifest migration, zero-read incremental indexing,
 clean and blocked deterministic block merges, forecasted and explicit semantic
 application, conservative patch-equivalence handling, corpus measurements,

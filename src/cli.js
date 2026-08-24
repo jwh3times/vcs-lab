@@ -32,7 +32,16 @@ import {
   treeId,
   withGitObjectSession,
 } from "./git.js";
-import { createWorkspace, checkpointWorkspace, listWorkspaces } from "./workspaces.js";
+import {
+  archiveWorkspace,
+  checkpointWorkspace,
+  createWorkspace,
+  listWorkspaces,
+  moveWorkspace,
+  pruneWorkspaces,
+  repairWorkspace,
+  restoreWorkspace,
+} from "./workspaces.js";
 import {
   applyPendingSpecMerges,
   benchmarkSpecIndex,
@@ -91,10 +100,15 @@ Usage:
   vlab metadata export <directory> [--json]
   vlab metadata import <directory> --dry-run [--json]
   vlab metadata import <directory> --apply [--json]
-  vlab workspace create <name> [--from <ref>] [--path <directory>]
+  vlab workspace create <name> [--from <ref>] [--path <directory>] [--owner <name>] [--focus <text>]
   vlab workspace list [--json]
   vlab workspace checkpoint [--label <text>] [--json]
-  vlab workspace forecast <target> <source> [--accept-candidates] [--json]
+  vlab workspace move <name> <directory> [--json]
+  vlab workspace archive <name> [--json]
+  vlab workspace restore <name> [--path <directory>] [--json]
+  vlab workspace repair <name> --path <directory> [--json]
+  vlab workspace prune [--dry-run|--apply] [--json]
+  vlab workspace forecast <target> <source> [--source-checkpoint] [--accept-candidates] [--json]
   vlab spec index <markdown-file> [--force] [--json]
   vlab spec index --all [--force] [--json]
   vlab spec show <markdown-file> [--json]
@@ -156,7 +170,7 @@ function formatMetadataStatus(result, title = "Metadata status") {
     `notes        ${result.scopes.sharedPortable.notes.targetCount} targets; ${result.scopes.sharedPortable.notes.acceptedCount} accepted, ${result.scopes.sharedPortable.notes.quarantinedCount} quarantined`,
     `resolutions  ${result.scopes.sharedPortable.resolutions.acceptedRefCount}/${result.scopes.sharedPortable.resolutions.refCount} refs accepted`,
     `specs        ${result.scopes.trackedPortable.consistentCount}/${result.scopes.trackedPortable.manifestCount} manifests consistent`,
-    `local        ${result.scopes.sharedLocal.checkpoints.refCount} checkpoints; ${result.scopes.sharedLocal.workspaceRegistry.count} workspaces`,
+    `local        ${result.scopes.sharedLocal.checkpoints.totalRefCount ?? result.scopes.sharedLocal.checkpoints.refCount} checkpoint refs; ${result.scopes.sharedLocal.workspaceRegistry.count} workspaces`,
     `private      ${result.scopes.worktreePrivate.pendingOperationCount} operations; ${result.scopes.worktreePrivate.forecastCount} forecasts`,
     `diagnostics  ${result.summary.errors} errors, ${result.summary.warnings} warnings`,
     `integrity    ${result.summary.valid ? "valid" : "invalid"}; not signed or authorized`,
@@ -514,13 +528,16 @@ function formatRebaseResult(result) {
 
 function formatForecast(forecast) {
   const counts = forecast.counts;
+  const scope = forecast.scope === "source-checkpoint"
+    ? "immutable source checkpoint"
+    : "committed heads only";
   const lines = [
     "Reconciliation forecast",
     `forecast     ${forecast.id}`,
     `status       ${forecast.status}`,
     `target       ${short(forecast.targetHead)}`,
     `source       ${forecast.sourceRef} @ ${short(forecast.sourceHead)}`,
-    "scope        committed heads only",
+    `scope        ${scope}`,
     `plan         ${forecast.plan.counts.covered} covered, ${forecast.plan.counts["candidate-equivalent"]} candidate, ${forecast.plan.counts.new} new`,
     `simulation   ${counts.clean} clean, ${counts.exactResolution} exact-resolved, ${counts.semanticSpec ?? 0} spec-merged, ${counts.blocked} blocked`,
     `predicted    ${short(forecast.predictedResultTree)}`,
@@ -545,6 +562,13 @@ function formatForecast(forecast) {
     if (dirty.length) {
       lines.push(
         `dirty ignored ${dirty.map((workspace) => `${workspace.name}:${workspace.ignoredDirtyFiles}`).join(", ")}`,
+      );
+    }
+    const checkpoint = comparison.source.checkpoint;
+    if (checkpoint) {
+      lines.push(
+        `checkpoint   ${short(checkpoint.id)} tree ${short(checkpoint.tree)}`,
+        `draft change ${checkpoint.draftChangeId}`,
       );
     }
   }
@@ -592,9 +616,18 @@ function formatForecast(forecast) {
     "The current HEAD, index, and working files were not changed.",
   );
   if (forecast.candidateDecisionRequired) {
+    const reviewCommand = forecast.workspaceComparison
+      ? [
+          "vlab workspace forecast",
+          forecast.workspaceComparison.target.name,
+          forecast.workspaceComparison.source.name,
+          forecast.scope === "source-checkpoint" ? "--source-checkpoint" : null,
+          "--accept-candidates",
+        ].filter(Boolean).join(" ")
+      : `vlab forecast ${forecast.sourceRef} --accept-candidates`;
     lines.push(
       "Review the heuristic candidates, then regenerate with:",
-      `  vlab forecast ${forecast.sourceRef} --accept-candidates`,
+      `  ${reviewCommand}`,
     );
     return lines.join("\n");
   }
@@ -1056,6 +1089,41 @@ export async function main(rawArgs) {
         print(checkpoint, options.json);
         return;
       }
+      if (subcommand === "move") {
+        const name = requireValue(positionals[1], "vlab workspace move <name> <directory>");
+        const destination = requireValue(
+          positionals[2],
+          "vlab workspace move <name> <directory>",
+        );
+        print(moveWorkspace(name, destination), options.json);
+        return;
+      }
+      if (subcommand === "archive") {
+        const name = requireValue(positionals[1], "vlab workspace archive <name>");
+        print(archiveWorkspace(name), options.json);
+        return;
+      }
+      if (subcommand === "restore") {
+        const name = requireValue(positionals[1], "vlab workspace restore <name>");
+        print(restoreWorkspace(name, { path: options.path }), options.json);
+        return;
+      }
+      if (subcommand === "repair") {
+        const name = requireValue(positionals[1], "vlab workspace repair <name> --path <directory>");
+        const repairPath = requireValue(
+          options.path,
+          "vlab workspace repair <name> --path <directory>",
+        );
+        print(repairWorkspace(name, repairPath), options.json);
+        return;
+      }
+      if (subcommand === "prune") {
+        print(pruneWorkspaces({
+          apply: options.apply,
+          dryRun: options.dryRun,
+        }), options.json);
+        return;
+      }
       if (subcommand === "forecast") {
         const target = requireValue(
           positionals[1],
@@ -1067,12 +1135,13 @@ export async function main(rawArgs) {
         );
         const forecast = forecastWorkspaces(target, source, {
           acceptCandidates: options.acceptCandidates,
+          sourceCheckpoint: options.sourceCheckpoint,
         });
         print(options.json ? forecast : formatForecast(forecast), options.json);
         return;
       }
       throw new CliError(
-        "Unknown workspace command. Use create, list, checkpoint, or forecast.",
+        "Unknown workspace command. Use create, list, checkpoint, move, archive, restore, repair, prune, or forecast.",
       );
     }
     case "spec": {

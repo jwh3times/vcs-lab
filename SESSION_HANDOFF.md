@@ -66,10 +66,11 @@ under the system temporary directory and should print their path.
 
 The released baseline is v0.8.0. The current v0.9 development branch adds the
 accepted ADR-0011 linear causal-rebase flow—plan, isolated forecast, supervised
-application, recovery, and portable completed receipts—to validated metadata
-portability and the v0.7 causal/specification/Git-session foundation. The
-development suite contains 43 integration tests and retains all six maintained
-demos.
+application, recovery, and portable completed receipts—and ADR-0012's
+conservative workspace lifecycle plus immutable source-checkpoint forecasting.
+These extend validated metadata portability and the v0.7
+causal/specification/Git-session foundation. The development suite contains 43
+integration tests and retains all six maintained demos.
 
 The current correction fixes the reproduced Windows forced-session startup
 race. Focused qualification and the full clean-checkout `TEST_PLAN.md` gate are
@@ -235,6 +236,21 @@ qualification, not an independent user report; see
   validate, participate in coverage/inspection, and round-trip with unreachable
   pre-rewrite origins through deterministic envelopes.
 
+### v0.9 development — workspace lifecycle and checkpoint forecasts
+
+- ADR-0012 models `active` and `archived` as materialization states of one
+  stable logical workspace descriptor.
+- Move and repair update machine-local paths while preserving workspace ID,
+  compatibility branch, checkpoints, and dirty bytes where applicable.
+- Archive removes only a clean materialization with no ignored files; restore
+  recreates it from the retained branch. Prune previews by default and requires
+  `--apply` before marking missing-path descriptors archived.
+- Checkpoints record base/tree plus a deterministic `draft_` identity, and
+  retain replaced latest snapshots under checkpoint-history refs.
+- `workspace forecast --source-checkpoint` pins the latest immutable source
+  checkpoint, rejects a moved base, reports its distinct scope, and never reads
+  later live dirty bytes. The target remains its committed head.
+
 ## 5. Fast start for a new session
 
 ### 5.1 Read and verify before editing
@@ -303,10 +319,10 @@ portable than a single timing observation.
 | Causal rebase forecasting | `src/rebase-forecast.js` | `src/forecasts.js`, rebase forecast tests, ADR-0011 |
 | Causal rebase application/recovery | `src/rebase-operations.js` | `src/rebase-state.js`, `src/pending-operation.js`, application tests, ADR-0011 |
 | Compact/hard-squash merge | `src/landings.js` | merge-plan tests |
-| Forecast simulation/pinning | `src/forecasts.js` | `src/operations.js`, stale/mismatch tests |
+| Forecast simulation/pinning | `src/forecasts.js` | `src/operations.js`, workspace checkpoint forecasts, stale/mismatch tests |
 | Reconcile start/continue/abort | `src/operations.js` | `src/reconcile-state.js`, conflict tests |
 | Exact conflict memory | `src/resolutions.js` | `src/notes.js`, resolution tests/demo |
-| Worktrees/workspaces/checkpoints | `src/workspaces.js` | `src/store.js`, workspace tests |
+| Worktrees/workspaces/checkpoints | `src/workspaces.js` | `src/store.js`, workspace tests, ADR-0012 |
 | Markdown identity/index/merge | `src/specs.js` | spec tests and `scripts/spec-merge-demo.mjs` |
 | Shared note records | `src/notes.js` | `refs/notes/vcs-lab` behavior |
 | Metadata inventory/validation | `src/metadata.js`, `src/schemas.js` | note/resolution/spec/workspace/private-state fixtures |
@@ -326,7 +342,8 @@ line endings, and process interruption are part of the behavior.
 | --- | --- | --- |
 | Causal records | `refs/notes/vcs-lab` | Shared repository, not normal-fetch by default |
 | Resolution retention | `refs/vcs-lab/resolutions/*` | Shared repository, not normal-fetch by default |
-| Checkpoints | `refs/vcs-lab/checkpoints/*` | Shared repository/local experiment |
+| Latest checkpoints | `refs/vcs-lab/checkpoints/*` | Shared repository/local experiment |
+| Checkpoint history | `refs/vcs-lab/checkpoint-history/*` | Shared repository/local retained snapshots |
 | Workspace registry | common Git dir, `vcs-lab/workspaces.json` | Shared among linked worktrees, machine-local paths |
 | Pending reconciliation | current worktree Git dir, `vcs-lab/reconciliation.json` | Worktree-private |
 | Pending causal rebase | current worktree Git dir, `vcs-lab/rebase.json` | Worktree-private |
@@ -380,6 +397,10 @@ These are the shortest high-value review checklist for any new change:
     overwrite conflicts, and a repeated import is a no-op.
 25. Workspace/checkpoint and worktree-private state do not enter a portable
     metadata envelope.
+26. Workspace lifecycle preserves logical ID, branch, and checkpoint identity;
+    archive refuses dirty or ignored bytes and prune mutates only with `--apply`.
+27. A source-checkpoint forecast pins immutable checkpoint/base/tree identity,
+    labels that scope explicitly, and never consumes later live dirty bytes.
 
 If a proposed change intentionally breaks one, write a superseding ADR and
 update the PRD before relying on the new behavior.
@@ -388,17 +409,18 @@ update the PRD before relying on the new behavior.
 
 ### Highest-value product gap
 
-Workspace lifecycle and private draft/checkpoint-overlay forecasting now have
-the largest user-visible gap. Causal rebase is complete for the accepted linear
-v1 boundary; merge preservation, interactive editing, arbitrary ranges, and
-dirty overlays remain deliberately outside that contract.
+Workspace lifecycle and immutable source-checkpoint forecasting now have a
+bounded implementation. The highest-value next evidence is a
+large-workspace/metadata scale fixture that measures registry, note, resolution,
+and worktree scans before choosing incremental indexes or a resident service.
 
 ### Other material gaps
 
 - Rebase does not yet preserve merge topology or support interactive
   edit/reword/squash, arbitrary ranges, or dirty/checkpoint overlays.
-- Workspace archive/move/restore/prune and stale-path repair are incomplete.
-- Forecasting does not include checkpoint or dirty-worktree overlays.
+- Workspace registry inspection still probes materialized worktrees serially.
+- Forecasting supports one immutable source checkpoint, but not target
+  checkpoints, uncaptured live bytes, or a native private draft stack.
 - There is no formal standalone schema catalog or schema negotiation.
 - Current records are locally forgeable and unsigned.
 - The historical proof label `signed-shaped-landing-receipt` overstates the
@@ -468,10 +490,20 @@ original source tip on abort, and publishes validated shared records only after
 the complete queue and predicted tree pass. Deterministic export retains causal
 commits made unreachable by the rewrite.
 
-With the correction and complete development gate established, workspace
-lifecycle/draft-overlay forecasting is the strongest next bounded product
-track. Large-scale metadata benchmarks and broader rebase forms remain viable
-alternates; they require fresh scope rather than silently expanding linear v1.
+### 10.3 Active v0.9 workspace lifecycle track
+
+[ADR-0012](docs/adr/0012-treat-workspace-lifecycle-as-reversible-materialization-and-drafts-as-checkpoint-inputs.md)
+is Accepted. Conservative move, archive, restore, repair, and preview/apply
+prune preserve logical workspace identity and fail closed around data loss.
+Checkpoint history is retained, and a source checkpoint can be forecast and
+applied through the existing pinned reconciliation path without reading live
+dirty bytes.
+
+The strongest next bounded product track is a large-workspace/metadata scale
+fixture followed by evidence-based incremental registry or metadata indexes.
+Target overlays, native draft stacks, broader rebase forms, and a resident
+service require fresh scope rather than silent expansion of their current
+contracts.
 
 ## 11. Test and release discipline
 
@@ -582,13 +614,13 @@ docs/adr/README.md. Inspect git status and preserve any existing changes. Verify
 the current version/tag and run the relevant baseline tests before editing.
 
 The v0.8 metadata integrity and portability work is implemented and ADR-0010 is
-Accepted. ADR-0011 is also Accepted for first-class causal rebase under the
-linear-v1 model. Its plan, isolated forecast, supervised application, recovery,
-completed receipts, and portability slices are implemented as described in
-section 10.2. Verify them and preserve omit/review/replay, explicit candidate
-acceptance, unexpected-empty, identity, tree-pinning, recovery, and delayed
-publication invariants while selecting the next bounded product increment.
-Preserve all invariants listed in section 8.
+Accepted. ADR-0011's linear-v1 causal rebase and ADR-0012's conservative
+workspace lifecycle/immutable source-checkpoint forecasting are implemented as
+described in sections 10.2 and 10.3. Verify them and preserve
+omit/review/replay, explicit candidate acceptance, unexpected-empty, identity,
+tree-pinning, recovery, delayed publication, no-data-loss lifecycle, and
+immutable checkpoint-input invariants while selecting the next bounded product
+increment. Preserve all invariants listed in section 8.
 
 Implement the agreed increment, add disposable-repository integration tests,
 run the suite with the persistent Git session both disabled and enabled, and

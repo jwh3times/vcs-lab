@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add conservative workspace move, archive, restore, stale-path repair, and
+  preview/apply prune commands while retaining workspace, branch, and checkpoint
+  identity.
+- Give checkpoints stable `draft_` identity plus retained history refs, and add
+  `workspace forecast --source-checkpoint` for immutable source-draft
+  forecasting without reading live dirty bytes.
+- Accept ADR-0012's reversible-materialization and checkpoint-input model.
+
 - Fix the intermittent Windows forced-session hang by starting the persistent
   object worker lazily, after synchronous Git preflight commands complete,
   instead of racing worker startup with `git status`.

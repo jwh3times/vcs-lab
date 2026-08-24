@@ -922,7 +922,7 @@ test("cherry-pick preserves logical identity and fork makes divergence explicit"
   assert.equal(fork.relation, "derived-fork");
 });
 
-test("workspace checkpoint captures dirty and untracked files without changing them", (t) => {
+test("workspace lifecycle preserves identity and checkpoints across move, archive, repair, and prune", (t) => {
   const { repo, parent } = makeRepo(t);
   write(repo, "base.txt", "base\n");
   git(repo, "add", ".");
@@ -939,12 +939,146 @@ test("workspace checkpoint captures dirty and untracked files without changing t
     vlab(workspacePath, "workspace", "checkpoint", "--label", "agent handoff", "--json"),
   );
   const after = git(workspacePath, "status", "--porcelain=v1");
+  const firstCheckpointRef = git(repo, "rev-parse", checkpoint.ref);
 
   assert.equal(workspace.name, "agent-one");
   assert.equal(before, after);
   assert.match(after, /\?\? draft\.txt/);
   const captured = git(workspacePath, "ls-tree", "-r", "--name-only", checkpoint.id);
   assert.match(captured, /draft\.txt/);
+  assert.equal(checkpoint.baseHead, git(workspacePath, "rev-parse", "HEAD"));
+  assert.match(checkpoint.draftChangeId, /^draft_[0-9a-f]{64}$/);
+  assert.match(
+    git(repo, "show", "-s", "--format=%B", checkpoint.id),
+    /^agent handoff\r?\n\r?\nChange-Id:/,
+  );
+
+  const movedPath = path.join(parent, "agent-workspace-moved");
+  const moved = JSON.parse(
+    vlab(repo, "workspace", "move", "agent-one", movedPath, "--json"),
+  );
+  assert.equal(moved.id, workspace.id);
+  assert.equal(moved.path, movedPath);
+  assert.equal(moved.status, "active");
+  assert.equal(readText(movedPath, "draft.txt"), "unpublished\n");
+  assert.equal(git(movedPath, "status", "--porcelain=v1"), before);
+  assert.equal(git(repo, "rev-parse", checkpoint.ref), firstCheckpointRef);
+
+  const dirtyArchive = vlabResult(repo, "workspace", "archive", "agent-one");
+  assert.notEqual(dirtyArchive.status, 0);
+  assert.match(dirtyArchive.stderr, /tracked or untracked changes/i);
+  assert.equal(fs.existsSync(movedPath), true);
+
+  git(movedPath, "add", "draft.txt");
+  vlab(movedPath, "commit", "-m", "publish draft", "--json");
+  write(movedPath, ".gitignore", "ignored.log\n");
+  git(movedPath, "add", ".gitignore");
+  vlab(movedPath, "commit", "-m", "ignore local log", "--json");
+  write(movedPath, "ignored.log", "local only\n");
+
+  const ignoredArchive = vlabResult(repo, "workspace", "archive", "agent-one");
+  assert.notEqual(ignoredArchive.status, 0);
+  assert.match(ignoredArchive.stderr, /contains ignored files/i);
+  fs.rmSync(path.join(movedPath, "ignored.log"));
+
+  const secondCheckpoint = JSON.parse(
+    vlab(movedPath, "workspace", "checkpoint", "--label", "published state", "--json"),
+  );
+  assert.equal(secondCheckpoint.previousCheckpoint, checkpoint.id);
+  assert.equal(git(repo, "rev-parse", secondCheckpoint.historyRef), checkpoint.id);
+  assert.equal(git(repo, "rev-parse", secondCheckpoint.ref), secondCheckpoint.id);
+
+  const archived = JSON.parse(
+    vlab(repo, "workspace", "archive", "agent-one", "--json"),
+  );
+  assert.equal(archived.id, workspace.id);
+  assert.equal(archived.lifecycle, "archived");
+  assert.equal(archived.status, "archived");
+  assert.equal(fs.existsSync(movedPath), false);
+  assert.equal(git(repo, "rev-parse", checkpoint.ref), secondCheckpoint.id);
+  assert.equal(git(repo, "rev-parse", secondCheckpoint.historyRef), checkpoint.id);
+  assert.equal(
+    git(repo, "rev-parse", `refs/heads/${workspace.compatibilityBranch}`),
+    archived.lastHead,
+  );
+  const archivedValidation = JSON.parse(
+    vlab(repo, "metadata", "validate", "--json"),
+  );
+  assert.equal(archivedValidation.summary.valid, true);
+  assert.equal(archivedValidation.summary.warnings, 0);
+
+  const restoredPath = path.join(parent, "agent-workspace-restored");
+  const restored = JSON.parse(
+    vlab(
+      repo,
+      "workspace",
+      "restore",
+      "agent-one",
+      "--path",
+      restoredPath,
+      "--json",
+    ),
+  );
+  assert.equal(restored.id, workspace.id);
+  assert.equal(restored.lifecycle, "active");
+  assert.equal(restored.path, restoredPath);
+  assert.equal(restored.compatibilityBranch, workspace.compatibilityBranch);
+  assert.equal(git(repo, "rev-parse", checkpoint.ref), secondCheckpoint.id);
+
+  const repairedPath = path.join(parent, "agent-workspace-repaired");
+  fs.renameSync(restoredPath, repairedPath);
+  assert.equal(
+    JSON.parse(vlab(repo, "workspace", "list", "--json"))[0].status,
+    "missing",
+  );
+  const repaired = JSON.parse(
+    vlab(
+      repo,
+      "workspace",
+      "repair",
+      "agent-one",
+      "--path",
+      repairedPath,
+      "--json",
+    ),
+  );
+  assert.equal(repaired.id, workspace.id);
+  assert.equal(repaired.status, "active");
+  assert.equal(repaired.path, repairedPath);
+  assert.equal(git(repairedPath, "branch", "--show-current"), workspace.compatibilityBranch);
+
+  git(repo, "worktree", "remove", repairedPath);
+  const preview = JSON.parse(
+    vlab(repo, "workspace", "prune", "--dry-run", "--json"),
+  );
+  assert.equal(preview.dryRun, true);
+  assert.equal(preview.count, 1);
+  assert.equal(
+    JSON.parse(vlab(repo, "workspace", "list", "--json"))[0].lifecycle,
+    "active",
+  );
+  const pruned = JSON.parse(
+    vlab(repo, "workspace", "prune", "--apply", "--json"),
+  );
+  assert.equal(pruned.changed, true);
+  assert.equal(pruned.count, 1);
+  const prunedWorkspace = JSON.parse(
+    vlab(repo, "workspace", "list", "--json"),
+  )[0];
+  assert.equal(prunedWorkspace.lifecycle, "archived");
+  assert.equal(
+    prunedWorkspace.lastHead,
+    git(repo, "rev-parse", `refs/heads/${workspace.compatibilityBranch}`),
+  );
+  assert.equal(git(repo, "rev-parse", checkpoint.ref), secondCheckpoint.id);
+
+  const finalPath = path.join(parent, "agent-workspace-final");
+  const finalRestore = JSON.parse(
+    vlab(repo, "workspace", "restore", "agent-one", "--path", finalPath, "--json"),
+  );
+  assert.equal(finalRestore.id, workspace.id);
+  assert.equal(finalRestore.status, "active");
+  assert.equal(git(finalPath, "branch", "--show-current"), workspace.compatibilityBranch);
 });
 
 test("annotated Markdown keeps stable block IDs across edits and moves", (t) => {
@@ -2111,7 +2245,7 @@ test("forecast result mismatch blocks receipts and remains abortable", (t) => {
   assert.equal(fs.existsSync(path.join(repo, "feature.txt")), false);
 });
 
-test("workspace forecast compares committed agent heads without touching drafts", (t) => {
+test("workspace forecasts keep live drafts isolated and can pin an immutable source checkpoint", (t) => {
   const { repo, parent } = makeRepo(t);
   write(repo, "shared.txt", "base\n");
   git(repo, "add", "shared.txt");
@@ -2189,6 +2323,166 @@ test("workspace forecast compares committed agent heads without touching drafts"
     ).active,
     false,
   );
+
+  const overlayTargetPath = path.join(parent, "overlay-target");
+  const overlaySourcePath = path.join(parent, "overlay-source");
+  vlab(
+    repo,
+    "workspace",
+    "create",
+    "overlay-target",
+    "--path",
+    overlayTargetPath,
+    "--json",
+  );
+  vlab(
+    repo,
+    "workspace",
+    "create",
+    "overlay-source",
+    "--path",
+    overlaySourcePath,
+    "--json",
+  );
+  write(overlayTargetPath, "target.txt", "target committed\n");
+  git(overlayTargetPath, "add", "target.txt");
+  vlab(overlayTargetPath, "commit", "-m", "target committed change", "--json");
+  write(overlaySourcePath, "source.txt", "source committed\n");
+  git(overlaySourcePath, "add", "source.txt");
+  vlab(overlaySourcePath, "commit", "-m", "source committed change", "--json");
+  const overlaySourceHead = git(overlaySourcePath, "rev-parse", "HEAD");
+  write(overlaySourcePath, "draft.txt", "captured draft\n");
+  const checkpoint = JSON.parse(
+    vlab(
+      overlaySourcePath,
+      "workspace",
+      "checkpoint",
+      "--label",
+      "reviewable draft",
+      "--json",
+    ),
+  );
+  write(overlaySourcePath, "draft.txt", "new live draft\n");
+  write(overlaySourcePath, "live-only.txt", "not captured\n");
+
+  const overlayTargetHead = git(overlayTargetPath, "rev-parse", "HEAD");
+  const overlaySourceStatus = git(
+    overlaySourcePath,
+    "status",
+    "--porcelain=v1",
+  );
+  const overlayForecast = JSON.parse(
+    vlab(
+      repo,
+      "workspace",
+      "forecast",
+      "overlay-target",
+      "overlay-source",
+      "--source-checkpoint",
+      "--json",
+    ),
+  );
+  assert.equal(overlayForecast.status, "complete");
+  assert.equal(overlayForecast.scope, "source-checkpoint");
+  assert.equal(overlayForecast.sourceHead, checkpoint.id);
+  assert.equal(overlayForecast.workspaceComparison.scope, "source-checkpoint");
+  assert.equal(
+    overlayForecast.workspaceComparison.source.checkpoint.id,
+    checkpoint.id,
+  );
+  assert.equal(
+    overlayForecast.workspaceComparison.source.checkpoint.baseHead,
+    overlaySourceHead,
+  );
+  assert.equal(
+    overlayForecast.workspaceComparison.source.ignoredDirtyFiles,
+    2,
+  );
+  assert.ok(
+    overlayForecast.plan.changes.some(
+      (change) => change.changeId === checkpoint.draftChangeId,
+    ),
+  );
+  assert.equal(
+    git(repo, "show", `${overlayForecast.predictedResultTree}:draft.txt`),
+    "captured draft",
+  );
+  assert.doesNotMatch(
+    git(repo, "ls-tree", "-r", "--name-only", overlayForecast.predictedResultTree),
+    /live-only\.txt/,
+  );
+  assert.equal(git(overlayTargetPath, "rev-parse", "HEAD"), overlayTargetHead);
+  assert.equal(git(overlaySourcePath, "rev-parse", "HEAD"), overlaySourceHead);
+  assert.equal(
+    git(overlaySourcePath, "status", "--porcelain=v1"),
+    overlaySourceStatus,
+  );
+  assert.match(
+    vlab(
+      repo,
+      "workspace",
+      "forecast",
+      "overlay-target",
+      "overlay-source",
+      "--source-checkpoint",
+    ),
+    /scope\s+immutable source checkpoint/,
+  );
+
+  const applied = JSON.parse(
+    vlab(
+      overlayTargetPath,
+      "reconcile",
+      checkpoint.id,
+      "--use-forecast",
+      overlayForecast.id,
+      "--json",
+    ),
+  );
+  assert.equal(applied.receipt.forecastId, overlayForecast.id);
+  assert.equal(readText(overlayTargetPath, "draft.txt"), "captured draft\n");
+  assert.equal(fs.existsSync(path.join(overlayTargetPath, "live-only.txt")), false);
+  assert.equal(git(overlayTargetPath, "status", "--porcelain=v1"), "");
+  assert.equal(
+    git(overlaySourcePath, "status", "--porcelain=v1"),
+    overlaySourceStatus,
+  );
+
+  const reviewedAfterApply = JSON.parse(
+    vlab(
+      repo,
+      "workspace",
+      "forecast",
+      "overlay-target",
+      "overlay-source",
+      "--source-checkpoint",
+      "--json",
+    ),
+  );
+
+  git(overlaySourcePath, "add", "draft.txt", "live-only.txt");
+  vlab(overlaySourcePath, "commit", "-m", "advance after checkpoint", "--json");
+  const staleApproval = vlabResult(
+    overlayTargetPath,
+    "reconcile",
+    checkpoint.id,
+    "--use-forecast",
+    reviewedAfterApply.id,
+    "--json",
+  );
+  assert.notEqual(staleApproval.status, 0);
+  assert.match(staleApproval.stderr, /source workspace head/i);
+  assert.equal(git(overlayTargetPath, "status", "--porcelain=v1"), "");
+  const staleCheckpoint = vlabResult(
+    repo,
+    "workspace",
+    "forecast",
+    "overlay-target",
+    "overlay-source",
+    "--source-checkpoint",
+  );
+  assert.notEqual(staleCheckpoint.status, 0);
+  assert.match(staleCheckpoint.stderr, /moved after checkpoint/i);
 });
 
 test("metadata validation quarantines invalid causal claims from coverage", (t) => {

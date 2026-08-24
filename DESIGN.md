@@ -123,10 +123,11 @@ validated before the first file is changed. A complete run must reproduce the
 predicted tree before receipts are published.
 
 Workspace comparison runs the same algorithm using the target workspace as the
-forecast owner and the source workspace's compatibility branch as input. v0.4
-compares committed heads only. It surfaces ignored dirty-file counts because
-including private drafts requires a future checkpoint/overlay simulation
-rather than pretending uncommitted bytes have stable causal identity.
+forecast owner and the source workspace's compatibility branch as input. The
+default remains committed heads only. An explicit `--source-checkpoint` instead
+uses the source workspace's immutable latest checkpoint after verifying its
+workspace, base, and tree identity. Both modes surface ignored live dirty-file
+counts; no forecast reads mutable worktree content.
 
 ## Performance observation
 
@@ -194,9 +195,19 @@ producing the same plan, step trees, and predicted result tree.
 
 ## Workspace checkpoint
 
-The checkpoint command creates a temporary Git index, reads `HEAD` into it, adds the current working tree, writes a tree, and uses `git commit-tree` to create an immutable checkpoint. The real index and worktree are untouched. A hidden ref prevents garbage collection.
+The checkpoint command creates a temporary Git index, reads `HEAD` into it, adds
+the current working tree, writes a tree, and uses `git commit-tree` to create an
+immutable checkpoint parented by the captured head. The real index and worktree
+are untouched. The latest hidden ref plus history refs prevent garbage
+collection while keeping checkpoint state local.
 
 This is a useful approximation of the proposed native operation log and copy-on-write workspace overlay.
+
+Workspace lifecycle treats a linked worktree as a reversible materialization:
+move and repair update machine-local path state, archive/restore remove and
+recreate only safe materializations, and prune is preview-first. The logical
+workspace, compatibility branch, and checkpoint identities outlive those path
+changes.
 
 ## Hybrid specifications
 
