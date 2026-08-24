@@ -1777,8 +1777,8 @@ test("modified and rejected suggestions create auditable resolution variants", (
   assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 3);
 });
 
-test("doctor benchmarks Git probes and trace mode reports subprocess timings", (t) => {
-  const { repo } = makeRepo(t);
+test("doctor benchmarks Git probes, starts sessions lazily, and traces subprocess timings", (t) => {
+  const { repo, parent } = makeRepo(t);
   write(repo, "base.txt", "base\n");
   git(repo, "add", "base.txt");
   git(repo, "commit", "-m", "base");
@@ -1824,6 +1824,79 @@ test("doctor benchmarks Git probes and trace mode reports subprocess timings", (
   );
   assert.equal(tracedOption.status, 0);
   assert.match(tracedOption.stderr, /persistent process|cache hit/);
+
+  const readDiagnostics = (filePath) => fs
+    .readFileSync(filePath, "utf8")
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => JSON.parse(line.slice(line.indexOf("{"))));
+
+  const shutdownDiagnosticsPath = path.join(parent, "shutdown-diagnostics.log");
+  const planned = spawnSync(
+    process.execPath,
+    [cli, "merge-plan", "HEAD", "--git-session", "--json"],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        VLAB_GIT_SESSION_DIAGNOSTICS: "1",
+        VLAB_GIT_SESSION_DIAGNOSTICS_FILE: shutdownDiagnosticsPath,
+      },
+    },
+  );
+  assert.equal(planned.status, 0);
+  const shutdownDiagnostics = readDiagnostics(shutdownDiagnosticsPath);
+  const gitClose = shutdownDiagnostics.findIndex(
+    (event) => event.event === "git-close",
+  );
+  const closeFinish = shutdownDiagnostics.findIndex(
+    (event) => event.event === "close-finish",
+  );
+  assert.ok(gitClose >= 0);
+  assert.ok(closeFinish > gitClose);
+  assert.equal(
+    shutdownDiagnostics.some((event) => event.event === "close-git-kill"),
+    false,
+  );
+
+  const diagnosticsPath = path.join(parent, "lazy-session-diagnostics.log");
+  write(repo, "dirty.txt", "dirty\n");
+  const rejected = spawnSync(
+    process.execPath,
+    [cli, "reconcile", "HEAD", "--git-session"],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        VLAB_GIT_SESSION_DIAGNOSTICS: "1",
+        VLAB_GIT_SESSION_DIAGNOSTICS_FILE: diagnosticsPath,
+      },
+    },
+  );
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /worktree must be clean/i);
+
+  const diagnostics = readDiagnostics(diagnosticsPath);
+  const statusStart = diagnostics.findIndex(
+    (event) => event.event === "git-spawn-start" && event.command === "status",
+  );
+  const statusEnd = diagnostics.findIndex(
+    (event) => event.event === "git-spawn-end" && event.command === "status",
+  );
+  const closedWithoutWorker = diagnostics.findIndex(
+    (event) => event.event === "session-close-no-worker",
+  );
+  assert.ok(statusStart >= 0);
+  assert.ok(statusEnd > statusStart);
+  assert.ok(closedWithoutWorker > statusEnd);
+  assert.equal(
+    diagnostics.some((event) => event.event === "worker-create-start"),
+    false,
+  );
 });
 
 test("merge planning batches commit metadata instead of spawning per commit", (t) => {

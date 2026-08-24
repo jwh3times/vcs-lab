@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fix the intermittent Windows forced-session hang by starting the persistent
+  object worker lazily, after synchronous Git preflight commands complete,
+  instead of racing worker startup with `git status`.
+- Reject pending object requests on any unexpected worker-Git exit, add opt-in
+  session lifecycle diagnostics, and cover the no-worker preflight path in the
+  integration suite.
+- Wait for the worker Git child's stdio-drained `close` event during shutdown
+  and retain a bounded Windows process-tree termination fallback.
+
 - Accept ADR-0011's bounded model of causal rebase as a forecasted sequence of
   target-context applications with linear-v1 scope and fail-closed recovery.
 - Add read-only `vlab rebase-plan <onto> [<source>]` using the existing exact

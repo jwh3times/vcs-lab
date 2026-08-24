@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
@@ -10,6 +11,31 @@ const activeObjectSessions = new Map();
 const SESSION_INFO_BUFFER_BYTES = 1024 * 1024;
 const SESSION_CONTENT_BUFFER_BYTES = 64 * 1024 * 1024;
 const SESSION_TIMEOUT_MS = 60_000;
+let nextSessionId = 1;
+
+function sessionDiagnostic(event, details = {}) {
+  if (process.env.VLAB_GIT_SESSION_DIAGNOSTICS !== "1") return;
+  const line = `[vlab session] ${JSON.stringify({
+    at: new Date().toISOString(),
+    pid: process.pid,
+    event,
+    ...details,
+  })}\n`;
+  process.stderr.write(line);
+  const filePath = process.env.VLAB_GIT_SESSION_DIAGNOSTICS_FILE;
+  if (!filePath) return;
+  try {
+    appendFileSync(filePath, line, "utf8");
+  } catch {
+    // Diagnostics must never change session behavior.
+  }
+}
+
+function diagnosticExpressions(expressions) {
+  return expressions.length <= 8
+    ? expressions
+    : [...expressions.slice(0, 8), `... ${expressions.length - 8} more`];
+}
 
 function gitCommandName(args) {
   let commandIndex = 0;
@@ -129,6 +155,11 @@ export function runGit(args, options = {}) {
   } = options;
 
   const startedAt = performance.now();
+  sessionDiagnostic("git-spawn-start", {
+    cwd,
+    args,
+    command: gitCommandName(args),
+  });
   const result = spawnSync("git", args, {
     cwd,
     env: {
@@ -147,6 +178,14 @@ export function runGit(args, options = {}) {
   }
 
   const durationMs = performance.now() - startedAt;
+  sessionDiagnostic("git-spawn-end", {
+    cwd,
+    args,
+    command: gitCommandName(args),
+    status: result.status,
+    error: result.error?.message ?? null,
+    durationMs: Number(durationMs.toFixed(3)),
+  });
   const stdout = binary
     ? result.stdout
     : trim
@@ -215,24 +254,75 @@ function immutableObjectExpression(expression) {
 class GitObjectSession {
   constructor(cwd) {
     this.cwd = cwd;
+    this.sessionId = `${process.pid}-${nextSessionId++}`;
+    this.nextRequestId = 1;
     this.cache = new Map();
     this.processCounted = false;
     this.closed = false;
     this.failed = false;
-    this.worker = new Worker(new URL("./git-session-worker.js", import.meta.url), {
+    this.worker = null;
+    this.gitCommand = process.env.VLAB_TEST_GIT_SESSION_FAILURE === "1"
+      ? "vlab-intentionally-missing-git"
+      : "git";
+    sessionDiagnostic("session-created", {
+      sessionId: this.sessionId,
+      cwd,
+      gitCommand: this.gitCommand,
+      workerStarted: false,
+    });
+  }
+
+  startWorker() {
+    if (this.worker) return this.worker;
+    if (this.closed) {
+      throw new CliError("The Git object session is already closed.");
+    }
+    sessionDiagnostic("worker-create-start", {
+      sessionId: this.sessionId,
+      cwd: this.cwd,
+      gitCommand: this.gitCommand,
+    });
+    const worker = new Worker(new URL("./git-session-worker.js", import.meta.url), {
       workerData: {
-        cwd,
-        gitCommand:
-          process.env.VLAB_TEST_GIT_SESSION_FAILURE === "1"
-            ? "vlab-intentionally-missing-git"
-            : "git",
+        cwd: this.cwd,
+        gitCommand: this.gitCommand,
       },
     });
-    this.worker.unref();
+    this.worker = worker;
+    worker.on("error", (error) => {
+      sessionDiagnostic("worker-error", {
+        sessionId: this.sessionId,
+        message: error.message,
+        code: error.code ?? null,
+      });
+    });
+    worker.on("exit", (code) => {
+      sessionDiagnostic("worker-exit", {
+        sessionId: this.sessionId,
+        code,
+      });
+    });
+    worker.unref();
+    sessionDiagnostic("worker-create-complete", {
+      sessionId: this.sessionId,
+      cwd: this.cwd,
+      gitCommand: this.gitCommand,
+    });
+    return worker;
   }
 
   request(command, expressions) {
+    if (this.closed) {
+      throw new CliError("The Git object session is already closed.");
+    }
     validateObjectExpressions(expressions);
+    const requestId = this.nextRequestId++;
+    sessionDiagnostic("request-start", {
+      sessionId: this.sessionId,
+      requestId,
+      command,
+      expressions: diagnosticExpressions(expressions),
+    });
     const cacheKeys = expressions.map((expression) =>
       immutableObjectExpression(expression)
         ? `${command}\0${expression}`
@@ -256,6 +346,12 @@ class GitObjectSession {
         processStarted: false,
         cacheHit: true,
       });
+      sessionDiagnostic("request-cache-hit", {
+        sessionId: this.sessionId,
+        requestId,
+        command,
+        count: expressions.length,
+      });
       return cached;
     }
 
@@ -272,17 +368,58 @@ class GitObjectSession {
     const shared = new SharedArrayBuffer(16 + responseBytes);
     const header = new Int32Array(shared, 0, 4);
     const started = performance.now();
-    this.worker.postMessage({
-      type: "query",
+    const worker = this.startWorker();
+    sessionDiagnostic("request-posting", {
+      sessionId: this.sessionId,
+      requestId,
       command,
-      expressions: missingExpressions,
-      shared,
+      expressions: diagnosticExpressions(missingExpressions),
+      cachedCount: expressions.length - missingExpressions.length,
+    });
+    try {
+      worker.postMessage({
+        type: "query",
+        requestId,
+        command,
+        expressions: missingExpressions,
+        shared,
+      });
+    } catch (error) {
+      sessionDiagnostic("request-post-error", {
+        sessionId: this.sessionId,
+        requestId,
+        command,
+        message: error.message,
+      });
+      throw error;
+    }
+    sessionDiagnostic("request-posted", {
+      sessionId: this.sessionId,
+      requestId,
+      command,
     });
     const wait = Atomics.wait(header, 0, 0, SESSION_TIMEOUT_MS);
     const durationMs = performance.now() - started;
+    const responseState = Atomics.load(header, 0);
+    const responseLength = Atomics.load(header, 1);
+    sessionDiagnostic("request-wait-returned", {
+      sessionId: this.sessionId,
+      requestId,
+      command,
+      wait,
+      responseState,
+      responseLength,
+      durationMs: Number(durationMs.toFixed(3)),
+    });
     const processStarted = !this.processCounted;
     this.processCounted = true;
     if (wait === "timed-out") {
+      sessionDiagnostic("request-timeout", {
+        sessionId: this.sessionId,
+        requestId,
+        command,
+        durationMs: Number(durationMs.toFixed(3)),
+      });
       recordGitMetric({
         command: "cat-file-session",
         durationMs,
@@ -299,8 +436,22 @@ class GitObjectSession {
     try {
       response = JSON.parse(payload);
     } catch {
+      sessionDiagnostic("response-malformed", {
+        sessionId: this.sessionId,
+        requestId,
+        command,
+        responseLength: payload.length,
+      });
       throw new CliError("The Git object session returned malformed data.");
     }
+    sessionDiagnostic("response-received", {
+      sessionId: this.sessionId,
+      requestId,
+      command,
+      ok: Boolean(response.ok),
+      error: response.ok ? null : response.error ?? "unknown session error",
+      resultCount: Array.isArray(response.results) ? response.results.length : 0,
+    });
     recordGitMetric({
       command: "cat-file-session",
       durationMs,
@@ -317,6 +468,12 @@ class GitObjectSession {
       cacheHit: false,
     });
     if (!response.ok) {
+      sessionDiagnostic("response-failed", {
+        sessionId: this.sessionId,
+        requestId,
+        command,
+        error: response.error ?? "unknown session error",
+      });
       throw new CliError(`Git object session failed: ${response.error}`);
     }
     for (let index = 0; index < response.results.length; index += 1) {
@@ -335,24 +492,78 @@ class GitObjectSession {
   close() {
     if (this.closed) return;
     this.closed = true;
+    const worker = this.worker;
+    if (!worker) {
+      sessionDiagnostic("session-close-no-worker", {
+        sessionId: this.sessionId,
+      });
+      return;
+    }
     const shared = new SharedArrayBuffer(16 + 1024);
     const header = new Int32Array(shared, 0, 4);
-    this.worker.postMessage({ type: "close", shared });
-    Atomics.wait(header, 0, 0, 5_000);
-    this.worker.terminate();
-    this.worker.unref();
+    sessionDiagnostic("session-close-posting", {
+      sessionId: this.sessionId,
+    });
+    let wait = "post-error";
+    try {
+      worker.postMessage({ type: "close", shared });
+      wait = Atomics.wait(header, 0, 0, 5_000);
+    } catch (error) {
+      sessionDiagnostic("session-close-error", {
+        sessionId: this.sessionId,
+        message: error.message,
+      });
+    }
+    sessionDiagnostic("session-close-wait-returned", {
+      sessionId: this.sessionId,
+      wait,
+      responseState: Atomics.load(header, 0),
+      responseLength: Atomics.load(header, 1),
+    });
+    worker.terminate();
+    worker.unref();
+    sessionDiagnostic("session-close-terminated", {
+      sessionId: this.sessionId,
+    });
   }
 
   disable() {
     if (this.closed) return;
     this.failed = true;
     this.closed = true;
+    const worker = this.worker;
+    if (!worker) {
+      sessionDiagnostic("session-disable-no-worker", {
+        sessionId: this.sessionId,
+      });
+      return;
+    }
     const shared = new SharedArrayBuffer(16 + 1024);
     const header = new Int32Array(shared, 0, 4);
-    this.worker.postMessage({ type: "close", shared });
-    Atomics.wait(header, 0, 0, 5_000);
-    this.worker.terminate();
-    this.worker.unref();
+    sessionDiagnostic("session-disable-posting", {
+      sessionId: this.sessionId,
+    });
+    let wait = "post-error";
+    try {
+      worker.postMessage({ type: "close", shared });
+      wait = Atomics.wait(header, 0, 0, 5_000);
+    } catch (error) {
+      sessionDiagnostic("session-disable-error", {
+        sessionId: this.sessionId,
+        message: error.message,
+      });
+    }
+    sessionDiagnostic("session-disable-wait-returned", {
+      sessionId: this.sessionId,
+      wait,
+      responseState: Atomics.load(header, 0),
+      responseLength: Atomics.load(header, 1),
+    });
+    worker.terminate();
+    worker.unref();
+    sessionDiagnostic("session-disable-terminated", {
+      sessionId: this.sessionId,
+    });
   }
 }
 
@@ -366,6 +577,12 @@ function queryObjectSession(cwd, command, expressions) {
   try {
     return session.request(command, expressions);
   } catch (error) {
+    sessionDiagnostic("session-fallback", {
+      sessionId: session.sessionId,
+      command,
+      expressions: diagnosticExpressions(expressions),
+      message: error.message,
+    });
     session.disable();
     if (process.env.VLAB_TRACE === "1") {
       process.stderr.write(
@@ -388,10 +605,18 @@ export function withGitObjectSession(cwd = process.cwd(), callback) {
   if (activeObjectSessions.has(key)) return callback();
   const session = new GitObjectSession(key);
   activeObjectSessions.set(key, session);
+  sessionDiagnostic("session-enter", {
+    sessionId: session.sessionId,
+    cwd: key,
+  });
   try {
     return callback();
   } finally {
     activeObjectSessions.delete(key);
+    sessionDiagnostic("session-exit", {
+      sessionId: session.sessionId,
+      cwd: key,
+    });
     session.close();
   }
 }

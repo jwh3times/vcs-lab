@@ -568,7 +568,7 @@ stable IDs, or auditability.
 | Stable Markdown entities | Complete for parser v1 | Edit/move and migration tests |
 | Deterministic Markdown merge | Complete for section-level rules | Clean and blocked merge tests |
 | Sparse metadata and incremental indexing | Complete for manifest v3 | Corpus, migration, zero-read tests |
-| Invocation-scoped Git object session | Complete with fallback | Equality, count, failure, worktree tests |
+| Invocation-scoped Git object session | Complete with lazy startup and fallback | Equality/count/failure/worktree tests plus 10 direct, 20 redirected, three full current-Node, and one full Node 20 forced-session qualification runs |
 | Metadata integrity and portability | Experimental but complete for accepted shared facts | Inventory/validation plus deterministic envelope and two-clone idempotence tests |
 | Cryptographic trust/server policy | Not implemented | Explicit non-goal |
 | Native store/protocol | Not implemented | Exit criteria not yet satisfied |
@@ -610,6 +610,13 @@ process launches (51.9%) while preserving the complete forecast. The v0.6
 default corpus represented 2,025 semantic entities with 11,240 bytes of sparse
 manifest data instead of 655,545 equivalent expanded bytes (98.29% less).
 These are regression baselines, not universal performance guarantees.
+
+The 2026-08-24 forced-session correction run produced the same 12-change
+forecast with 25 session processes versus 64 ordinary processes (60.9% fewer).
+The corrected full suite passed three consecutive forced runs on Node 26, one
+ordinary run, and one complete forced run on Node 20 with balanced Git
+start/exit traces and no leaked descendants. See
+[FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md).
 
 ## 14. Release and quality gates
 

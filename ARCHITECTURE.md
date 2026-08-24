@@ -6,7 +6,7 @@
 | --- | --- |
 | Architecture baseline | v0.9 development after v0.8.0 |
 | Status | Current implementation reference |
-| Last updated | 2026-08-21 |
+| Last updated | 2026-08-24 |
 | Runtime | Node.js 20+ (ES modules), Git 2.38+ |
 | External runtime dependencies | None beyond Node.js and Git |
 
@@ -654,8 +654,10 @@ Git directory as the current linked worktree's private Git directory.
 ### 14.2 Invocation-scoped session
 
 On Windows by default, or with `--git-session`/`VLAB_GIT_SESSION=1`, a domain
-operation may open one `GitObjectSession` keyed by resolved worktree path. A
-worker thread owns:
+operation may open one `GitObjectSession` keyed by resolved worktree path. The
+session is initially only a scope and cache; its worker starts lazily when the
+first uncached object request is ready, after synchronous preflight commands
+have completed. The worker thread owns:
 
 ```text
 git cat-file --batch-command
@@ -663,10 +665,16 @@ git cat-file --batch-command
 
 The synchronous main thread submits `info` or `contents` queries through a
 bounded shared-memory channel. The worker serializes requests and parses the
-streaming response. Shutdown closes the batch-command input and waits for the
-underlying Git process before acknowledging the caller. Bounded termination
-and acknowledgement fallbacks prevent a failed close from retaining the CLI
-or leaving a session worker behind.
+streaming response. An unexpected Git exit rejects every pending request so the
+caller can fall back. Shutdown closes the batch-command input and waits for the
+child `close` event—after stdio drains—before acknowledging the caller. Bounded
+Windows process-tree termination and worker acknowledgement fallbacks prevent a
+failed close from retaining the CLI or leaving a session worker behind.
+
+Opt-in lifecycle diagnostics record session/worker creation, request posting,
+shared-memory waits, Git request/response events, fallback, and shutdown. They
+are disabled during normal operation and are intended for bounded process-tree
+investigation.
 
 ### 14.3 Cache and safety rules
 

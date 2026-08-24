@@ -178,6 +178,12 @@ default when Git launches in a few milliseconds. `--git-session` and
 `--no-git-session` make both paths directly comparable. Metrics now distinguish
 logical queries, process launches, session queries, and immutable cache hits.
 
+The worker is created lazily at the first uncached object request rather than
+at session entry. This preserves the synchronous preflight ordering on Windows:
+commands such as `git status` finish before worker/Git startup begins. Shutdown
+waits for the Git child's `close` event so stdio has drained, with bounded exact
+process-tree termination on Windows if graceful EOF fails.
+
 Object reuse is paired with structural query reduction: target history and
 source-range metadata come from two bounded `git log` streams instead of one
 `git show` per commit; note payloads are read as an object batch after one

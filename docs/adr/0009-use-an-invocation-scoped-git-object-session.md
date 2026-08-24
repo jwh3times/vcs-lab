@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-20
+- **Clarified:** 2026-08-24
 - **Owners:** Repository maintainers
 - **Related requirements:** GP-09, GP-12, FR-PERF-01 through FR-PERF-10
 
@@ -22,11 +23,14 @@ Use an optional, invocation-scoped `git cat-file --batch-command` process:
 
 - enabled by default on Windows and explicitly selectable elsewhere;
 - owned by a worker thread so the domain API remains synchronous;
+- started lazily at the first uncached object request, after ordinary preflight
+  Git commands complete;
 - keyed to the exact resolved worktree path;
 - used for immutable object `info` and `contents` queries;
 - caching only expressions rooted at a complete SHA-1/SHA-256 OID;
 - invalidated after successful mutation;
-- closed at invocation end;
+- closed at invocation end after the Git child's stdio-drained `close` event,
+  with bounded exact-tree termination on Windows;
 - required to fall back to ordinary Git after failure.
 
 Also reduce query structure independently: batch histories, note-object reads,
@@ -41,11 +45,12 @@ and related revision/tree lookups.
   boundary.
 - Ordinary Git remains fallback and comparison oracle.
 - Metrics can distinguish logical work from process creation.
+- Synchronous preflight and asynchronous worker startup do not overlap.
 
 ### Negative
 
 - Worker/shared-memory protocol adds complexity and bounded buffer limits.
-- Each CLI invocation still pays one worker/process startup.
+- Each object-reading CLI invocation still pays one worker/process startup.
 - Non-Windows environments may see little or negative wall-time benefit.
 - Mutable symbolic queries cannot safely use the immutable cache.
 

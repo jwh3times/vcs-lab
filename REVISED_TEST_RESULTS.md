@@ -1,5 +1,9 @@
 # VCS Lab revised test execution
 
+> This is the retained historical failure result. The defect was subsequently
+> reproduced, corrected, and qualified; see
+> [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md).
+
 - Test-plan revision: 2
 - Date/time: 2026-08-23, 11:49–12:05 EDT
 - Operator: Codex
@@ -71,5 +75,7 @@ test run.
 Final result: **FAIL** — TP-04 forced-session integration suite exceeded the
 revised 12-minute deadline.
 
-Open defect: investigate why the forced-session integration suite remains
-alive without completing under the bounded monitor.
+Open defect at the time of this run: investigate why the forced-session
+integration suite remained alive without completing under the bounded monitor.
+The follow-up reproduction and correction are recorded in
+[FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md).

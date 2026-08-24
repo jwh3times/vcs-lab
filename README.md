@@ -44,6 +44,9 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 - [FORCED_SESSION_TEST_PROCESS.md](FORCED_SESSION_TEST_PROCESS.md) defines the
   focused reproduction, process-tree capture, correction, and qualification
   procedure for that release-blocking timeout.
+- [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md) records the
+  reproduced startup race, lazy-worker correction, Node 20/current qualification,
+  balanced Git-process evidence, and remaining clean-checkout release boundary.
 - [DESIGN.md](DESIGN.md) retains the chronological experiment rationale, while
   [CHANGELOG.md](CHANGELOG.md) records delivered behavior by version.
 
@@ -589,6 +592,11 @@ where the observed 80–130 ms process startup cost dominates these operations.
 On other platforms it remains opt-in because a local Git process may take only
 a few milliseconds.
 
+The worker starts lazily at the first uncached object request. This keeps worker
+startup from overlapping synchronous preflight commands such as `git status`.
+Shutdown waits for the child `close` event so its stdio has drained, with bounded
+Git-tree and worker fallbacks if graceful EOF does not complete.
+
 Get both the ordinary-process baseline and the persistent-session probe with:
 
 ```bash
@@ -613,10 +621,10 @@ Run an equality-checked comparison over a 12-change forecast with:
 npm run demo:git-session
 ```
 
-On the release test host the persistent path produced the identical forecast
-with 25 Git processes instead of 52, a 51.9% reduction. Wall time remains a
-machine-specific measurement; process count and result-tree equality are the
-portable acceptance invariants.
+On the latest correction host run, the persistent path produced the identical
+forecast with 25 Git processes instead of 64, a 60.9% reduction. Wall time
+remains a machine-specific measurement; process count and result-tree equality
+are the portable acceptance invariants.
 
 Forecast output separately reports preflight, planning, simulation, invariant,
 temporary-worktree, logical-query, and actual-process totals. Completed

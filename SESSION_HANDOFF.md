@@ -19,6 +19,9 @@ replace the authoritative documents:
 4. [README.md](README.md) — user commands and experiments.
 5. [DESIGN.md](DESIGN.md) — chronological experiment rationale.
 6. [CHANGELOG.md](CHANGELOG.md) — delivered changes by release.
+7. [TEST_PLAN.md](TEST_PLAN.md) — complete development and release procedure.
+8. [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md) — latest
+   persistent-session correction evidence and remaining qualification boundary.
 
 If this handoff becomes stale, update it rather than allowing a new session to
 guess.
@@ -65,6 +68,11 @@ application, recovery, and portable completed receipts—to validated metadata
 portability and the v0.7 causal/specification/Git-session foundation. The
 development suite contains 43 integration tests and retains all six maintained
 demos.
+
+The current correction fixes the reproduced Windows forced-session startup
+race. Focused qualification is complete, but the full clean-checkout
+`TEST_PLAN.md` rerun is still required before any release claim. Resolve and
+record the exact correction commit from Git rather than relying on this handoff.
 
 Do not trust a hard-coded commit from a handoff; establish the exact checkout
 first:
@@ -154,13 +162,15 @@ zero-read unchanged index path.
 ### v0.7 — persistent Git object plumbing
 
 - Invocation-scoped `git cat-file --batch-command` worker/session.
+- Lazy worker startup at the first uncached object request, after synchronous
+  preflight Git commands complete.
 - Enabled by default on Windows, opt-in elsewhere.
 - `--git-session`, `--no-git-session`, and `--trace-git` controls.
 - Immutable cache limited to full-OID-rooted expressions.
 - Mutation invalidation, per-worktree scoping, bounded channels, and ordinary
   Git fallback.
-- Graceful batch-input close plus bounded Git/worker termination; the full
-  forced-session suite leaves no VCS Lab Node or Git processes behind.
+- Graceful batch-input close waits for the stdio-drained child `close` event;
+  bounded exact Git-tree/worker termination remains as fallback.
 - Batched target/source history and note object reads.
 - Metrics distinguish logical queries, processes, session queries, and cache
   hits.
@@ -169,9 +179,13 @@ zero-read unchanged index path.
 - Deterministic spec reconciliation performs 10 logical queries through 6
   actual Git processes in the release path.
 
-The user has not yet supplied an independent v0.7 Windows session-demo report
-in the preserved conversation. Capturing that evidence remains useful but does
-not block documentation work.
+The 2026-08-24 correction host qualification passed 10/10 direct and 20/20
+redirected targeted runs, three complete current-Node forced suites, one
+ordinary suite, and one complete Node 20 forced suite with balanced Git
+start/exit traces and zero leaked descendants. The latest session demo reduced
+64 ordinary processes to 25 (60.9%) with identical output. This is host
+qualification, not an independent user report; see
+[FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md).
 
 ### v0.8 — metadata integrity and portability
 
@@ -451,7 +465,9 @@ original source tip on abort, and publishes validated shared records only after
 the complete queue and predicted tree pass. Deterministic export retains causal
 commits made unreachable by the rewrite.
 
-Workspace lifecycle/draft-overlay forecasting is the strongest next bounded
+The immediate repository step is to run the complete mandatory `TEST_PLAN.md`
+from the clean forced-session correction commit. After that gate, workspace
+lifecycle/draft-overlay forecasting is the strongest next bounded product
 track. Large-scale metadata benchmarks and broader rebase forms remain viable
 alternates; they require fresh scope rather than silently expanding linear v1.
 
