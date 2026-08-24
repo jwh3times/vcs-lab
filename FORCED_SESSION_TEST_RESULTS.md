@@ -77,7 +77,7 @@ close without creating a worker, while a normal object session must observe
 | Process leaks and forced termination | PASS, zero leaks and zero forced terminations |
 | Maintained demos and doctor | PASS, 6/6 demos plus benchmark |
 | Static syntax/whitespace/link/requirement gates | PASS, with the focused-run source-clean caveat below |
-| Complete `TEST_PLAN.md` rerun | Pending from a committed, clean checkout |
+| Complete `TEST_PLAN.md` rerun | PASS; see [POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md) |
 
 ### Targeted forced stress
 
@@ -142,12 +142,13 @@ logical reads from the immutable-object cache.
 
 The package dry run emitted the existing `.gitignore` fallback warning because
 the repository has no `.npmignore`; it did not create an archive. The strict
-source-clean assertion was outside this focused candidate run and must be
-established by the complete development plan from a committed, clean checkout.
+source-clean assertion was outside this focused candidate run and was later
+established by the complete clean-checkout development plan.
 
 ## Qualification boundary
 
 This result closes the focused forced-session correction gate. It does not
-authorize a release. A formally valid full development plan must begin from the
-approved correction in a clean checkout. Release artifacts and publishing
-remain out of scope unless explicitly requested.
+authorize a release. The subsequent full development gate passed from the
+committed correction; see [POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md).
+Release artifacts and publishing remain out of scope unless explicitly
+requested.

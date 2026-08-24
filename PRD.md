@@ -617,6 +617,9 @@ The corrected full suite passed three consecutive forced runs on Node 26, one
 ordinary run, and one complete forced run on Node 20 with balanced Git
 start/exit traces and no leaked descendants. See
 [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md).
+The committed correction then passed the complete clean-checkout TP-01 through
+TP-18 development gate; see
+[POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md).
 
 ## 14. Release and quality gates
 

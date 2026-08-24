@@ -20,8 +20,10 @@ replace the authoritative documents:
 5. [DESIGN.md](DESIGN.md) — chronological experiment rationale.
 6. [CHANGELOG.md](CHANGELOG.md) — delivered changes by release.
 7. [TEST_PLAN.md](TEST_PLAN.md) — complete development and release procedure.
-8. [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md) — latest
-   persistent-session correction evidence and remaining qualification boundary.
+8. [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md) — focused
+   persistent-session correction evidence.
+9. [POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md) — passing clean-checkout
+   TP-01–TP-18 development evidence and the remaining release boundary.
 
 If this handoff becomes stale, update it rather than allowing a new session to
 guess.
@@ -70,9 +72,10 @@ development suite contains 43 integration tests and retains all six maintained
 demos.
 
 The current correction fixes the reproduced Windows forced-session startup
-race. Focused qualification is complete, but the full clean-checkout
-`TEST_PLAN.md` rerun is still required before any release claim. Resolve and
-record the exact correction commit from Git rather than relying on this handoff.
+race. Focused qualification and the full clean-checkout `TEST_PLAN.md` gate are
+complete for correction commit `621eb71771fddacba53a30e22ab25ffbc0397590`.
+No release artifacts were created; resolve the current repository state from
+Git rather than relying only on this handoff.
 
 Do not trust a hard-coded commit from a handoff; establish the exact checkout
 first:
@@ -465,8 +468,7 @@ original source tip on abort, and publishes validated shared records only after
 the complete queue and predicted tree pass. Deterministic export retains causal
 commits made unreachable by the rewrite.
 
-The immediate repository step is to run the complete mandatory `TEST_PLAN.md`
-from the clean forced-session correction commit. After that gate, workspace
+With the correction and complete development gate established, workspace
 lifecycle/draft-overlay forecasting is the strongest next bounded product
 track. Large-scale metadata benchmarks and broader rebase forms remain viable
 alternates; they require fresh scope rather than silently expanding linear v1.

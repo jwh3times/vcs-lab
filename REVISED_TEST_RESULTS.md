@@ -1,8 +1,10 @@
 # VCS Lab revised test execution
 
 > This is the retained historical failure result. The defect was subsequently
-> reproduced, corrected, and qualified; see
-> [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md).
+> reproduced and corrected in
+> [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md), then passed
+> the full development gate in
+> [POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md).
 
 - Test-plan revision: 2
 - Date/time: 2026-08-23, 11:49–12:05 EDT

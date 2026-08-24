@@ -46,7 +46,9 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
   procedure for that release-blocking timeout.
 - [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md) records the
   reproduced startup race, lazy-worker correction, Node 20/current qualification,
-  balanced Git-process evidence, and remaining clean-checkout release boundary.
+  and balanced Git-process evidence.
+- [POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md) records the passing clean
+  TP-01–TP-18 development gate for the committed correction.
 - [DESIGN.md](DESIGN.md) retains the chronological experiment rationale, while
   [CHANGELOG.md](CHANGELOG.md) records delivered behavior by version.
 
