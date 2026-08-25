@@ -8,22 +8,21 @@
 | Document version | 1.0 |
 | Product baseline | v0.8.x release / v0.9 development |
 | Status | Active product baseline |
-| Last updated | 2026-08-21 |
+| Last updated | 2026-08-25 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
 | Decision owner | Repository maintainers |
 
 This document defines what the product is intended to become, which behaviors
-are required, and how progress is judged. [ARCHITECTURE.md](ARCHITECTURE.md)
+are required, and how progress is judged. [architecture.md](architecture.md)
 describes how the current implementation works. Accepted architectural
-decisions live in [docs/adr](docs/adr/README.md). [DESIGN.md](DESIGN.md) is a
-chronological design rationale and experiment log; where documents disagree,
-the order of authority is:
+decisions live in [adr](adr/README.md). Where documents disagree, the order of
+authority is:
 
 1. an accepted or superseding ADR for the specific decision;
 2. this PRD for product intent and requirements;
-3. `ARCHITECTURE.md` for the implemented system;
+3. `architecture.md` for the implemented system;
 4. tests and executable schemas for exact current behavior;
-5. `DESIGN.md`, `README.md`, and changelog narrative.
+5. `README.md` and changelog narrative.
 
 ## 1. Executive summary
 
@@ -314,7 +313,7 @@ baseline after v0.8.0.
 | FR-LAND-06 | P1 | Exact target/source tree equality shall be visible even when history differs. | Implemented | Merge plan reports `same state`. |
 | FR-LAND-07 | P1 | Landing messages shall retain portable trailers for mode, source revision, and absorbed logical changes. | Implemented | Git commit message is useful even when notes are not fetched. |
 | FR-LAND-08 | P1 | A landing that conflicts before commit shall publish no false receipt. | Implemented | Conflict exits without receipt creation. |
-| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Implemented experimentally | [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted; plan, forecast, supervised application, recovery, and portable completed receipts are integration-tested for linear v1. |
+| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Implemented experimentally | [ADR-0011](adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted; plan, forecast, supervised application, recovery, and portable completed receipts are integration-tested for linear v1. |
 | FR-LAND-10 | P2 | A higher-level landing transaction shall eventually support policy checks and atomic publication. | Deferred | Requires a trusted coordinator or protocol gateway. |
 
 ### 9.4 Causal merge planning
@@ -617,18 +616,11 @@ default corpus represented 2,025 semantic entities with 11,240 bytes of sparse
 manifest data instead of 655,545 equivalent expanded bytes (98.29% less).
 These are regression baselines, not universal performance guarantees.
 
-The 2026-08-24 forced-session correction run produced the same 12-change
-forecast with 25 session processes versus 64 ordinary processes (60.9% fewer).
-The corrected full suite passed three consecutive forced runs on Node 26, one
-ordinary run, and one complete forced run on Node 20 with balanced Git
-start/exit traces and no leaked descendants. See
-[FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md).
-The committed correction then passed the complete clean-checkout TP-01 through
-TP-18 development gate; see
-[POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md).
-The committed workspace lifecycle and immutable source-checkpoint increment
-also passed that complete gate; see
-[WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md).
+The Windows forced-session correction preserved the 12-change forecast while
+reducing process launches from 64 to 25. Regression coverage now asserts lazy
+worker startup, orderly shutdown, and no-worker preflight behavior. Historical
+execution details remain available in Git history; current qualification
+commands are defined in [testing.md](testing.md).
 
 The clean-commit `vcs-lab.repository-scale-benchmark/v1` representative Windows
 profile measured the plain registry read at 0.31 ms with no Git processes and
@@ -637,8 +629,7 @@ contrast, status for 12 workspaces used 36 processes and a 1,597.78 ms median,
 while 50 retained resolutions used 103 processes and a 5,503.66 ms median.
 This is host-specific synthetic evidence: it selects batching for those two
 paths and does not establish a production scale target. See
-[ADR-0013](docs/adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md)
-and [REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md).
+[ADR-0013](adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md).
 
 ## 14. Release and quality gates
 

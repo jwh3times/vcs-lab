@@ -141,5 +141,7 @@ persisted index or resident service.
 - CLI surface and human summary: `src/cli.js`
 - Acceptance coverage: `test/integration.test.js`
 - Companion documentation benchmark: `src/specs.js`
-- Clean-commit qualification and representative measurements:
-  [REPOSITORY_SCALE_TEST_RESULTS.md](../../REPOSITORY_SCALE_TEST_RESULTS.md)
+- Representative measurements and the decision they support: this ADR's
+  Initial evidence section
+- Active batching implementation:
+  [GitHub issue #1](https://github.com/jwh3times/vcs-lab/issues/1)

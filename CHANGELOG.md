@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Consolidate maintained product, architecture, testing, and decision records
+  under `docs/`; move active implementation briefs to issue tracking and stop
+  committing session handoffs or timestamped test-result reports.
+
 - Add bounded `vlab metadata benchmark` fixtures for history, linked worktrees,
   workspace registry/status, causal notes, retained resolutions, and complete
   metadata inventory, with semantic equality across samples and trendable

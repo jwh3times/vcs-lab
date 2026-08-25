@@ -1,9 +1,9 @@
 # Architecture decision records
 
 Architecture decision records (ADRs) capture decisions whose constraints should
-survive refactoring and session boundaries. They complement the product
-requirements in [../../PRD.md](../../PRD.md) and the implemented architecture in
-[../../ARCHITECTURE.md](../../ARCHITECTURE.md).
+survive refactoring and session boundaries. They complement the
+[product requirements](../product.md) and the implemented
+[architecture](../architecture.md).
 
 ## Status vocabulary
 
@@ -42,8 +42,9 @@ requirements in [../../PRD.md](../../PRD.md) and the implemented architecture in
 5. If changing an accepted decision, add a new ADR and mark the old one
    `Superseded by ADR-NNNN`; do not rewrite its historical rationale.
 6. Add or update tests for any observable invariant.
-7. Update this index, `ARCHITECTURE.md`, and `SESSION_HANDOFF.md` when the current
-   system or next-session instructions change.
+7. Update this index, `../architecture.md`, and affected product or testing
+   documentation when the current system changes. Track active implementation
+   instructions in an issue rather than a session handoff document.
 
 An ADR can be accepted in the same commit as its initial implementation when the
 decision is already established by tested repository behavior. Speculative

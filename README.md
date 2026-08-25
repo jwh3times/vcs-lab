@@ -27,41 +27,15 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 
 ## Documentation map
 
-- [PRD.md](PRD.md) defines the product problem, principles, identified
-  requirements, success metrics, release gates, and roadmap.
-- [ARCHITECTURE.md](ARCHITECTURE.md) maps the current implementation, schemas,
-  persistence scopes, runtime flows, safety boundaries, and known debt.
-- [docs/adr](docs/adr/README.md) records the decisions that should not be
-  casually reversed during refactoring.
-- [SESSION_HANDOFF.md](SESSION_HANDOFF.md) is the detailed new-session pickup
-  guide, including the exact source map, validation commands, preserved user
-  intent, and recommended next release track.
-- [SCAN_BATCHING_HANDOFF.md](SCAN_BATCHING_HANDOFF.md) is the bounded
-  fresh-worktree brief for the next measured workspace-status and
-  resolution-catalog optimization.
-- [TEST_PLAN.md](TEST_PLAN.md) is the complete PowerShell development, manual
-  acceptance, portability, integrity, and conditional release test procedure.
-- [TEST_RESULTS.md](TEST_RESULTS.md) records the 2026-08-22 execution evidence,
-  including the prematurely interrupted forced-session gate that motivated test
-  plan revision 2.
-- [REVISED_TEST_RESULTS.md](REVISED_TEST_RESULTS.md) records the 2026-08-23
-  revision-2 timeout and retained evidence.
-- [FORCED_SESSION_TEST_PROCESS.md](FORCED_SESSION_TEST_PROCESS.md) defines the
-  focused reproduction, process-tree capture, correction, and qualification
-  procedure for that release-blocking timeout.
-- [FORCED_SESSION_TEST_RESULTS.md](FORCED_SESSION_TEST_RESULTS.md) records the
-  reproduced startup race, lazy-worker correction, Node 20/current qualification,
-  and balanced Git-process evidence.
-- [POST_FIX_TEST_RESULTS.md](POST_FIX_TEST_RESULTS.md) records the passing clean
-  TP-01–TP-18 development gate for the committed correction.
-- [WORKSPACE_LIFECYCLE_TEST_RESULTS.md](WORKSPACE_LIFECYCLE_TEST_RESULTS.md)
-  records the passing clean TP-01–TP-18 gate for workspace lifecycle and
-  immutable source-checkpoint forecasting.
-- [REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md) records
-  the clean TP-01–TP-18 gate and representative repository/specification scale
-  measurements for ADR-0013.
-- [DESIGN.md](DESIGN.md) retains the chronological experiment rationale, while
-  [CHANGELOG.md](CHANGELOG.md) records delivered behavior by version.
+- [docs](docs/README.md) indexes the maintained product, architecture, testing,
+  and decision records and explains where transient evidence belongs.
+- [Product requirements](docs/product.md) defines product intent, requirements,
+  success metrics, release gates, and roadmap.
+- [Architecture](docs/architecture.md) maps the current implementation, schemas,
+  runtime flows, safety boundaries, and known debt.
+- [Architecture decisions](docs/adr/README.md) records constraints that should
+  not be casually reversed; [CHANGELOG.md](CHANGELOG.md) records delivered
+  behavior by version.
 
 ## Requirements
 
@@ -661,7 +635,7 @@ Status for 12 workspaces took 1,597.78 ms and 36 processes; 50 resolutions took
 5,503.66 ms and 103 processes. This synthetic observation selects batching for
 workspace status and resolution traversal. It does not justify an incremental
 index, a resident service, or a production scale claim. See
-[REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md).
+[ADR-0013](docs/adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md).
 
 For command-by-command timings, enable tracing directly on one invocation:
 

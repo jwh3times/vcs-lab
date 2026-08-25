@@ -6,14 +6,14 @@
 | --- | --- |
 | Architecture baseline | v0.9 development after v0.8.0 |
 | Status | Current implementation reference |
-| Last updated | 2026-08-24 |
+| Last updated | 2026-08-25 |
 | Runtime | Node.js 20+ (ES modules), Git 2.38+ |
 | External runtime dependencies | None beyond Node.js and Git |
 
-This document explains the system that exists. [PRD.md](PRD.md) defines the
-desired product and its requirements. [docs/adr](docs/adr/README.md) records
-decisions and their consequences. [DESIGN.md](DESIGN.md) retains the experiment
-history and detailed rationale that led here.
+This document explains the system that exists. [product.md](product.md) defines
+the desired product and its requirements. [adr](adr/README.md) records decisions
+and their consequences. Delivered behavior and historical corrections are
+summarized in the repository [changelog](../CHANGELOG.md).
 
 When implementation and this document differ, implementation plus tests are
 the current fact, but the discrepancy is a documentation defect. When an
@@ -549,7 +549,7 @@ engine. Future learned candidates must be a visibly lower confidence tier.
 `vlab workspace create` records a logical descriptor and creates a normal
 linked worktree on `vlab/ws/<slug>`. The compatibility branch is necessary for
 Git's current worktree retention semantics, not the desired final workspace
-model. [ADR-0012](docs/adr/0012-treat-workspace-lifecycle-as-reversible-materialization-and-drafts-as-checkpoint-inputs.md)
+model. [ADR-0012](adr/0012-treat-workspace-lifecycle-as-reversible-materialization-and-drafts-as-checkpoint-inputs.md)
 defines `active` and `archived` as materialization states of that stable logical
 descriptor.
 
@@ -845,9 +845,8 @@ three Git processes per workspace status and 103 processes for the 50-item
 resolution catalog, while the registry read used none and the 300-target note
 catalog used two. ADR-0013 therefore selects invocation-local batching for
 workspace status and resolution traversal before persistent indexes. One local
-synthetic run cannot recommend a resident service. Exact clean-commit evidence
-is recorded in
-[REPOSITORY_SCALE_TEST_RESULTS.md](REPOSITORY_SCALE_TEST_RESULTS.md).
+synthetic run cannot recommend a resident service. ADR-0013 records the
+representative baseline and the resulting decision.
 
 ## 19. Testing architecture
 
@@ -938,7 +937,7 @@ New capabilities should enter through versioned contracts:
 
 ## 22. Candidate next architectural increment
 
-Metadata portability is implemented without a server. [ADR-0011](docs/adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md)
+Metadata portability is implemented without a server. [ADR-0011](adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md)
 is Accepted, and its linear plan, isolated forecast, supervised application,
 recovery journal, and portable completed-receipt slices are implemented.
 
