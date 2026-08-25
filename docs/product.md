@@ -654,6 +654,11 @@ Passing laboratory gates is not a production claim.
 Roadmap themes are directional; a version number is not a promise until its
 scope is accepted in an issue, plan, or ADR.
 
+The maintained [roadmap](roadmap.md) turns these product themes and gates into
+a prioritized execution sequence and traces every incomplete requirement to a
+future horizon. This section remains authoritative for product investment
+criteria.
+
 ### Completed experimental sequence
 
 - **v0.1:** logical IDs, landing receipts, causal planner, workspaces, Markdown

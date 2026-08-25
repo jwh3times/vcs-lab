@@ -8,6 +8,8 @@ the versioned record of delivered behavior.
 
 - [Product requirements](product.md) — product intent, requirements, priorities,
   success metrics, quality gates, and roadmap.
+- [Roadmap](roadmap.md) — delivered baseline, prioritized future increments,
+  evidence gates, and incomplete-requirement traceability.
 - [Architecture](architecture.md) — implemented components, persisted state,
   runtime flows, invariants, failure handling, and known debt.
 - [Testing](testing.md) — supported validation commands and release evidence

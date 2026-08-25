@@ -31,6 +31,8 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
   and decision records and explains where transient evidence belongs.
 - [Product requirements](docs/product.md) defines product intent, requirements,
   success metrics, release gates, and roadmap.
+- [Roadmap](docs/roadmap.md) separates delivered, implemented-but-unreleased,
+  next, candidate, and evidence-gated work.
 - [Architecture](docs/architecture.md) maps the current implementation, schemas,
   runtime flows, safety boundaries, and known debt.
 - [Architecture decisions](docs/adr/README.md) records constraints that should
