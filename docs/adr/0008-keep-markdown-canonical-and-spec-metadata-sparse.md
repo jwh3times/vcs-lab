@@ -57,6 +57,9 @@ semantics but measured 655,545 bytes for a corpus whose sparse equivalent is
 - **No stable metadata:** rejected because entity history, review anchors, and
   deterministic block merge require persistent artifact identity.
 
+**Amendment 2026-08-28:** the gate referenced above is Gate B of
+[ADR-0014](0014-split-the-native-implementation-gate-into-engine-and-store-gates.md).
+
 ## Invariant
 
 The sidecar must never become the only place from which canonical document

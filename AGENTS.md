@@ -12,7 +12,7 @@ repositories. Maintained demonstrations and repository utilities live in
 
 ## Build, Test, and Development Commands
 
-The project requires Node.js 20+ and Git 2.38+. It has no runtime dependencies
+The project requires Node.js 20+ and Git 2.40+. It has no runtime dependencies
 or build step.
 
 - `npm test` runs the complete Node integration suite.

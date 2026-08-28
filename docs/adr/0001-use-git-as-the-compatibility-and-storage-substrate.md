@@ -73,3 +73,10 @@ ADR.
 The PRD's native implementation gate is satisfied and measured Git constraints
 cannot be addressed through batching, explicit metadata transport, or a narrow
 gateway.
+
+**Amendment 2026-08-28 (ADR-0014):** the gate named above is Gate B of
+[ADR-0014](0014-split-the-native-implementation-gate-into-engine-and-store-gates.md).
+A semantics-preserving native engine under Gate A does not reconsider this
+decision; a canonical native store
+([ADR-0015](0015-adopt-a-phased-native-core-program-with-rust.md) phase 5)
+requires the partially superseding ADR named there.

@@ -7,7 +7,7 @@ run history-changing manual experiments in a valuable repository.
 ## Requirements
 
 - Node.js 20 or newer
-- Git 2.38 or newer
+- Git 2.40 or newer
 - a clean source checkout for release qualification
 - enough system temporary space for disposable repositories
 
@@ -78,7 +78,9 @@ A release candidate is eligible only when:
 6. no VCS Lab Node or Git process remains after completion;
 7. version constants, package metadata, changelog, and release tag agree; and
 8. the packed artifact passes an install and smoke test outside the source
-   checkout.
+   checkout; and
+9. when a committed benchmark baseline exists, the automated regression check
+   that consumes it passes.
 
 New schemas, migration behavior, replay algorithms, or performance decisions
 require focused disposable-repository coverage in addition to this general

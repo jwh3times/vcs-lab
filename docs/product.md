@@ -8,7 +8,7 @@
 | Document version | 1.0 |
 | Product baseline | v0.9.0 release |
 | Status | Active product baseline |
-| Last updated | 2026-08-27 |
+| Last updated | 2026-08-28 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
 | Decision owner | Repository maintainers |
 
@@ -166,8 +166,9 @@ The v0.x laboratory does not claim to provide:
 - a hosted forge, code-review product, or authorization service;
 - cryptographic trust for locally generated receipts;
 - automatic remote synchronization of all causal metadata;
-- a native content-addressed database or wire protocol;
-- virtual or lazy filesystem materialization;
+- a native content-addressed database or wire protocol before Gate B of the
+  native implementation gate (§15);
+- virtual or lazy filesystem materialization before Gate B;
 - safe AI-authored conflict resolution without explicit review;
 - semantic merge for arbitrary programming languages or binary documents;
 - requirement-level byte merging nested inside a heading section;
@@ -239,7 +240,7 @@ ADR that explains why.
 | ID | Principle | Consequence |
 | --- | --- | --- |
 | GP-01 | Git compatibility before replacement | Every v0.x state-changing operation produces valid Git objects and leaves standard recovery commands available. |
-| GP-02 | Identity is plural | Commit, tree, logical change, application, landing, workspace, and semantic entity identities must not be collapsed into one identifier. |
+| GP-02 | Identity is plural | Commit, tree, logical change, application, landing, workspace, and semantic entity identities must not be collapsed into one identifier. A content-addressed record identity (such as a fact digest) identifies a claim, never a tree, commit, or intent. |
 | GP-03 | Exact proof outranks similarity | Ancestry, stable IDs, and receipts may prove coverage; patch similarity remains advisory. |
 | GP-04 | No silent heuristics | A lower-confidence equivalence or merge decision must be shown and explicitly accepted. |
 | GP-05 | Forecast before broad mutation | Multi-change and automatically resolved operations should be inspectable and pinned before application. |
@@ -249,7 +250,7 @@ ADR that explains why.
 | GP-09 | Every optimization preserves semantics | Performance paths must produce the same plan, decisions, tree, and receipts as the ordinary Git path. |
 | GP-10 | Mutation is recoverable | Operations either complete with durable records, pause with sufficient context, or abort to the exact starting commit. |
 | GP-11 | Trust is explicit | A record being present is not equivalent to it being signed, authorized, or server-approved. |
-| GP-12 | Measure before replacing | Native storage, daemons, and protocol components require evidence from the compatibility layer. |
+| GP-12 | Measure before replacing | Native storage, daemons, and protocol components require evidence from the compatibility layer. A semantics-preserving alternative engine may exist behind an equality-tested seam before any replacement decision (§15 Gate A). |
 
 ## 8. Product terminology and identity model
 
@@ -436,7 +437,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 
 | ID | Requirement |
 | --- | --- |
-| NFR-PORT-01 | Supported baseline is Node.js 20+ and Git 2.38+ until changed by a documented release decision. |
+| NFR-PORT-01 | Supported baseline is Node.js 20+ and Git 2.40+ (raised from 2.38 on 2026-08-28 by ADR-0015 for `git merge-tree --merge-base`) until changed by a documented release decision. |
 | NFR-PORT-02 | Tests shall run on Windows and a POSIX platform; newline-sensitive behavior shall state whether LF normalization is semantic. |
 | NFR-PORT-03 | Paths stored for portable identity shall use repository-relative normalized form; local materialization paths may remain platform-specific. |
 | NFR-PORT-04 | Repositories using SHA-1 or SHA-256 object formats shall not be rejected by hard-coded OID length assumptions. |
@@ -451,6 +452,8 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | NFR-PERF-03 | Performance reports shall include process count and semantic equality, not wall time alone. |
 | NFR-PERF-04 | The prototype shall avoid a resident service until measured use cases justify lifecycle, locking, and security complexity. |
 | NFR-PERF-05 | No fixed production scale claim is made until representative large-repository fixtures and targets are ratified. |
+| NFR-PERF-06 | Per-invocation latency budgets for agent loops shall be measured per host by the benchmark suite; once a baseline is committed with the automated regression check that consumes it (`docs/README.md`), a regression against it blocks a release. |
+| NFR-PERF-07 | Storage efficiency shall be measured as bytes on disk and bytes transferred for repository content and causal metadata, compared against plain Git and any named alternative on the same fixture. |
 
 ### 10.4 Durability and recoverability
 
@@ -608,6 +611,14 @@ stable IDs, or auditability.
 - Sparse manifest bytes per entity and ratio to source bytes.
 - Result equality between optimized and ordinary compatibility paths.
 - Per-entity process amplification for workspace, note, and resolution scans.
+- Elapsed time per operation per host against plain Git's best mode
+  (`merge-tree`, sparse cones, parallel status) and any named alternative on
+  the same workload, with identical semantic results.
+- Bytes on disk and bytes transferred for repository content and causal
+  metadata against plain Git and any named alternative (storage compression).
+- Agent-fleet metrics from dogfooding: Git processes per agent-minute,
+  workspace creation cost and materialized bytes, checkpoint cost, and
+  forecast reproduction rate on real sessions.
 
 The v0.7 release demonstration reduced a 12-change forecast from 52 to 25 Git
 process launches (51.9%) while preserving the complete forecast. The v0.6
@@ -711,22 +722,56 @@ manifest. It is not a signing or authorization layer.
 - Protocol capability negotiation and optional remote gateway.
 - Signed receipt envelopes and trusted landing policy.
 - Additional deterministic structured-document adapters.
-- Native content-addressed metadata/store experiments after exit criteria are
+- Git-native wins before native code: `git merge-tree` forecast simulation,
+  sparse cones from workspace focus, and commit-graph, multi-pack-index, and
+  fsmonitor enablement.
+- A phased native core in Rust behind the existing contracts (ADR-0015),
+  entering under Gate A of the native implementation gate.
+- Native content-addressed metadata/store experiments after Gate B is
   satisfied.
 
 ### Native implementation gate
 
-A native store or protocol prototype should begin only when trials demonstrate:
+[ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
+splits the gate into two.
 
-- users prefer compact landing and use receipts to recover squash causality;
-- stable logical IDs materially improve rewrite and cherry-pick workflows;
-- forecasts reproduce predicted trees reliably;
-- worktree workspace/checkpoint behavior improves parallel-agent operation;
-- exact resolution reuse avoids repeated work without unsafe automation;
-- stable specification entities and deterministic merge help real corpora;
-- metadata portability requirements cannot be met cleanly with Git refs/notes;
-- measured storage, process, or filesystem overhead is material enough to
-  justify a new subsystem.
+**Gate A: semantics-preserving native engine.** An engine that implements
+existing contracts a second time may begin when all of:
+
+1. a published schema and conformance-fixture catalog and a single
+   equality-tested read-side engine seam exist;
+2. the Windows post-batching benchmark rerun and a Git-best-mode baseline
+   exist; and
+3. a named per-command budget on a representative Windows or OneDrive host
+   that the batched Git path misses is recorded in the engine's ADR.
+
+Gate A work passes the complete suite in every engine mode with identical
+domain JSON, is reversible, never moves a receipt-publishing path between
+engines before an equality test exists for it, adds only derived deletable
+caches and no canonical record store or persisted-contract change, and is
+removed from the package if it has not met its named budget within two minor
+releases after the engine first ships (ADR-0014).
+
+**Gate B: semantics-changing native store, protocol, or draft stacks.** Begins
+only when trials demonstrate all of:
+
+1. users prefer compact landing and use receipts to recover squash causality;
+2. stable logical IDs materially improve rewrite and cherry-pick workflows;
+3. forecasts reproduce predicted trees reliably;
+4. worktree workspace/checkpoint behavior improves parallel-agent operation;
+5. exact resolution reuse avoids repeated work without unsafe automation;
+6. stable specification entities and deterministic merge help real corpora;
+7. metadata portability requirements cannot be met cleanly with Git refs/notes;
+8. measured storage, process, or filesystem overhead is material enough to
+   justify a new subsystem; and
+9. real agent-workload evidence from at least two hosts (one Windows or
+   OneDrive, one POSIX) and one real repository shows the §13.3 metrics for
+   actual agent sessions.
+
+**Evidence plan.** The user-value and workload conditions are satisfied by
+dogfooding: the maintainer's coding agents use `vlab` on this repository and
+other real repositories, with telemetry retained as CI artifacts or issue
+attachments and summarized in ADRs when it supports a decision.
 
 ## 16. Risks and mitigations
 
@@ -741,7 +786,9 @@ A native store or protocol prototype should begin only when trials demonstrate:
 | Sidecar conflicts dominate document conflicts | Poor usability | Keep sidecars sparse, derive ordinary fields, batch reads, and semantically merge them with canonical Markdown. |
 | Persistent Git worker deadlocks or serves stale data | Hang or wrong result | Bound buffers/timeouts, cache only immutable expressions, invalidate on mutation, isolate by worktree, and fall back. |
 | Many agents overload worktree and metadata scans | Latency and coordination failures | Use the repository-scale schema to remove measured per-entity process amplification first; require post-batching evidence before adding indexes or claiming high scale. |
-| Native rewrite begins too early | Complexity and adoption failure | Enforce measured exit criteria and preserve Git as oracle during experimentation. |
+| Native rewrite begins too early | Complexity and adoption failure | Enforce measured exit criteria and preserve Git as oracle during experimentation; enter native code only behind an equality-tested seam with a sunset (ADR-0014). |
+| A native engine adds a second implementation of every read contract | Divergence and maintenance load for one maintainer | Automated equality in every engine mode, per-operation fallback, `engine`/`fallbacks` in every result, and removal at the ADR-0014 sunset. |
+| Rust toolchain, packaging, and library churn | Velocity loss, unsupported platforms, silent fallback | Funded explicitly (ADR-0015): seam-first order, pinned backends behind a trait, prebuilt bindings with a guaranteed JavaScript fallback, fuzzed parsers. |
 | Documentation drifts from executable behavior | Incorrect future implementation | Link requirements to schemas/tests, keep a release handoff, and update docs in every invariant-changing release. |
 
 ## 17. Open product questions
@@ -782,8 +829,13 @@ that a Git-compatible causal and semantic layer can:
   reason about;
 - safely automate exact decisions while exposing ambiguity;
 - scale specification identity without duplicating the corpus;
-- provide a credible, measured contract for a later native protocol.
+- provide a credible, measured contract for a native protocol that is more
+  efficient than Git and any named alternative on the same workload and host:
+  lower elapsed time per operation and fewer bytes stored and transferred
+  (speed and storage compression), with identical semantic results.
 
 It fails if the added metadata is routinely missing, untrusted, larger or more
 fragile than the problem it solves; if users cannot recover with normal Git;
-or if automation hides uncertain decisions behind a simpler-looking command.
+if a native path is slower or larger than plain Git's best mode on the
+workload and host where it claims efficiency; or if automation hides uncertain
+decisions behind a simpler-looking command.

@@ -42,7 +42,7 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 ## Requirements
 
 - Node.js 20 or newer
-- Git 2.38 or newer
+- Git 2.40 or newer
 
 It has no npm dependencies and does not need a build step.
 

@@ -6,8 +6,8 @@
 | --- | --- |
 | Baseline | v0.9.0 released |
 | Status | Maintained execution guide |
-| Last reviewed | 2026-08-27 |
-| Planning horizon | Next bounded increment through native-implementation gate |
+| Last reviewed | 2026-08-28 |
+| Planning horizon | Next bounded increment through the phased native-core program |
 
 This roadmap synthesizes the current
 [product requirements](product.md), [architecture](architecture.md),
@@ -31,7 +31,12 @@ Roadmap states mean:
 
 The laboratory has already tested the core causal model over ordinary Git.
 v0.9.0 releases the causal-rebase, workspace-lifecycle, checkpoint-forecast,
-scale-benchmark, and scan-batching work accumulated since v0.8.0.
+scale-benchmark, and scan-batching work accumulated since v0.8.0. On 2026-08-28
+[ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
+split the native implementation gate and
+[ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) adopted a
+phased native-core program with Rust as the core language, entering only after
+a Git-native first increment.
 
 | Area | Status | Current result |
 | --- | --- | --- |
@@ -44,8 +49,9 @@ scale-benchmark, and scan-batching work accumulated since v0.8.0.
 | Scale evidence and scan batching | Delivered | A synthetic repository fixture identified workspace-status and resolution-catalog process amplification; the selected invocation-local batching is implemented and the rerun shows one process per workspace and six for the resolution catalog. Nothing justifies an index or service. |
 | Trust, remote protocol, and native storage | Gated | Integrity exists, but signatures, authorization, capability negotiation, trusted landing, and a native store are intentionally absent. |
 
-The first pending work is therefore qualification and release of existing
-semantics plus broader evidence, not another storage layer or service.
+The first pending work is therefore Horizon 1.5's Git-native wins and the
+Windows rerun, then the contract catalog and engine seam that Gate A requires;
+no storage layer or service is approved.
 
 ## Horizon 1: close the current development line
 
@@ -96,6 +102,9 @@ If both paths fall under the configured budget, stop optimizing them and gather
 larger real-repository and multi-host evidence. If an already-batched path
 remains over budget, propose an incremental catalog in a new ADR. One synthetic
 host result must not recommend a daemon or fixed production target.
+Under-budget results end Horizon 1 optimization; they neither satisfy nor
+block Gate A of ADR-0014, which needs a named Windows/OneDrive budget that the
+batched path misses, measured against Git's best mode (Horizon 1.5).
 
 ### 3. Qualify and release the accumulated v0.9 work
 
@@ -117,6 +126,34 @@ new scan batching. Representative non-Windows and real-repository performance
 evidence is a follow-on architecture gate, not a production claim implied by
 the release.
 
+## Horizon 1.5: Git-native wins before native code
+
+Program phase 0a of ADR-0015. Exhaust what stock Git already offers, so every
+later native claim is measured against Git's best mode rather than against the
+current `vlab` path:
+
+1. Simulate clean forecast steps with `git merge-tree --write-tree
+   --merge-base` behind a flag mirroring the session-flag pattern, falling back
+   to the temporary-worktree simulator when a step conflicts or a resolution or
+   Markdown driver must run; pin per-step and predicted trees exactly as
+   `vcs-lab.forecast/v2` and `vcs-lab.rebase-forecast/v1` do today; evaluate
+   `git replay` as an alternative or oracle; document `rerere` interaction.
+2. Produce the pending Windows post-batching rerun of
+   `vcs-lab.repository-scale-benchmark/v1` and record it in an ADR-0013
+   addendum.
+3. Optionally enable commit-graph, multi-pack index, and fsmonitor in
+   `vlab init`, and derive sparse-checkout cones from workspace focus, with
+   workspace-creation and materialized-bytes phases added to a v2 benchmark
+   profile.
+
+Exit criteria: predicted and per-step trees are byte-identical between the two
+simulators on the whole suite in both session modes; the 12-change demo
+forecast uses a single-digit Git process count with no temporary worktree;
+divergences are documented as Git constraints with the flag off for those
+cases; the Windows post-batching rerun and the Git-best-mode baseline are
+recorded (ADR-0014 Gate A item 2); the supported Git baseline is 2.40. This
+horizon needs no new language and is reversible by flag.
+
 ## Horizon 2: harden and publish the local contracts
 
 These items make the implemented laboratory easier to integrate and safer to
@@ -124,7 +161,20 @@ extend. They should precede a remote protocol or trust layer.
 
 ### 1. Publish machine-readable contracts
 
+Program phase 0b of ADR-0015 and Gate A item 1 of ADR-0014.
+
 - Create a versioned CLI output/schema catalog to complete FR-GIT-06.
+- Freeze an RFC 8785 canonical-JSON profile with shared test vectors that
+  reserve signature and repository-identity fields.
+- Introduce a single read-side engine seam (`src/engine.js`) with an engine
+  selector, a third integration-suite mode, a differential doctor mode, and
+  `engine`/`fallbacks` fields in metrics.
+- Exit criteria for program phase 0b: the suite passes in ordinary,
+  forced-session, and passthrough-native modes; no domain module calls
+  `runGit` for reads directly; Gate A item 1 is satisfied and item 2 is
+  carried from Horizon 1.5; the phase 1 ADR names the Gate A item 3 budget
+  from those runs before any phase 1 code, or the program stops here with a
+  complete outcome.
 - Publish standalone JSON Schema documents for persisted and automation-facing
   records while retaining executable validators as the runtime authority.
 - Define compatibility, migration, resource-bound, and unknown-version behavior
@@ -220,22 +270,45 @@ Integrity, signature validity, actor authorization, and landing policy must
 remain separate results. Remote metadata conflicts must never overwrite local
 facts silently.
 
-## Horizon 5: decide whether a native subsystem is warranted
+## Horizon 5: the phased native-core program
 
-No native database, resident service, or replacement protocol is currently
-approved. Use this decision sequence:
+[ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) replaces
+the open question "is a native subsystem warranted" with a sequence whose
+phases enter under the two gates of ADR-0014. No canonical native store,
+resident service, or wire protocol is approved before its phase and gate.
+
+| Phase | Gate | Scope | Exit criterion | Reversibility |
+| --- | --- | --- | --- | --- |
+| 0a Git-native wins | none | Horizon 1.5 | Horizon 1.5 exit criteria | Flag only; complete outcome on its own. |
+| 0b Contract freeze and engine seam | none | Horizon 2 item 1 | Horizon 2 item 1 exit criteria | Pure refactor. |
+| 1 Native read engine in Rust | Gate A | Repository context, batched object reads, peeling, history walks, merge-base, ancestry, refs, notes reads, and worktree-scoped status through `vlab-core` behind the seam; per-operation backend matrix in its ADR; bounded jj-lib spike | Suite green in native mode on Linux and Windows with identical JSON; zero Git processes for history, registry, note-catalog, resolution-catalog, and per-workspace status in the scale benchmark; the Gate A named budget met; `git fsck` clean; no lingering processes | Engine selector or uninstall the binding; kill switch and two-release sunset. |
+| 2 Native planning and status | Gate A | Merge-plan and rebase-plan construction, receipt reachability, Change-ID extraction, the advisory `git-patch-id-heuristic` proof (a stable patch-id proof, if wanted, gets its own ADR), spec blob-identity checks; FR-ID-06 audit; FR-PLAN-08 proof bundle and verifier | Plan fingerprints byte-identical across engines on the suite plus at least 1,000 generated histories; status semantics preserved at zero processes | Per-operation fallback. |
+| 3 Derived catalog | Gate A, plus the incremental-catalog row below (an already-batched path over a representative budget, per ADR-0013) | Deletable fact segments with per-record digests, rebuildable indexes, `builtFrom` stamps, reindex command, approval facts, advisory leases in a mutable side file; caches outside synced folders; notes and refs remain canonical | 5,000-fact benchmark under budget with zero processes on both hosts; deleting the catalog yields identical output; torn-tail and stale-catalog recovery pass; writer-lock waits under 10 ms at 16 concurrent agents | Delete the directory. |
+| 4 In-memory forecasts and native mutation | Gate A | Ref transactions and object writes for checkpoints and retained resolutions; virtual three-way merge applying exact-resolution memory and Markdown section merge, with `git merge-tree` as co-oracle | Predicted-tree equality on the suite plus at least 1,000 generated three-way cases; divergence always surfaces as a blocker; FR-REC-06 apply-time check retained | Flag; droppable after 0a evidence. |
+| 5 Canonical fact log, transport, draft stacks | Gate B | Fact log canonical with notes, refs, and registry regenerated at finalization; notes import; envelope v2 as a strict superset of v1; Git-carried fact transport; private draft stacks via hidden refs (FR-WS-08); optional thin Rust CLI with byte-identical JSON | All nine Gate B conditions with an evidence table; v1 envelopes import and re-export byte-identically; the ADR partially superseding ADR-0001 accepted | Project, then delete the log. |
+| 6 Gateway; service only if the row below fires | Gate B | Horizon 4 in its order | No local planning, forecasting, or landing depends on the gateway | Optional. |
+
+The decision rows for catalogs and services remain in force inside that
+sequence:
 
 | Evidence | Permitted next step |
 | --- | --- |
 | A path launches per-entity Git processes | Batch within the invocation. |
 | An already-batched path exceeds a representative budget | Propose an incremental catalog with lifecycle, migration, and equality tests. |
 | Cross-command cost remains material on representative Windows and POSIX repositories after justified catalogs | Propose a resident-service ADR covering ownership, locking, security, crash recovery, upgrade, shutdown, and fallback. |
-| Git-backed metadata portability or semantics cannot meet the PRD's native-implementation criteria | Prototype a native store/protocol behind the existing observable contracts, with Git as oracle and escape hatch. |
+| All nine Gate B conditions of ADR-0014 have an evidence table naming schemas, hosts, and runs | Begin Horizon 5 phase 5 (canonical fact log, transport, draft stacks) behind the existing observable contracts, with Git as oracle and escape hatch. |
 
 Evidence must also show user value: receipts prevent real duplicate work,
 forecasts reproduce applied trees, workspace/checkpoint flows improve parallel
 work, resolution reuse avoids repeated effort safely, and semantic identity
-helps real document corpora. Performance alone is insufficient.
+helps real document corpora. Performance alone is insufficient. That evidence
+comes from dogfooding: the maintainer's own coding agents use `vlab` on this
+repository and other real repositories on a Windows or OneDrive host and a
+POSIX host, with telemetry retained per `docs/README.md`.
+
+Efficiency claims follow ADR-0014's definition: elapsed time per operation and
+bytes stored and transferred, per host, against plain Git's best mode and any
+named alternative, with identical semantic results.
 
 ## Requirement backlog
 
@@ -250,10 +323,10 @@ signals.
 | FR-LAND-10 | Deferred | Horizon 4 trusted coordinated landing |
 | FR-PLAN-08 | Planned | Horizons 2 and 4 portable verification |
 | FR-RES-07 | Planned | Horizon 3 isolated lower-confidence experiments |
-| FR-WS-08 | Deferred | Horizon 5 native-subsystem gate |
-| FR-WS-09 | Batched status implemented; multi-host evidence pending | Horizon 1 rerun on Windows, larger fixtures, and real repositories |
+| FR-WS-08 | Deferred | Horizon 5 phase 5 under Gate B |
+| FR-WS-09 | Batched status implemented; multi-host evidence pending | Horizon 1.5 Windows rerun, then Horizon 5 phase 1 zero-process status |
 | FR-SPEC-13 | Planned | Horizon 3 adapter conformance and expansion |
-| FR-PERF-09 | Evidence gate | Horizons 1 and 5 measurement decision |
+| FR-PERF-09 | Evidence gate | Horizon 5 phases 1-3 and the resident-service row |
 | FR-PROTO-06 | Deferred | Horizon 4 capability negotiation |
 | FR-TRUST-02, FR-TRUST-03 | Deferred | Horizon 4 actor trust and policy publication |
 
@@ -277,7 +350,15 @@ Resolve these questions only when the adjacent roadmap work creates evidence:
 - Use real corpus evidence to choose future structured formats and whether spec
   identity should remain a tracked sidecar.
 - Define causal-history compaction only with an auditability and old-plan
-  compatibility story.
+  compatibility story, including how an append-only fact log is pruned.
+- Decide the phase 1 backend matrix per operation before native code, and
+  whether to borrow from or depend on jj-lib, after the bounded spike.
+- Decide before Gate B whether an operation log and a second carrier of
+  `ch_*` in commit headers (FR-ID-07) are needed at all.
+- Choose the derived-catalog storage by a rebuild-from-segments test; derived
+  caches never live in synced folders.
+- Define retention-ref scaling, mixed-version client behavior if notes become
+  a projection, and where advisory leases live, before phase 5.
 
 ## Continuous quality rules
 
@@ -293,7 +374,8 @@ Every horizon inherits the accepted invariants:
   where they change a durable decision and integration coverage where they
   change observable behavior.
 
-Until the relevant gates are met, the roadmap explicitly excludes a daemon,
-database, automatic remote synchronization, cryptographic trust claims, live
-dirty-byte forecasting, automatic AI conflict resolution, and a production VCS
-claim.
+Until the relevant gates are met, the roadmap explicitly excludes a daemon, a
+canonical database (derived, deletable caches are permitted under Gate A per
+ADR-0014),
+automatic remote synchronization, cryptographic trust claims, live dirty-byte
+forecasting, automatic AI conflict resolution, and a production VCS claim.

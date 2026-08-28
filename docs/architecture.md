@@ -6,8 +6,8 @@
 | --- | --- |
 | Architecture baseline | v0.9.0 release |
 | Status | Current implementation reference |
-| Last updated | 2026-08-27 |
-| Runtime | Node.js 20+ (ES modules), Git 2.38+ |
+| Last updated | 2026-08-28 |
+| Runtime | Node.js 20+ (ES modules), Git 2.40+ |
 | External runtime dependencies | None beyond Node.js and Git |
 
 This document explains the system that exists. [product.md](product.md) defines
@@ -982,9 +982,15 @@ recovery journal, and portable completed-receipt slices are implemented.
 Workspace lifecycle and immutable source-checkpoint forecasting now have a
 bounded worktree-backed implementation. ADR-0013's repository-scale fixture and
 the batching it selected are both implemented, and the rerun shows no remaining
-per-entity process amplification. The next evidence step is to rerun the same
-schema on Windows, at larger fixture volume, and on real repositories; only an
-already-batched scan that remains over a representative budget becomes an
-incremental-catalog candidate. Target overlays and native draft stacks require
-a separate accepted contract. A server or native database still requires the
-PRD's measured exit criteria and representative multi-platform evidence.
+per-entity process amplification.
+
+[ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
+and [ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) set
+the next increments: first Git-native wins with no new language (clean
+forecast steps through `git merge-tree`, the Windows rerun, sparse cones), then
+a schema catalog and a read-side engine seam, then a Rust `vlab-core` behind
+that seam under Gate A with a kill switch and sunset. A canonical fact log with
+Git notes and refs as projections, private draft stacks, and any gateway
+remain behind Gate B. Git stays the exact-state store and escape hatch in
+every phase; a server or resident service still requires ADR-0013's row to
+fire on representative Windows and POSIX hosts.

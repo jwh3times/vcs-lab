@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Raise the supported Git baseline from 2.38 to 2.40 (`git merge-tree
+  --merge-base`; ADR-0015). Update README, AGENTS.md, testing, and
+  architecture requirements accordingly.
+- Accept ADR-0014: split the native implementation gate into a
+  semantics-preserving engine gate (Gate A, equality-tested seam with a
+  two-release sunset) and a semantics-changing store gate (Gate B, the
+  original eight conditions plus dogfooded agent-workload evidence), and
+  define "more efficient than Git" as elapsed time and bytes stored and
+  transferred against Git and any named alternative.
+- Accept ADR-0015: a phased native-core program with Rust as the core
+  language, entering behind existing CLI contracts only after a Git-native
+  first increment, with funded toolchain, packaging, and backend costs.
+- Add roadmap Horizon 1.5, the phased Horizon 5, NFR-PERF-06/07, a
+  benchmark-regression release-gate item, and dogfooding metrics in PRD §13.
+
 ## 0.9.0
 
 - Consolidate maintained product, architecture, testing, and decision records

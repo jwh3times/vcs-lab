@@ -31,6 +31,8 @@ survive refactoring and session boundaries. They complement the
 | [0011](0011-model-causal-rebase-as-a-forecasted-application-sequence.md) | Accepted | Model causal rebase as a forecasted application sequence |
 | [0012](0012-treat-workspace-lifecycle-as-reversible-materialization-and-drafts-as-checkpoint-inputs.md) | Accepted | Treat workspace lifecycle as reversible materialization and drafts as checkpoint inputs |
 | [0013](0013-measure-scan-amplification-before-adding-indexes-or-a-service.md) | Accepted | Measure scan amplification before adding indexes or a service |
+| [0014](0014-split-the-native-implementation-gate-into-engine-and-store-gates.md) | Accepted | Split the native implementation gate into engine and store gates |
+| [0015](0015-adopt-a-phased-native-core-program-with-rust.md) | Accepted | Adopt a phased native-core program with Rust as the core language |
 
 ## Creating or changing an ADR
 
