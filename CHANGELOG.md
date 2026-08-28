@@ -16,6 +16,10 @@
   first increment, with funded toolchain, packaging, and backend costs.
 - Add roadmap Horizon 1.5, the phased Horizon 5, NFR-PERF-06/07, a
   benchmark-regression release-gate item, and dogfooding metrics in PRD §13.
+- Add the `end-session` agent skill (memory, GitHub issues, durable records
+  and evidence, local-checkout cleanup) as the canonical `.agents/skills/`
+  copy with a generated `.claude/skills/` mirror, `npm run sync:agents` with a
+  `--check` mode, and a thin `CLAUDE.md` that imports `AGENTS.md`.
 
 ## 0.9.0
 

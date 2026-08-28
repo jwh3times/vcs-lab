@@ -14,7 +14,8 @@
     "demo:resolution": "node ./scripts/resolution-demo.mjs",
     "demo:forecast": "node ./scripts/forecast-demo.mjs",
     "demo:spec": "node ./scripts/spec-merge-demo.mjs",
-    "demo:git-session": "node ./scripts/git-session-demo.mjs"
+    "demo:git-session": "node ./scripts/git-session-demo.mjs",
+    "sync:agents": "node ./scripts/sync-agent-assets.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -57,6 +57,7 @@ Before merging a documentation or source change:
 ```bash
 git diff --check
 npm run test:docs
+npm run sync:agents -- --check
 node --check src/cli.js
 node --test
 ```
