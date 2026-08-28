@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -64,6 +65,110 @@ function makeRepo(t) {
   git(repo, "config", "user.email", "vcs-lab@example.test");
   t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
   return { repo, parent };
+}
+
+function writeBlob(repo, content) {
+  return exec("git", ["hash-object", "-w", "--stdin"], repo, { input: content });
+}
+
+function resolutionSignature(stages) {
+  const canonical = JSON.stringify({
+    algorithm: "ordered-three-way-blobs/v1",
+    base: stages.base ?? null,
+    ours: stages.ours ?? null,
+    theirs: stages.theirs ?? null,
+  });
+  return `rsig_${createHash("sha256").update(canonical).digest("hex")}`;
+}
+
+function writeVlabNote(repo, commit, note) {
+  exec(
+    "git",
+    ["notes", "--ref=vcs-lab", "add", "-f", "-F", "-", commit],
+    repo,
+    { input: typeof note === "string" ? note : `${JSON.stringify(note, null, 2)}\n` },
+  );
+}
+
+/**
+ * Publish a resolution record with Git plumbing exactly the way
+ * src/resolutions.js publishResolution does: a retention commit whose tree
+ * holds `result` (or is empty for a deleted result), a retention ref under
+ * refs/vcs-lab/resolutions/<signature>/<resultBlob|deleted>, and a note record
+ * attached to that commit. `treeBlob`, `ref`, `record`, and `note` let a test
+ * corrupt exactly one aspect of an otherwise valid publication.
+ */
+function publishRetainedResolution(repo, options) {
+  const {
+    id,
+    stages,
+    createdAt,
+    originalPath = "shared.txt",
+    originatingCommit,
+    resultBlob = null,
+    resultMode = resultBlob ? "100644" : null,
+    treeBlob = resultBlob,
+    record: recordOverrides = {},
+    note,
+  } = options;
+  const signature = recordOverrides.signature ?? resolutionSignature(stages);
+  const ref = options.ref ??
+    `refs/vcs-lab/resolutions/${signature}/${resultBlob ?? "deleted"}`;
+  const tree = exec("git", ["mktree"], repo, {
+    input: treeBlob ? `${resultMode ?? "100644"} blob ${treeBlob}\tresult\n` : "",
+  });
+  const commit = exec("git", ["commit-tree", tree, "-F", "-"], repo, {
+    input: [
+      `Conflict resolution ${signature.slice(0, 20)}`,
+      "",
+      `Resolution-Signature: ${signature}`,
+      `Result-Blob: ${resultBlob ?? "deleted"}`,
+      "",
+    ].join("\n"),
+  });
+  git(repo, "update-ref", ref, commit);
+  const record = {
+    schema: "vcs-lab.resolution/v1",
+    type: "resolution",
+    id,
+    signature,
+    algorithm: "ordered-three-way-blobs/v1",
+    base: stages.base ?? null,
+    ours: stages.ours ?? null,
+    theirs: stages.theirs ?? null,
+    resultBlob,
+    resultMode,
+    originalPath,
+    originatingApplication: `app_${id}`,
+    originatingCommit,
+    originatingChangeId: `change_${id}`,
+    decision: "created",
+    ref,
+    resolutionCommit: commit,
+    createdAt,
+    ...recordOverrides,
+  };
+  writeVlabNote(
+    repo,
+    commit,
+    note ? note(record) : { schema: "vcs-lab.note/v1", records: [record] },
+  );
+  return { record, ref, commit, tree };
+}
+
+function tracedGitCommands(cwd, ...args) {
+  const result = spawnSync(process.execPath, [cli, ...args], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_TRACE: "1" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const commands = [];
+  for (const line of result.stderr.split(/\r?\n/)) {
+    const match = line.match(/^\[vlab trace\] [\d.]+ms git (\S+) \(/);
+    if (match) commands.push(match[1]);
+  }
+  return { stdout: result.stdout, commands };
 }
 
 function createIndexedSpecDivergence(repo, options = {}) {
@@ -1959,7 +2064,7 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
       "--notes",
       "3",
       "--resolutions",
-      "2",
+      "8",
       "--samples",
       "2",
       "--budget-ms",
@@ -1973,12 +2078,12 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     historyDepth: 4,
     workspaces: 2,
     causalNotes: 3,
-    resolutions: 2,
-    totalNoteTargets: 5,
-    totalNoteRecords: 5,
+    resolutions: 8,
+    totalNoteTargets: 11,
+    totalNoteRecords: 11,
   });
   assert.equal(scale.coverage.documentationVolume.companionSchema, "vcs-lab.spec-benchmark/v2");
-  assert.equal(scale.setup.expectedAbsentProbeFailures, 9);
+  assert.equal(scale.setup.expectedAbsentProbeFailures, 21);
   assert.equal(scale.setup.unexpectedGitFailures, 0);
   assert.equal(scale.measurements.history.result.commits, 4);
   assert.equal(scale.measurements.gitWorktrees.result.worktrees, 3);
@@ -1988,13 +2093,13 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     active: 2,
     dirty: 0,
   });
-  assert.equal(scale.measurements.noteCatalog.result.records, 5);
-  assert.equal(scale.measurements.resolutionCatalog.result.resolutions, 2);
+  assert.equal(scale.measurements.noteCatalog.result.records, 11);
+  assert.equal(scale.measurements.resolutionCatalog.result.resolutions, 8);
   assert.deepEqual(scale.measurements.metadataStatus.result, {
     valid: true,
-    acceptedPortableRecords: 5,
-    noteTargets: 5,
-    resolutionRefs: 2,
+    acceptedPortableRecords: 11,
+    noteTargets: 11,
+    resolutionRefs: 8,
     registeredWorkspaces: 2,
     materializedWorktrees: 3,
   });
@@ -2003,22 +2108,35 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
       (measurement) => measurement.samples.length === 2,
     ),
   );
+  // Batched scans: one worktree-scoped status query per materialized
+  // workspace, and a bounded number of processes for the whole resolution
+  // catalog regardless of how many retention refs exist.
+  assert.equal(scale.measurements.workspaceStatus.medianProcesses, 2);
   assert.equal(
     scale.analysis.processAmplification.workspaceStatusProcessesPerWorkspace,
-    3,
+    1,
   );
   assert.ok(
     scale.analysis.processAmplification.noteCatalogProcessesPerTarget < 1,
   );
+  assert.ok(scale.measurements.resolutionCatalog.medianProcesses <= 6);
   assert.ok(
-    scale.analysis.processAmplification.resolutionCatalogProcessesPerResolution > 3,
+    scale.analysis.processAmplification.resolutionCatalogProcessesPerResolution < 1,
   );
-  assert.equal(scale.analysis.nextAction, "batch-process-amplified-scans");
+  assert.equal(scale.analysis.processAmplification.minimumEntitiesForDecision, 10);
+  assert.deepEqual(scale.analysis.processAmplification.decidable, {
+    workspaceStatus: false,
+    resolutionCatalog: false,
+  });
+  assert.equal(
+    scale.analysis.nextAction,
+    "increase-fixture-volume-and-collect-more-hosts",
+  );
   assert.equal(scale.analysis.persistentIndex.recommendedNow, false);
   assert.equal(scale.analysis.residentService.recommendedNow, false);
   assert.deepEqual(
     scale.analysis.recommendations.map((item) => item.area),
-    ["workspace-status", "resolution-catalog", "note-catalog"],
+    ["note-catalog"],
   );
   assert.deepEqual(scale.privacy, {
     repositoryPathsIncluded: false,
@@ -2028,6 +2146,51 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
   });
   assert.equal(scale.cleanup.temporaryFixtureRemoved, true);
   assert.doesNotMatch(JSON.stringify(scale), /vcs-lab-scale-benchmark-/);
+
+  // A tiny custom fixture cannot dilute the catalog's fixed batch cost, so
+  // the analysis asks for more volume instead of misreporting that cost as
+  // per-entity amplification.
+  const tiny = JSON.parse(
+    vlab(
+      repo,
+      "metadata",
+      "benchmark",
+      "--history",
+      "2",
+      "--workspaces",
+      "0",
+      "--notes",
+      "0",
+      "--resolutions",
+      "2",
+      "--samples",
+      "1",
+      "--budget-ms",
+      "5000",
+      "--json",
+    ),
+  );
+  assert.equal(tiny.measurements.resolutionCatalog.result.resolutions, 2);
+  assert.equal(
+    tiny.measurements.resolutionCatalog.medianProcesses,
+    scale.measurements.resolutionCatalog.medianProcesses,
+  );
+  assert.ok(
+    tiny.analysis.processAmplification.resolutionCatalogProcessesPerResolution > 1,
+  );
+  assert.equal(tiny.analysis.processAmplification.decidable.resolutionCatalog, false);
+  assert.deepEqual(
+    tiny.analysis.recommendations.map((item) => [item.area, item.priority]),
+    [
+      ["resolution-catalog", "increase-fixture-volume"],
+      ["note-catalog", "retain-batched-scan"],
+    ],
+  );
+  assert.equal(
+    tiny.analysis.nextAction,
+    "increase-fixture-volume-and-collect-more-hosts",
+  );
+  assert.equal(tiny.analysis.persistentIndex.recommendedNow, false);
   assert.deepEqual(
     fs.readdirSync(os.tmpdir())
       .filter((entry) => entry.startsWith("vcs-lab-scale-benchmark-"))
@@ -2878,4 +3041,537 @@ test("metadata envelope round-trips accepted facts between clones idempotently",
   assert.equal(destinationStatus.scopes.sharedLocal.workspaceRegistry.present, false);
   assert.equal(destinationStatus.scopes.worktreePrivate.pendingOperationCount, 0);
   assert.equal(destinationStatus.scopes.worktreePrivate.forecastCount, 0);
+});
+
+test("workspace listing batches one status query per existing path and preserves status contracts", (t) => {
+  const { repo, parent } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  write(repo, "rename-me.txt", "rename me\n");
+  write(repo, "shared.txt", "shared base\n");
+  git(repo, "add", ".");
+  const first = JSON.parse(vlab(repo, "commit", "-m", "base", "--json")).commit;
+  vlab(repo, "init");
+  git(repo, "switch", "-c", "conflicting", first);
+  write(repo, "shared.txt", "theirs\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "conflicting edit");
+  git(repo, "switch", "main");
+  write(repo, "base.txt", "base\nsecond\n");
+  git(repo, "add", ".");
+  const second = JSON.parse(vlab(repo, "commit", "-m", "second", "--json")).commit;
+  assert.notEqual(first, second);
+
+  const traceCommands = (stderr) => stderr
+    .split(/\r?\n/)
+    .map((line) => line.match(/^\[vlab trace\] [\d.]+ms git (\S+) /)?.[1])
+    .filter(Boolean);
+  const listTraced = (...args) => spawnSync(
+    process.execPath,
+    [cli, "workspace", "list", ...args],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_TRACE: "1" },
+    },
+  );
+
+  // Baseline: with no workspaces the listing only needs its own repository
+  // context (one rev-parse); every additional process below must be one
+  // worktree-scoped status query for an existing workspace path.
+  const emptyListing = listTraced();
+  assert.equal(emptyListing.status, 0, emptyListing.stderr);
+  assert.deepEqual(JSON.parse(emptyListing.stdout), []);
+  const baselineCommands = traceCommands(emptyListing.stderr);
+  assert.deepEqual(baselineCommands, ["rev-parse"]);
+
+  const names = ["clean", "dirty", "detached", "unborn", "archived", "missing", "invalid", "file"];
+  const paths = {};
+  const created = {};
+  for (const name of names) {
+    paths[name] = path.join(parent, `ws-${name}`);
+    created[name] = JSON.parse(
+      vlab(repo, "workspace", "create", name, "--path", paths[name], "--json"),
+    );
+    assert.equal(created[name].path, paths[name]);
+    assert.equal(created[name].compatibilityBranch, `vlab/ws/${name}`);
+  }
+
+  // Dirty: a real merge conflict first, then a staged rename, a modified
+  // tracked file, an untracked file, and an untracked directory.
+  write(paths.dirty, "shared.txt", "ours\n");
+  git(paths.dirty, "add", "shared.txt");
+  git(paths.dirty, "commit", "-m", "our edit");
+  const conflicted = spawnSync("git", ["merge", "conflicting"], {
+    cwd: paths.dirty,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+  assert.notEqual(conflicted.status, 0);
+  assert.equal(fs.existsSync(path.join(paths.dirty, ".git")), true);
+  git(paths.dirty, "mv", "rename-me.txt", "renamed.txt");
+  write(paths.dirty, "base.txt", "base\nsecond\nlocal edit\n");
+  write(paths.dirty, "untracked.txt", "untracked\n");
+  write(paths.dirty, "newdir/inner.txt", "inside\n");
+  // Untracked names shaped like porcelain v2 header and rename tokens must
+  // still count as ordinary entries.
+  write(paths.dirty, "# branch.oid 0000", "lookalike header\n");
+  write(paths.dirty, "2 lookalike-rename", "lookalike rename\n");
+  // Untrimmed porcelain output: a leading-space marker such as " M" must
+  // survive so every line, including the first, is counted exactly.
+  const porcelainStatus = (cwd) => execFileSync(
+    "git",
+    ["status", "--porcelain=v1"],
+    { cwd, encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+  ).replace(/\r?\n$/, "");
+  const dirtyStatusBefore = porcelainStatus(paths.dirty);
+  assert.match(dirtyStatusBefore, /^UU shared\.txt$/m);
+  assert.match(dirtyStatusBefore, /^R  rename-me\.txt -> renamed\.txt$/m);
+  assert.match(dirtyStatusBefore, /^ M base\.txt$/m);
+  assert.match(dirtyStatusBefore, /^\?\? untracked\.txt$/m);
+  assert.match(dirtyStatusBefore, /^\?\? newdir\/$/m);
+  assert.match(dirtyStatusBefore, /^\?\? "# branch\.oid 0000"$/m);
+  assert.match(dirtyStatusBefore, /^\?\? "2 lookalike-rename"$/m);
+  const dirtyLines = dirtyStatusBefore.split("\n");
+  assert.equal(dirtyLines.length, 7);
+  const dirtyHead = git(paths.dirty, "rev-parse", "HEAD");
+  assert.notEqual(dirtyHead, second);
+
+  // Detached: HEAD at a commit that is not the compatibility branch tip.
+  git(paths.detached, "checkout", "--detach", first);
+  assert.equal(git(paths.detached, "rev-parse", "HEAD"), first);
+  assert.equal(git(paths.detached, "rev-parse", "vlab/ws/detached"), second);
+
+  // Unborn: an orphan branch has no HEAD commit yet, so the exact head is
+  // null while the path stays an active worktree and its staged files count.
+  git(paths.unborn, "checkout", "--orphan", "fresh-start");
+  assert.notEqual(spawnSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: paths.unborn }).status, 0);
+  const unbornStatus = porcelainStatus(paths.unborn);
+  assert.match(unbornStatus, /^A  base\.txt$/m);
+  const unbornLines = unbornStatus.split("\n");
+
+  // Archived: clean, no ignored files, removed by the archive command.
+  const archived = JSON.parse(
+    vlab(repo, "workspace", "archive", "archived", "--json"),
+  );
+  assert.equal(archived.lifecycle, "archived");
+  assert.equal(fs.existsSync(paths.archived), false);
+
+  // Missing: the directory is gone. Invalid: the directory exists but is a
+  // plain non-Git directory.
+  fs.rmSync(paths.missing, { recursive: true, force: true });
+  fs.rmSync(paths.invalid, { recursive: true, force: true });
+  fs.mkdirSync(paths.invalid);
+  write(paths.invalid, "not-a-worktree.txt", "plain directory\n");
+  assert.equal(fs.existsSync(path.join(paths.invalid, ".git")), false);
+  // File: the registered path exists but is a regular file, which Git
+  // cannot even be started in.
+  fs.rmSync(paths.file, { recursive: true, force: true });
+  fs.writeFileSync(paths.file, "not a directory\n");
+  assert.equal(fs.statSync(paths.file).isDirectory(), false);
+
+  const callerBefore = {
+    head: git(repo, "rev-parse", "HEAD"),
+    status: git(repo, "status", "--porcelain=v1"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+  assert.equal(callerBefore.status, "");
+
+  const traced = listTraced();
+  assert.equal(traced.status, 0, traced.stderr);
+  const listing = JSON.parse(traced.stdout);
+  assert.deepEqual(listing.map((workspace) => workspace.name), names);
+  const byName = Object.fromEntries(
+    listing.map((workspace) => [workspace.name, workspace]),
+  );
+  for (const name of names) {
+    assert.equal(byName[name].id, created[name].id);
+    assert.equal(byName[name].name, name);
+    assert.equal(byName[name].path, paths[name]);
+    assert.equal(byName[name].compatibilityBranch, `vlab/ws/${name}`);
+    assert.equal(byName[name].lifecycle, name === "archived" ? "archived" : "active");
+  }
+
+  assert.equal(byName.clean.status, "active");
+  assert.equal(byName.clean.pathStatus, "active");
+  assert.equal(byName.clean.head, second);
+  assert.equal(byName.clean.head, git(paths.clean, "rev-parse", "HEAD"));
+  assert.equal(byName.clean.dirtyFiles, 0);
+
+  assert.equal(byName.dirty.status, "active");
+  assert.equal(byName.dirty.pathStatus, "active");
+  assert.equal(byName.dirty.head, dirtyHead);
+  assert.equal(byName.dirty.dirtyFiles, dirtyLines.length);
+
+  assert.equal(byName.detached.status, "active");
+  assert.equal(byName.detached.pathStatus, "active");
+  assert.equal(byName.detached.head, first);
+  assert.equal(byName.detached.head, git(paths.detached, "rev-parse", "HEAD"));
+  assert.equal(byName.detached.dirtyFiles, 0);
+
+  assert.equal(byName.unborn.status, "active");
+  assert.equal(byName.unborn.pathStatus, "active");
+  assert.equal(byName.unborn.head, null);
+  assert.equal(byName.unborn.dirtyFiles, unbornLines.length);
+
+  assert.equal(byName.archived.status, "archived");
+  assert.equal(byName.archived.pathStatus, "missing");
+  assert.equal(byName.archived.head, null);
+  assert.equal(byName.archived.dirtyFiles, null);
+
+  assert.equal(byName.missing.status, "missing");
+  assert.equal(byName.missing.pathStatus, "missing");
+  assert.equal(byName.missing.head, null);
+  assert.equal(byName.missing.dirtyFiles, null);
+
+  assert.equal(byName.invalid.status, "invalid");
+  assert.equal(byName.invalid.pathStatus, "invalid");
+  assert.equal(byName.invalid.head, null);
+  assert.equal(byName.invalid.dirtyFiles, null);
+
+  assert.equal(byName.file.status, "invalid");
+  assert.equal(byName.file.pathStatus, "invalid");
+  assert.equal(byName.file.head, null);
+  assert.equal(byName.file.dirtyFiles, null);
+
+  // Process bound: exactly one `git status` per existing directory (the
+  // active clean, dirty, detached, and unborn worktrees plus the invalid
+  // plain directory; the archived and missing paths do not exist and the
+  // file path is classified without Git). Only a directory whose status
+  // query fails pays one extra rev-parse probe to tell "not a work tree"
+  // from "unreadable work tree"; healthy workspaces need no per-workspace
+  // rev-parse or HEAD resolution beyond the baseline context probe.
+  const existingPaths = names.filter((name) =>
+    fs.existsSync(paths[name]) && fs.statSync(paths[name]).isDirectory(),
+  );
+  assert.deepEqual(existingPaths, ["clean", "dirty", "detached", "unborn", "invalid"]);
+  const invalidDirectories = existingPaths.filter((name) => byName[name].pathStatus === "invalid");
+  assert.deepEqual(invalidDirectories, ["invalid"]);
+  const commands = traceCommands(traced.stderr);
+  assert.equal(
+    traced.stderr.split(/\r?\n/).filter((line) => /git status/.test(line)).length,
+    existingPaths.length,
+  );
+  assert.equal(commands.filter((command) => command === "status").length, existingPaths.length);
+  assert.deepEqual(
+    commands.filter((command) => command !== "status"),
+    [...baselineCommands, ...invalidDirectories.map(() => "rev-parse")],
+  );
+  assert.equal(
+    commands.length,
+    baselineCommands.length + existingPaths.length + invalidDirectories.length,
+  );
+
+  // Forced Git-session mode is observably identical.
+  const tracedSession = listTraced("--git-session");
+  assert.equal(tracedSession.status, 0, tracedSession.stderr);
+  assert.deepEqual(JSON.parse(tracedSession.stdout), listing);
+  assert.deepEqual(traceCommands(tracedSession.stderr), commands);
+
+  assert.deepEqual({
+    head: git(repo, "rev-parse", "HEAD"),
+    status: git(repo, "status", "--porcelain=v1"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  }, callerBefore);
+  assert.equal(porcelainStatus(paths.dirty), dirtyStatusBefore);
+  assert.equal(git(paths.dirty, "rev-parse", "HEAD"), dirtyHead);
+  assert.equal(git(paths.dirty, "rev-parse", "MERGE_HEAD"), git(repo, "rev-parse", "conflicting"));
+
+  // A recognized work tree whose status cannot be read is an error, not a
+  // silently "invalid" entry: corrupt the clean workspace's private index.
+  const cleanGitDir = path.resolve(paths.clean, git(paths.clean, "rev-parse", "--git-dir"));
+  fs.writeFileSync(path.join(cleanGitDir, "index"), "GARBAGE");
+  const corrupt = vlabResult(repo, "workspace", "list");
+  assert.notEqual(corrupt.status, 0);
+  assert.match(corrupt.stderr, /git status --porcelain=v2 --branch -z failed in workspace 'clean'/);
+  assert.match(corrupt.stderr, /index/i);
+});
+
+test("batched resolution catalog lists retained records newest-first and quarantines mismatched retention state", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+  const headBefore = git(repo, "rev-parse", "HEAD");
+
+  const baseBlob = writeBlob(repo, "base\n");
+  const oursBlob = writeBlob(repo, "ours\n");
+  const resultBlob = writeBlob(repo, "resolved\n");
+  const otherResultBlob = writeBlob(repo, "a different resolution\n");
+  const stagesFor = (theirs) => ({
+    base: { mode: "100644", blob: baseBlob },
+    ours: { mode: "100644", blob: oursBlob },
+    theirs: { mode: "100644", blob: writeBlob(repo, theirs) },
+  });
+  const publish = (options) =>
+    publishRetainedResolution(repo, { originatingCommit: base.commit, ...options });
+
+  // (a) Three valid records. Retention refs are discovered in signature
+  // order, so createdAt is assigned in that order and the records are
+  // inserted in yet another order: neither discovery order nor insertion
+  // order is newest-first.
+  const validStages = ["theirs one\n", "theirs two\n", "theirs three\n"]
+    .map(stagesFor)
+    .sort((left, right) =>
+      resolutionSignature(left).localeCompare(resolutionSignature(right)),
+    );
+  const valid = [];
+  for (const index of [1, 2, 0]) {
+    valid[index] = publish({
+      id: `res_valid_${index}`,
+      stages: validStages[index],
+      createdAt: `2026-03-0${index + 1}T00:00:00.000Z`,
+      originalPath: `path-${index}.txt`,
+      resultBlob,
+    });
+  }
+  assert.equal(new Set(valid.map((entry) => entry.record.signature)).size, 3);
+
+  // (b) A deleted result: no result blob, an empty retention tree, and a ref
+  // ending in /deleted.
+  const deleted = publish({
+    id: "res_deleted",
+    stages: stagesFor("theirs deleted\n"),
+    createdAt: "2026-03-02T12:00:00.000Z",
+  });
+  assert.ok(deleted.ref.endsWith("/deleted"));
+  assert.equal(git(repo, "ls-tree", deleted.commit), "");
+
+  // (c) The stored ref differs from the ref the record is discovered under.
+  const refMismatchSignature = resolutionSignature(stagesFor("theirs ref\n"));
+  const refMismatch = publish({
+    id: "res_ref_mismatch",
+    stages: stagesFor("theirs ref mismatch\n"),
+    createdAt: "2026-05-01T00:00:00.000Z",
+    resultBlob,
+    record: { ref: `refs/vcs-lab/resolutions/${refMismatchSignature}/${resultBlob}` },
+  });
+  assert.notEqual(refMismatch.record.ref, refMismatch.ref);
+
+  // (d) The stored resolutionCommit is a real commit but not the discovered
+  // retention commit.
+  publish({
+    id: "res_commit_mismatch",
+    stages: stagesFor("theirs commit mismatch\n"),
+    createdAt: "2026-05-02T00:00:00.000Z",
+    resultBlob,
+    record: { resolutionCommit: base.commit },
+  });
+
+  // (e) A well-formed signature that does not match the ordered stages.
+  publish({
+    id: "res_signature_mismatch",
+    stages: stagesFor("theirs signature mismatch\n"),
+    createdAt: "2026-05-03T00:00:00.000Z",
+    resultBlob,
+    record: { signature: resolutionSignature(stagesFor("unrelated stages\n")) },
+  });
+
+  // (f) The retention tree holds a different blob than the declared result.
+  publish({
+    id: "res_missing_blob",
+    stages: stagesFor("theirs missing blob\n"),
+    createdAt: "2026-05-04T00:00:00.000Z",
+    resultBlob,
+    treeBlob: otherResultBlob,
+  });
+
+  // (g) A retention ref that names a tree instead of a commit.
+  const treeRef = `refs/vcs-lab/resolutions/${resolutionSignature(stagesFor("theirs tree\n"))}/${resultBlob}`;
+  git(repo, "update-ref", treeRef, git(repo, "rev-parse", "HEAD^{tree}"));
+
+  // (g2) A dangling retention ref whose object does not exist at all; the
+  // files ref backend is written directly because update-ref refuses it.
+  // The scan must neither abort nor truncate the rest of the catalog.
+  const danglingRef = `refs/vcs-lab/resolutions/${resolutionSignature(stagesFor("theirs dangling\n"))}/${resultBlob}`;
+  const danglingOid = "1".repeat(resultBlob.length);
+  fs.mkdirSync(path.join(repo, ".git", path.dirname(danglingRef)), { recursive: true });
+  fs.writeFileSync(path.join(repo, ".git", danglingRef), `${danglingOid}\n`);
+  assert.equal(
+    git(repo, "for-each-ref", "--format=%(objectname)", danglingRef),
+    danglingOid,
+  );
+
+  // (h) A retention ref that names an annotated tag of a valid retention
+  // commit; it must peel exactly like <ref>^{commit}.
+  const tagged = publish({
+    id: "res_tagged",
+    stages: stagesFor("theirs tagged\n"),
+    createdAt: "2026-02-01T00:00:00.000Z",
+    resultBlob,
+  });
+  git(repo, "tag", "-a", "-m", "retention tag", "retention-tag", tagged.commit);
+  const tagObject = git(repo, "rev-parse", "refs/tags/retention-tag");
+  git(repo, "update-ref", tagged.ref, tagObject);
+  git(repo, "tag", "-d", "retention-tag");
+  assert.notEqual(git(repo, "rev-parse", tagged.ref), tagged.commit);
+  assert.equal(git(repo, "rev-parse", `${tagged.ref}^{commit}`), tagged.commit);
+
+  // (i) A retention commit whose note is not JSON at all.
+  const legacy = publish({
+    id: "res_legacy",
+    stages: stagesFor("theirs legacy\n"),
+    createdAt: "2026-05-05T00:00:00.000Z",
+    resultBlob,
+    note: () => "legacy free-form note\n",
+  });
+
+  // (j) A note stored as a bare JSON array of records.
+  const bareArray = publish({
+    id: "res_bare_array",
+    stages: stagesFor("theirs bare array\n"),
+    createdAt: "2026-04-01T00:00:00.000Z",
+    resultBlob,
+    note: (record) => [record],
+  });
+
+  const listed = (entry) => ({
+    ...entry.record,
+    attachedTo: entry.commit,
+    discoveredRef: entry.ref,
+    commit: entry.commit,
+  });
+  const expected = [
+    listed(bareArray),
+    listed(valid[2]),
+    listed(deleted),
+    listed(valid[1]),
+    listed(valid[0]),
+    listed(tagged),
+  ];
+  const catalog = JSON.parse(vlab(repo, "resolve", "list", "--json"));
+  assert.deepEqual(catalog, expected);
+  assert.deepEqual(
+    catalog.map((record) => record.createdAt),
+    [...catalog.map((record) => record.createdAt)].sort().reverse(),
+  );
+  for (const record of catalog) {
+    assert.equal(record.ref, record.discoveredRef);
+    assert.equal(record.resolutionCommit, record.commit);
+    assert.equal(record.attachedTo, record.commit);
+    assert.equal(resolutionSignature(record), record.signature);
+  }
+  assert.equal(catalog.find((record) => record.id === "res_deleted").resultBlob, null);
+  assert.equal(catalog.find((record) => record.id === "res_deleted").resultMode, null);
+  assert.equal(catalog.find((record) => record.id === "res_tagged").commit, tagged.commit);
+  const plain = vlabResult(repo, "resolve", "list");
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.match(plain.stdout, /res_valid_2/);
+
+  // Ordinary and forced Git-session modes agree, whether forced by flag or
+  // by environment.
+  assert.deepEqual(
+    JSON.parse(vlab(repo, "resolve", "list", "--json", "--git-session")),
+    catalog,
+  );
+  for (const VLAB_GIT_SESSION of ["0", "1"]) {
+    const result = spawnSync(process.execPath, [cli, "resolve", "list", "--json"], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_GIT_SESSION },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), catalog);
+  }
+
+  // Listing never touches the caller's HEAD, index, or files.
+  assert.equal(git(repo, "rev-parse", "HEAD"), headBefore);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(readText(repo, "shared.txt"), "base\n");
+
+  // Metadata validation reports the quarantined records as errors.
+  const validation = vlabResult(repo, "metadata", "validate", "--json");
+  assert.notEqual(validation.status, 0);
+  const report = JSON.parse(validation.stdout);
+  assert.equal(report.summary.valid, false);
+  assert.ok(report.summary.errors > 0);
+  const errorCodesFor = (subject) =>
+    report.diagnostics
+      .filter((item) => item.subject === subject && item.severity === "error")
+      .map((item) => item.code);
+  assert.ok(errorCodesFor("res_ref_mismatch").includes("missing-resolution-ref"));
+  assert.ok(errorCodesFor("res_commit_mismatch").includes("malformed-record"));
+  assert.ok(errorCodesFor("res_signature_mismatch").includes("resolution-signature-mismatch"));
+  assert.ok(errorCodesFor("res_missing_blob").includes("missing-resolution-blob"));
+  assert.ok(errorCodesFor(treeRef).includes("missing-resolution-record"));
+  assert.ok(errorCodesFor(danglingRef).includes("missing-resolution-record"));
+  assert.ok(errorCodesFor(legacy.commit).includes("malformed-record"));
+  for (const id of ["res_valid_0", "res_valid_1", "res_valid_2", "res_deleted"]) {
+    assert.deepEqual(errorCodesFor(id), []);
+  }
+});
+
+test("batched resolution catalog scans use a bounded number of Git processes as refs grow", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  // Empirical baseline: an empty catalog traces exactly one Git process, the
+  // for-each-ref discovery scan, and no repository-context probe, so the CLI
+  // itself adds no context calls before dispatching `resolve list`. The only
+  // context call on the populated path is the single rev-parse that
+  // acceptedCausalRecords performs (once, cached) to learn the object format
+  // before structural validation. The batched scan is therefore bounded by
+  // for-each-ref + cat-file (peel ref targets) + notes list + cat-file (note
+  // blobs) + cat-file (referenced objects) + cat-file (retained results) = 6
+  // processes plus that one context probe, independent of how many retention
+  // refs exist.
+  const empty = tracedGitCommands(repo, "resolve", "list", "--json");
+  assert.deepEqual(JSON.parse(empty.stdout), []);
+  assert.deepEqual(empty.commands, ["for-each-ref"]);
+  const repositoryContextCalls = 1;
+  const processBound = 6 + repositoryContextCalls;
+
+  const baseBlob = writeBlob(repo, "base\n");
+  const oursBlob = writeBlob(repo, "ours\n");
+  const resultBlob = writeBlob(repo, "resolved\n");
+  let published = 0;
+  const publishMany = (count) => {
+    for (let index = 0; index < count; index += 1) {
+      const ordinal = published++;
+      publishRetainedResolution(repo, {
+        id: `res_scale_${String(ordinal).padStart(3, "0")}`,
+        stages: {
+          base: { mode: "100644", blob: baseBlob },
+          ours: { mode: "100644", blob: oursBlob },
+          theirs: { mode: "100644", blob: writeBlob(repo, `theirs ${ordinal}\n`) },
+        },
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, ordinal)).toISOString(),
+        originalPath: `scale-${ordinal}.txt`,
+        originatingCommit: base.commit,
+        // Mix retained and deleted results so both batched lookups run.
+        resultBlob: ordinal % 4 === 3 ? null : resultBlob,
+      });
+    }
+  };
+
+  publishMany(4);
+  const small = tracedGitCommands(repo, "resolve", "list", "--json");
+  assert.equal(JSON.parse(small.stdout).length, 4);
+  assert.ok(
+    small.commands.length <= processBound,
+    `expected at most ${processBound} Git processes, traced: ${small.commands.join(", ")}`,
+  );
+  assert.equal(small.commands.filter((command) => command === "notes").length, 1);
+  assert.equal(
+    small.commands.filter((command) => command === "rev-parse").length,
+    repositoryContextCalls,
+  );
+
+  publishMany(12);
+  const large = tracedGitCommands(repo, "resolve", "list", "--json");
+  const catalog = JSON.parse(large.stdout);
+  assert.equal(catalog.length, 16);
+  assert.deepEqual(large.commands, small.commands);
+  assert.deepEqual(
+    catalog.map((record) => record.id),
+    Array.from({ length: 16 }, (_, index) => `res_scale_${String(15 - index).padStart(3, "0")}`),
+  );
+  assert.equal(catalog.filter((record) => record.resultBlob === null).length, 4);
+
+  const session = tracedGitCommands(repo, "resolve", "list", "--json", "--git-session");
+  assert.deepEqual(JSON.parse(session.stdout), catalog);
+  assert.ok(session.commands.length <= processBound, session.commands.join(", "));
 });

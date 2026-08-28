@@ -6,7 +6,7 @@
 | --- | --- |
 | Baseline | v0.8.0 released; v0.9 development work in `Unreleased` |
 | Status | Maintained execution guide |
-| Last reviewed | 2026-08-25 |
+| Last reviewed | 2026-08-27 |
 | Planning horizon | Next bounded increment through native-implementation gate |
 
 This roadmap synthesizes the current
@@ -41,20 +41,20 @@ contains substantial implemented work that has not yet been released.
 | Workspaces and checkpoints | Delivered through v0.8; expanded in development | Linked-worktree isolation and non-disruptive checkpoints are released. Move/archive/restore/repair/prune and immutable source-checkpoint forecasts are implemented but unreleased. |
 | Metadata integrity and portability | Delivered in v0.8 | Accepted shared facts can be inventoried, quarantined, exported, validated, and imported idempotently between related clones. |
 | Causal rebase | Implemented, unreleased | Linear current-branch planning, isolated forecasting, supervised replay, recovery, identity handling, and portable completed receipts are integration-tested. |
-| Scale evidence | Implemented, unreleased | A synthetic repository fixture identifies workspace-status and resolution-catalog process amplification; it does not justify an index or service. |
+| Scale evidence and scan batching | Implemented, unreleased | A synthetic repository fixture identified workspace-status and resolution-catalog process amplification; the selected invocation-local batching is implemented and the rerun shows one process per workspace and six for the resolution catalog. Nothing justifies an index or service. |
 | Trust, remote protocol, and native storage | Gated | Integrity exists, but signatures, authorization, capability negotiation, trusted landing, and a native store are intentionally absent. |
 
-The first pending work is therefore optimization and qualification of existing
-semantics, not another storage layer or service.
+The first pending work is therefore qualification and release of existing
+semantics plus broader evidence, not another storage layer or service.
 
 ## Horizon 1: close the current development line
 
 ### 1. Batch the measured scan hot paths
 
-Implement the bounded action selected by
+**Status: implemented, unreleased.** The bounded action selected by
 [ADR-0013](adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md)
 and tracked by
-[GitHub issue #1](https://github.com/jwh3times/vcs-lab/issues/1):
+[GitHub issue #1](https://github.com/jwh3times/vcs-lab/issues/1) was:
 
 1. Replace the three-process inspection of each active workspace with a
    worktree-scoped status query that preserves exact head, dirty count,
@@ -78,14 +78,19 @@ Exit criteria:
   records are covered; and
 - caller state, privacy, quarantine, and failure behavior remain unchanged.
 
-This closes the only optimization that current measurements directly select.
-It addresses FR-WS-09 and provides the next decision point for FR-PERF-09.
+The Linux rerun meets these criteria: 12 processes for 12 workspaces, six
+processes for 50 resolutions, identical semantic results in both Git-session
+modes, and unchanged caller state. This closes the only optimization that
+current measurements directly select. It addresses FR-WS-09 and provides the
+next decision point for FR-PERF-09.
 
 ### 2. Rerun the accepted evidence schema
 
 Rerun `vcs-lab.repository-scale-benchmark/v1` without changing the fixture or
 measurement meaning. Compare pre/post process counts, semantic results, median,
 and p95 for workspace status, resolution catalog, and complete metadata status.
+The Linux before/after comparison is recorded in ADR-0013; the Windows host
+that produced the initial evidence still needs the same rerun.
 
 If both paths fall under the configured budget, stop optimizing them and gather
 larger real-repository and multi-host evidence. If an already-batched path
@@ -245,7 +250,7 @@ signals.
 | FR-PLAN-08 | Planned | Horizons 2 and 4 portable verification |
 | FR-RES-07 | Planned | Horizon 3 isolated lower-confidence experiments |
 | FR-WS-08 | Deferred | Horizon 5 native-subsystem gate |
-| FR-WS-09 | Measured; optimization pending | Horizon 1 scan batching |
+| FR-WS-09 | Batched status implemented; multi-host evidence pending | Horizon 1 rerun on Windows, larger fixtures, and real repositories |
 | FR-SPEC-13 | Planned | Horizon 3 adapter conformance and expansion |
 | FR-PERF-09 | Evidence gate | Horizons 1 and 5 measurement decision |
 | FR-PROTO-06 | Deferred | Horizon 4 capability negotiation |

@@ -94,6 +94,38 @@ The evidence selects one bounded next optimization: batch workspace status and
 resolution catalog scans, then rerun the same schema. It does not justify a new
 persisted index or resident service.
 
+## Post-batching evidence
+
+The selected batching is implemented: workspace status uses one worktree-scoped
+`git status --porcelain=v2 --branch -z` query per materialized path, and the
+resolution catalog discovers refs with one `for-each-ref` scan, peels their
+targets with one batched object check, and reads records with one note listing
+plus batched object reads. The same schema, profile,
+and measurement meaning were rerun on a 2026-08-27 Linux development host
+(Git 2.55, Node 26) before and after the change:
+
+| Phase | Before | After | Git processes |
+| --- | ---: | ---: | --- |
+| Workspace status, 12 workspaces | 93.63 ms | 35.53 ms | 36 → 12 |
+| Resolution catalog, 50 records | 342.56 ms | 30.67 ms | 103 → 6 |
+| Complete metadata status | 81.20 ms | 80.52 ms | 11 → 11 |
+
+Semantic results were identical across samples and between ordinary and forced
+Git-session modes. The decision output moved from
+`batch-process-amplified-scans` to
+`increase-fixture-volume-and-collect-more-hosts`; no phase exceeded the default
+budget on this host. One `git status` process per materialized worktree is the
+floor Git offers, and the resolution catalog's six processes are fixed rather
+than per-record, so the per-entity ratio is meaningful only at representative
+volume. The decision policy is therefore refined: a processes-per-entity ratio
+above one is a batching candidate only when the phase measured at least ten
+entities; below that the analysis reports `increase-fixture-volume` for the
+phase and never recommends batching, an index, or a service from it. The
+representative profile stays well above that minimum. The Windows host that
+produced the initial evidence has not yet been remeasured; that rerun, larger
+fixtures, and real repositories are the next evidence, not an index or
+service.
+
 ## Constraints
 
 - The benchmark must not mutate or disclose data from the caller repository.
@@ -119,8 +151,8 @@ persisted index or resident service.
 - Representative setup takes roughly one minute on the current Windows host.
 - Synthetic empty-tree history does not reproduce large source blobs, network
   filesystems, antivirus behavior, or every real notes-tree shape.
-- Worktree status remains intentionally serial until the selected follow-up is
-  implemented.
+- Worktree status still needs one `git status` process per materialized
+  worktree; Git offers no cross-worktree status query.
 
 ## Rejected alternatives
 
@@ -141,7 +173,10 @@ persisted index or resident service.
 - CLI surface and human summary: `src/cli.js`
 - Acceptance coverage: `test/integration.test.js`
 - Companion documentation benchmark: `src/specs.js`
-- Representative measurements and the decision they support: this ADR's
-  Initial evidence section
-- Active batching implementation:
+- Batched workspace status: `src/workspaces.js`
+- Batched resolution discovery and note reads: `src/resolutions.js`,
+  `src/notes.js`
+- Representative measurements and the decisions they support: this ADR's
+  Initial evidence and Post-batching evidence sections
+- Batching implementation brief and acceptance checklist:
   [GitHub issue #1](https://github.com/jwh3times/vcs-lab/issues/1)

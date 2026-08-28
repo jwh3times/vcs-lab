@@ -25,6 +25,10 @@ import {
 import { CliError } from "./errors.js";
 
 const SCALE_BENCHMARK_SCHEMA = "vcs-lab.repository-scale-benchmark/v1";
+// A batched scan costs a small fixed number of processes regardless of entity
+// count, so a processes-per-entity ratio only indicates per-entity launches
+// once the fixture holds enough entities for that fixed cost to be diluted.
+const MINIMUM_ENTITIES_FOR_AMPLIFICATION_DECISION = 10;
 
 function integerOption(value, fallback, name, minimum, maximum) {
   const parsed = value === undefined ? fallback : Number(value);
@@ -123,6 +127,25 @@ function ratio(numerator, denominator) {
   return Number((numerator / denominator).toFixed(3));
 }
 
+function amplificationRecommendation(area, perEntity, entities, entityLabel, batchAction) {
+  if ((perEntity ?? 0) <= 1) return null;
+  if (entities < MINIMUM_ENTITIES_FOR_AMPLIFICATION_DECISION) {
+    return {
+      area,
+      priority: "increase-fixture-volume",
+      evidence: `${perEntity} Git processes per ${entityLabel} across only ${entities} ${entityLabel}s, below the ${MINIMUM_ENTITIES_FOR_AMPLIFICATION_DECISION}-entity minimum for a per-entity decision`,
+      action:
+        `Rerun with at least ${MINIMUM_ENTITIES_FOR_AMPLIFICATION_DECISION} ${entityLabel}s before attributing a bounded batch cost to per-entity process launches.`,
+    };
+  }
+  return {
+    area,
+    priority: "batch-first",
+    evidence: `${perEntity} Git processes per ${entityLabel}`,
+    action: batchAction,
+  };
+}
+
 function buildAnalysis(measurements, fixture, budgetMs) {
   const amplification = {
     workspaceStatusProcessesPerWorkspace: ratio(
@@ -137,31 +160,34 @@ function buildAnalysis(measurements, fixture, budgetMs) {
       measurements.resolutionCatalog.medianProcesses,
       fixture.resolutions,
     ),
+    minimumEntitiesForDecision: MINIMUM_ENTITIES_FOR_AMPLIFICATION_DECISION,
+    decidable: {
+      workspaceStatus:
+        fixture.workspaces >= MINIMUM_ENTITIES_FOR_AMPLIFICATION_DECISION,
+      resolutionCatalog:
+        fixture.resolutions >= MINIMUM_ENTITIES_FOR_AMPLIFICATION_DECISION,
+    },
   };
   const phasesOverBudget = Object.entries(measurements)
     .filter(([, measurement]) => measurement.medianMs > budgetMs)
     .map(([name]) => name)
     .sort();
-  const recommendations = [];
-
-  if ((amplification.workspaceStatusProcessesPerWorkspace ?? 0) > 1) {
-    recommendations.push({
-      area: "workspace-status",
-      priority: "batch-first",
-      evidence: `${amplification.workspaceStatusProcessesPerWorkspace} Git processes per registered workspace`,
-      action:
-        "Batch worktree identity, head, and porcelain discovery before adding a persistent registry index.",
-    });
-  }
-  if ((amplification.resolutionCatalogProcessesPerResolution ?? 0) > 1) {
-    recommendations.push({
-      area: "resolution-catalog",
-      priority: "batch-first",
-      evidence: `${amplification.resolutionCatalogProcessesPerResolution} Git processes per retained resolution`,
-      action:
-        "Replace per-ref resolve/show traversal with one ref listing and batched note/object validation before adding a persistent index.",
-    });
-  }
+  const recommendations = [
+    amplificationRecommendation(
+      "workspace-status",
+      amplification.workspaceStatusProcessesPerWorkspace,
+      fixture.workspaces,
+      "registered workspace",
+      "Remove per-workspace Git process launches from status discovery before adding a persistent registry index.",
+    ),
+    amplificationRecommendation(
+      "resolution-catalog",
+      amplification.resolutionCatalogProcessesPerResolution,
+      fixture.resolutions,
+      "retained resolution",
+      "Remove per-record Git process launches from catalog discovery and validation before adding a persistent index.",
+    ),
+  ].filter(Boolean);
   if (fixture.totalNoteTargets > 0) {
     recommendations.push({
       area: "note-catalog",

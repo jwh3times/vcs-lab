@@ -6,6 +6,32 @@
   under `docs/`; move active implementation briefs to issue tracking and stop
   committing session handoffs or timestamped test-result reports.
 
+- Batch the two scan hot paths selected by ADR-0013: inspect each materialized
+  workspace with one worktree-scoped `git status --porcelain=v2 --branch -z`
+  query that answers usability, exact head, and dirty count together, and
+  discover retained resolution refs with one `for-each-ref` scan, peel their
+  targets with one batched object check, and read their records with one
+  batched note read instead of per-ref revision resolution and
+  `git notes show`.
+- Keep workspace and resolution JSON semantically unchanged, including
+  missing-versus-invalid paths, archived lifecycle, ref/commit/signature
+  agreement, retained result-blob checks, deleted results, and newest-first
+  ordering. Retention refs that are dangling or do not name a commit are now
+  quarantined from the catalog instead of failing the whole listing, and a
+  failed ref scan is an error rather than an empty catalog. A registered
+  workspace path that is not a directory is reported as `invalid` instead of
+  aborting the listing, an unborn workspace `HEAD` reports a `null` head, and
+  a recognized worktree whose status cannot be read still fails loudly.
+- Make the repository-scale analysis require at least ten measured entities
+  before treating a processes-per-entity ratio as amplification, so tiny
+  custom fixtures ask for more volume instead of misreporting a bounded batch
+  cost as per-entity process launches.
+- Rerun `vcs-lab.repository-scale-benchmark/v1` without changing the fixture:
+  the representative profile now uses one Git process per workspace (12 rather
+  than 36) and six processes for the 50-resolution catalog (rather than 103),
+  and the decision output selects larger fixtures and more hosts instead of an
+  index or service.
+
 - Add bounded `vlab metadata benchmark` fixtures for history, linked worktrees,
   workspace registry/status, causal notes, retained resolutions, and complete
   metadata inventory, with semantic equality across samples and trendable

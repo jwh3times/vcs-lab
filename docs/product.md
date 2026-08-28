@@ -8,7 +8,7 @@
 | Document version | 1.0 |
 | Product baseline | v0.8.x release / v0.9 development |
 | Status | Active product baseline |
-| Last updated | 2026-08-25 |
+| Last updated | 2026-08-27 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
 | Decision owner | Repository maintainers |
 
@@ -371,7 +371,7 @@ baseline after v0.8.0.
 | FR-WS-06 | P1 | Two workspace heads shall be forecastable without switching either worktree. | Implemented | `workspace forecast` compares committed heads. |
 | FR-WS-07 | P2 | Workspace lifecycle shall support archive, restore, move, prune, and stale-path repair. | Implemented for conservative v1 lifecycle | Commands preserve workspace/branch/checkpoint identity; archive refuses dirty or ignored files and prune requires `--apply`. |
 | FR-WS-08 | P2 | A native workspace model shall support private draft stacks without requiring a public compatibility branch. | Deferred | Requires a later storage/protocol layer; Git branch remains v0.x compatibility mechanism. |
-| FR-WS-09 | P2 | Workspace creation and status shall scale to many parallel agents without serial scans of unrelated worktrees. | Measured; optimization pending | Repository-scale schema exposes three status-probe processes per registered workspace and selects an invocation-local batch path before any persistent index. |
+| FR-WS-09 | P2 | Workspace creation and status shall scale to many parallel agents without serial scans of unrelated worktrees. | Implemented for batched status | Complete status uses one worktree-scoped Git query per materialized workspace; the repository-scale rerun measures one process per registered workspace with unchanged semantics, and larger multi-host evidence is the next gate. |
 
 ### 9.8 Specification and documentation model
 
@@ -572,7 +572,7 @@ stable IDs, or auditability.
 | Deterministic Markdown merge | Complete for section-level rules | Clean and blocked merge tests |
 | Sparse metadata and incremental indexing | Complete for manifest v3 | Corpus, migration, zero-read tests |
 | Invocation-scoped Git object session | Complete with lazy startup and fallback | Equality/count/failure/worktree tests plus 10 direct, 20 redirected, three full current-Node, and one full Node 20 forced-session qualification runs |
-| Repository-scale evidence | Synthetic representative profile implemented | Trendable semantic/process/timing measurements select workspace-status and resolution-catalog batching; no index or service is yet justified |
+| Repository-scale evidence | Synthetic representative profile implemented; selected batching implemented | Trendable semantic/process/timing measurements selected workspace-status and resolution-catalog batching; the rerun shows one process per workspace and six for the resolution catalog; no index or service is yet justified |
 | Metadata integrity and portability | Experimental but complete for accepted shared facts | Inventory/validation plus deterministic envelope and two-clone idempotence tests |
 | Cryptographic trust/server policy | Not implemented | Explicit non-goal |
 | Native store/protocol | Not implemented | Exit criteria not yet satisfied |
@@ -627,8 +627,11 @@ profile measured the plain registry read at 0.31 ms with no Git processes and
 the batched 300-target note catalog at 172.67 ms with two processes. In
 contrast, status for 12 workspaces used 36 processes and a 1,597.78 ms median,
 while 50 retained resolutions used 103 processes and a 5,503.66 ms median.
-This is host-specific synthetic evidence: it selects batching for those two
-paths and does not establish a production scale target. See
+This is host-specific synthetic evidence: it selected batching for those two
+paths and does not establish a production scale target. After batching, the
+same schema on a Linux development host measured 12 processes and 35.53 ms for
+workspace status and six processes and 30.67 ms for the resolution catalog,
+with identical semantic results. See
 [ADR-0013](adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md).
 
 ## 14. Release and quality gates
@@ -699,9 +702,10 @@ manifest. It is not a signing or authorization layer.
   conservative worktree-backed implementation.
 - Broader causal rebase forms beyond linear v1: merge preservation, interactive
   editing, arbitrary ranges, and checkpoint/draft overlays.
-- Batch workspace-status and resolution-catalog scans, then rerun the accepted
-  repository-scale schema; consider incremental catalogs only if already-batched
-  scans remain over a representative budget.
+- Rerun the accepted repository-scale schema on Windows, larger fixtures, and
+  real repositories now that workspace-status and resolution-catalog scans are
+  batched; consider incremental catalogs only if already-batched scans remain
+  over a representative budget.
 - A repository-local service only if cross-command process and scan costs remain
   material after batching.
 - Protocol capability negotiation and optional remote gateway.

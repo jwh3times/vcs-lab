@@ -2,30 +2,69 @@ import { readGitObjects, runGit } from "./git.js";
 
 export const NOTES_REF = "vcs-lab";
 
-export function readNote(commit, cwd = process.cwd()) {
-  const result = runGit(["notes", `--ref=${NOTES_REF}`, "show", commit], {
-    cwd,
-    allowFailure: true,
-  });
-  if (!result.ok || !result.stdout) {
-    return { schema: "vcs-lab.note/v1", records: [] };
-  }
+const NOTE_SCHEMA = "vcs-lab.note/v1";
+
+function emptyNote() {
+  return { schema: NOTE_SCHEMA, records: [] };
+}
+
+/**
+ * Parse one note's trimmed text with the lenient single-note rules: a bare
+ * array is accepted as records, an unparsable note becomes an opaque legacy
+ * record, and anything else yields no records.
+ */
+function parseNoteText(text) {
+  if (!text) return emptyNote();
   try {
-    const parsed = JSON.parse(result.stdout);
+    const parsed = JSON.parse(text);
     if (Array.isArray(parsed)) {
-      return { schema: "vcs-lab.note/v1", records: parsed };
+      return { schema: NOTE_SCHEMA, records: parsed };
     }
-    if (parsed?.schema === "vcs-lab.note/v1" && Array.isArray(parsed.records)) {
+    if (parsed?.schema === NOTE_SCHEMA && Array.isArray(parsed.records)) {
       return parsed;
     }
   } catch {
     // Preserve an existing non-vlab note as an opaque legacy record.
     return {
-      schema: "vcs-lab.note/v1",
-      records: [{ type: "legacy-note", text: result.stdout }],
+      schema: NOTE_SCHEMA,
+      records: [{ type: "legacy-note", text }],
     };
   }
-  return { schema: "vcs-lab.note/v1", records: [] };
+  return emptyNote();
+}
+
+export function readNote(commit, cwd = process.cwd()) {
+  const result = runGit(["notes", `--ref=${NOTES_REF}`, "show", commit], {
+    cwd,
+    allowFailure: true,
+  });
+  if (!result.ok) return emptyNote();
+  return parseNoteText(result.stdout);
+}
+
+/**
+ * Read the notes attached to several objects with two bounded Git queries
+ * (one note listing plus one batched object read) instead of one
+ * `git notes show` process per object. Every requested object maps to a note
+ * container; objects without a readable note map to an empty container,
+ * matching `readNote`.
+ */
+export function readNotes(objects, cwd = process.cwd()) {
+  const notes = new Map();
+  for (const object of objects) notes.set(object, emptyNote());
+  if (notes.size === 0) return notes;
+  const entries = listNoteEntries(cwd).filter((entry) => notes.has(entry.target));
+  if (entries.length === 0) return notes;
+  const blobs = readGitObjects(entries.map((entry) => entry.note), cwd);
+  for (let index = 0; index < entries.length; index += 1) {
+    const blob = blobs[index];
+    if (!blob.exists || blob.type !== "blob") continue;
+    notes.set(
+      entries[index].target,
+      parseNoteText(blob.content.toString("utf8").trim()),
+    );
+  }
+  return notes;
 }
 
 export function appendNote(commit, record, cwd = process.cwd()) {

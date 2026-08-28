@@ -702,6 +702,54 @@ export function readGitObjects(expressions, cwd = process.cwd()) {
   return results;
 }
 
+/**
+ * Classify several Git object expressions with one process, tolerating
+ * expressions that do not resolve. Unlike `resolveObjectIds`, a missing or
+ * unpeelable expression yields `{ exists: false }` instead of an error, so a
+ * caller can quarantine individual entries from a bounded scan.
+ */
+export function inspectGitObjects(expressions, cwd = process.cwd()) {
+  if (!Array.isArray(expressions) || expressions.length === 0) return [];
+  validateObjectExpressions(expressions);
+  const sessionResult = queryObjectSession(cwd, "info", expressions);
+  if (sessionResult) {
+    return sessionResult.map((object, index) => ({
+      expression: expressions[index],
+      exists: Boolean(object.exists),
+      oid: object.exists ? object.oid : null,
+      type: object.exists ? object.type : null,
+      size: object.exists ? object.size : 0,
+    }));
+  }
+  const output = runGit(["cat-file", "--batch-check"], {
+    cwd,
+    input: `${expressions.join("\n")}\n`,
+    trim: false,
+  }).stdout;
+  const lines = output.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  if (lines.length !== expressions.length) {
+    throw new CliError("Git did not classify every requested object expression.");
+  }
+  return expressions.map((expression, index) => {
+    const line = lines[index];
+    if (line.endsWith(" missing") || line.endsWith(" ambiguous")) {
+      return { expression, exists: false, oid: null, type: null, size: 0 };
+    }
+    const match = line.match(/^([0-9a-f]+) (\S+) (\d+)$/);
+    if (!match) {
+      throw new CliError(`Unexpected git cat-file batch-check line: ${line}`);
+    }
+    return {
+      expression,
+      exists: true,
+      oid: match[1],
+      type: match[2],
+      size: Number(match[3]),
+    };
+  });
+}
+
 export function gitText(args, options = {}) {
   return runGit(args, options).stdout;
 }

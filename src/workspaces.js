@@ -54,23 +54,77 @@ function findWorkspace(state, value) {
   return { index, workspace: state.workspaces[index] };
 }
 
+/**
+ * Parse `git status --porcelain=v2 --branch -z` output into the exact HEAD
+ * commit and the number of changed or untracked entries. Header fields start
+ * with `# `; rename and copy entries (`2 ...`) carry the original path in a
+ * second NUL-terminated field that must not be counted as another entry.
+ */
+function parseWorktreeStatus(output) {
+  let head = null;
+  let dirtyFiles = 0;
+  const fields = output.split("\0");
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index];
+    if (!field) continue;
+    if (field.startsWith("# ")) {
+      if (field.startsWith("# branch.oid ")) {
+        const oid = field.slice("# branch.oid ".length);
+        head = oid === "(initial)" ? null : oid;
+      }
+      continue;
+    }
+    dirtyFiles += 1;
+    if (field.startsWith("2 ")) index += 1;
+  }
+  return { head, dirtyFiles };
+}
+
+function workspacePathKind(workspacePath) {
+  let stat;
+  try {
+    stat = fs.statSync(workspacePath, { throwIfNoEntry: false });
+  } catch {
+    stat = null;
+  }
+  if (!stat) return "missing";
+  return stat.isDirectory() ? "directory" : "other";
+}
+
+function isInsideWorkTree(workspacePath) {
+  const probe = runGit(["rev-parse", "--is-inside-work-tree"], {
+    cwd: workspacePath,
+    allowFailure: true,
+  });
+  return probe.ok && probe.stdout === "true";
+}
+
 function inspectWorkspace(workspace) {
   const lifecycle = workspaceLifecycle(workspace);
   let pathStatus = "missing";
   let head = null;
   let dirtyFiles = null;
-  if (fs.existsSync(workspace.path)) {
-    const probe = runGit(["rev-parse", "--is-inside-work-tree"], {
+  const kind = workspacePathKind(workspace.path);
+  if (kind === "other") {
+    pathStatus = "invalid";
+  } else if (kind === "directory") {
+    // One worktree-scoped query answers usability, exact HEAD, and dirty
+    // count together. When it fails, a directory Git does not recognize as a
+    // work tree is invalid; a recognized work tree whose status cannot be
+    // read is an error rather than a silently degraded entry.
+    const status = runGit(["status", "--porcelain=v2", "--branch", "-z"], {
       cwd: workspace.path,
       allowFailure: true,
+      trim: false,
     });
-    if (probe.ok) {
+    if (status.ok) {
       pathStatus = "active";
-      head = currentHead(workspace.path);
-      const porcelain = gitText(["status", "--porcelain=v1"], {
-        cwd: workspace.path,
-      });
-      dirtyFiles = porcelain ? porcelain.split(/\r?\n/).length : 0;
+      ({ head, dirtyFiles } = parseWorktreeStatus(status.stdout));
+    } else if (isInsideWorkTree(workspace.path)) {
+      throw new CliError(
+        `git status --porcelain=v2 --branch -z failed in workspace '${workspace.name}'`,
+        { details: status.output, exitCode: status.status || 1 },
+      );
     } else {
       pathStatus = "invalid";
     }

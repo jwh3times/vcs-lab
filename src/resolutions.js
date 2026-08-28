@@ -1,8 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
-import { readGitBlob, readGitObjects, refExists, resolveRevision, runGit } from "./git.js";
+import {
+  inspectGitObjects,
+  readGitBlob,
+  readGitObjects,
+  refExists,
+  resolveRevision,
+  runGit,
+} from "./git.js";
 import { newId } from "./ids.js";
-import { appendNote, readNote } from "./notes.js";
+import { appendNote, readNote, readNotes } from "./notes.js";
 import { acceptedCausalRecords } from "./metadata.js";
 import {
   RESOLUTION_SIGNATURE_ALGORITHM,
@@ -64,16 +71,53 @@ function compactResolution(record) {
   };
 }
 
-export function listResolutionRecords(cwd = process.cwd()) {
-  const refs = runGit(
-    ["for-each-ref", "--format=%(refname)", RESOLUTION_REFS],
+/**
+ * Discover every retention ref and the commit it names with two bounded
+ * queries: one `for-each-ref` scan that reads only ref names and object IDs
+ * (so a dangling ref cannot abort the scan), then one batched object check
+ * that peels each ID exactly as `<ref>^{commit}` would. A ref that names a
+ * missing object or anything other than a commit cannot carry an accepted
+ * resolution record and is quarantined from the catalog; a failed scan is an
+ * error rather than an empty catalog.
+ */
+function listResolutionRefs(cwd) {
+  const scan = runGit(
+    ["for-each-ref", "--format=%(refname)%00%(objectname)", RESOLUTION_REFS],
     { cwd, allowFailure: true },
-  ).stdout;
-  if (!refs) return [];
+  );
+  if (!scan.ok) {
+    throw new CliError("Could not scan resolution retention refs.", {
+      details: scan.stderr,
+    });
+  }
+  const entries = [];
+  for (const line of scan.stdout.split(/\r?\n/)) {
+    if (!line) continue;
+    const [ref, oid] = line.split("\0");
+    if (ref && oid) entries.push({ ref, oid });
+  }
+  if (entries.length === 0) return [];
+  const objects = inspectGitObjects(
+    entries.map((entry) => `${entry.oid}^{commit}`),
+    cwd,
+  );
+  const refs = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const object = objects[index];
+    if (object.exists && object.type === "commit") {
+      refs.push({ ref: entries[index].ref, commit: object.oid });
+    }
+  }
+  return refs;
+}
+
+export function listResolutionRecords(cwd = process.cwd()) {
+  const refs = listResolutionRefs(cwd);
+  if (refs.length === 0) return [];
+  const notes = readNotes(refs.map((entry) => entry.commit), cwd);
   const records = [];
-  for (const ref of refs.split(/\r?\n/).filter(Boolean)) {
-    const commit = resolveRevision(ref, cwd);
-    for (const record of readNote(commit, cwd).records) {
+  for (const { ref, commit } of refs) {
+    for (const record of notes.get(commit).records) {
       if (record.type === "resolution") {
         records.push({ ...record, attachedTo: commit, discoveredRef: ref, commit });
       }

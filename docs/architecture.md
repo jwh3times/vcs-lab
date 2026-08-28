@@ -6,7 +6,7 @@
 | --- | --- |
 | Architecture baseline | v0.9 development after v0.8.0 |
 | Status | Current implementation reference |
-| Last updated | 2026-08-25 |
+| Last updated | 2026-08-27 |
 | Runtime | Node.js 20+ (ES modules), Git 2.38+ |
 | External runtime dependencies | None beyond Node.js and Git |
 
@@ -114,7 +114,7 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/git.js` | Safe synchronous Git adapter, repository context, object reads, sessions, metrics | Git executable, worker |
 | `src/git-session-worker.js` | Owns asynchronous `git cat-file --batch-command` stream for a synchronous caller | Worker threads, Git |
 | `src/store.js` | Common runtime directory and atomic JSON read/write | `src/git.js` |
-| `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab` | `src/git.js` |
+| `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab`, including one batched read for many targets | `src/git.js` |
 | `src/schemas.js` | Supported schema registry, structural record validation, object-reference and resolution-signature rules | IDs |
 | `src/metadata.js` | Deterministic inventory, scope classification, integrity diagnostics, lineage, and accepted-record filtering | Git, schemas, specs |
 | `src/metadata-envelope.js` | Canonical envelope manifest, integrity hash, payload bounds, and parser | Metadata, schemas |
@@ -544,6 +544,18 @@ Selection rules:
 This is exact resolution memory with explicit provenance, not a learned merge
 engine. Future learned candidates must be a visibly lower confidence tier.
 
+The catalog is discovered with a bounded number of Git processes regardless of
+record count: one `for-each-ref` scan returns every retention ref and object
+ID without touching objects (so a dangling ref cannot abort it), one batched
+object check peels each ID exactly as `<ref>^{commit}` would, one notes listing
+plus one batched object read loads the attached records, and batched object
+checks validate referenced blobs and the retained `result` entry. A record is
+quarantined when its stored ref, retention commit, ordered signature, or
+retained result blob disagrees with the discovered state; a retention ref that
+is dangling or does not name a commit is ignored, and a failed scan is an error
+rather than an empty catalog. Accepted records are ordered newest-first by
+creation time.
+
 ## 12. Workspace and checkpoint architecture
 
 `vlab workspace create` records a logical descriptor and creates a normal
@@ -556,6 +568,18 @@ descriptor.
 The registry resides in the common Git directory so every linked worktree can
 discover it. A descriptor includes logical ID, name, path, branch, pinned base,
 target label, optional owner/focus, creation time, and lifecycle.
+
+`workspace list` inspects each descriptor whose path exists with one
+worktree-scoped `git status --porcelain=v2 --branch -z` query. Its header
+yields the exact `HEAD` commit and its NUL-separated entries yield the dirty
+count (rename and copy entries count once), so usability, head, and dirtiness
+cost one process per materialized workspace. A nonexistent path is `missing`;
+a path that is not a directory, or a directory Git does not recognize as a
+work tree, is `invalid`; an unborn `HEAD` reports a `null` head; and archived
+descriptors report `archived` without probing. A recognized work tree whose
+status cannot be read (for example a corrupt private index) fails the listing
+loudly rather than degrading to `invalid`. Nothing is read from or written to
+another worktree's private index or symbolic refs.
 
 Lifecycle commands preserve workspace ID, compatibility branch, and checkpoint
 identity:
@@ -848,6 +872,13 @@ workspace status and resolution traversal before persistent indexes. One local
 synthetic run cannot recommend a resident service. ADR-0013 records the
 representative baseline and the resulting decision.
 
+That batching is implemented. Rerunning the same schema on a Linux development
+host moved workspace status from 36 to 12 processes (one per materialized
+worktree) and the 50-resolution catalog from 103 to six, with identical
+semantic results in ordinary and forced-session modes; ADR-0013 records the
+before/after figures. The decision output now asks for larger fixtures and more
+hosts rather than an index or service.
+
 ## 19. Testing architecture
 
 The integration suite creates disposable Git repositories and invokes the real
@@ -855,7 +886,7 @@ CLI and Git executable. This tests filesystem state, refs, notes, worktrees,
 process boundaries, line endings, and recovery behavior that unit mocks would
 hide.
 
-The current development baseline contains 43 scenarios covering:
+The current development baseline contains 46 scenarios covering:
 
 - initialization and versioning;
 - compact/hard-squash landing and causal suppression;
@@ -881,6 +912,12 @@ The current development baseline contains 43 scenarios covering:
 - bounded repository-scale fixture construction, semantic equality across scan
   samples, process-amplification decisions, caller non-mutation, privacy, and
   exact disposable cleanup.
+- batched workspace status across active, dirty, detached, unborn, archived,
+  missing, invalid, non-directory, and unreadable-index paths, and batched
+  resolution catalog discovery across valid, deleted, mismatched, malformed,
+  dangling, tag-peeled, and legacy-note records, each with bounded process
+  counts, ordinary/forced-session equality, and a volume-aware amplification
+  decision.
 
 The same suite is run with the session forced on. Demos complement tests by
 providing user-inspectable repositories and commands.
@@ -912,21 +949,22 @@ New capabilities should enter through versioned contracts:
   JSON Schema documents.
 - Some historical schema/proof labels no longer describe their trust level
   cleanly.
-- Workspace registry stores local absolute paths and still probes materialized
-  worktrees serially; the representative fixture measures three Git processes
-  per registered workspace.
+- Workspace registry stores local absolute paths, and status still costs one
+  `git status` process per materialized worktree because Git has no
+  cross-worktree status query.
 - Forecasts can consume one immutable source checkpoint, but not a target
   checkpoint, live dirty bytes, or a native private draft stack.
 - Causal rebase v1 is deliberately linear and current-branch-only; it does not
   preserve merge topology or provide interactive edit/reword/squash, arbitrary
   range selection, or dirty/checkpoint overlays.
 - Notes lookup still scales with the notes namespace and reachable history, but
-  its current catalog scan is already batched. Resolution catalog traversal is
-  still per-ref and process-amplified. Large-repository indexes are not
-  implemented because the measured first action is batching.
-- Repository-scale evidence is synthetic and currently from one Windows host;
-  real repositories and non-Windows hosts must be measured before setting fixed
-  targets or changing the service gate.
+  the note, resolution, and metadata catalog scans are batched into a bounded
+  number of processes. Large-repository indexes are not implemented because no
+  already-batched scan has exceeded a representative budget.
+- Repository-scale evidence is synthetic, with pre-batching figures from one
+  Windows host and post-batching figures from one Linux host; real repositories
+  and a Windows rerun must be measured before setting fixed targets or changing
+  the service gate.
 - Crash boundaries have integration coverage for process-separated pauses but
   not systematic kill/fault injection at every mutation/journal edge.
 - Persistent session buffers are intentionally bounded and invocation-scoped;
@@ -942,10 +980,11 @@ is Accepted, and its linear plan, isolated forecast, supervised application,
 recovery journal, and portable completed-receipt slices are implemented.
 
 Workspace lifecycle and immutable source-checkpoint forecasting now have a
-bounded worktree-backed implementation. ADR-0013's repository-scale fixture is
-also implemented and selects the next bounded increment: batch workspace
-status discovery and resolution catalog traversal, then rerun the same schema.
-Only already-batched scans that remain over a representative budget become
-incremental-catalog candidates. Target overlays and native draft stacks require
+bounded worktree-backed implementation. ADR-0013's repository-scale fixture and
+the batching it selected are both implemented, and the rerun shows no remaining
+per-entity process amplification. The next evidence step is to rerun the same
+schema on Windows, at larger fixture volume, and on real repositories; only an
+already-batched scan that remains over a representative budget becomes an
+incremental-catalog candidate. Target overlays and native draft stacks require
 a separate accepted contract. A server or native database still requires the
 PRD's measured exit criteria and representative multi-platform evidence.

@@ -639,6 +639,14 @@ workspace status and resolution traversal. It does not justify an incremental
 index, a resident service, or a production scale claim. See
 [ADR-0013](docs/adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md).
 
+Both paths are now batched: each materialized workspace costs one
+worktree-scoped `git status --porcelain=v2 --branch -z` query, and the
+resolution catalog uses one `for-each-ref` scan plus batched object and note
+reads. Rerunning the same profile on a Linux development host moved workspace
+status from 36 to 12 processes and the 50-resolution catalog from 103 to six,
+with identical results, so the benchmark's next action is larger fixtures and
+more hosts rather than an index.
+
 For command-by-command timings, enable tracing directly on one invocation:
 
 ```bash
