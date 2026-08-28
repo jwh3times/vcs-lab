@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
 - Consolidate maintained product, architecture, testing, and decision records
   under `docs/`; move active implementation briefs to issue tracking and stop

@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Architecture baseline | v0.9 development after v0.8.0 |
+| Architecture baseline | v0.9.0 release |
 | Status | Current implementation reference |
 | Last updated | 2026-08-27 |
 | Runtime | Node.js 20+ (ES modules), Git 2.38+ |

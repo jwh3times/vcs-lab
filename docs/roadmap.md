@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Baseline | v0.8.0 released; v0.9 development work in `Unreleased` |
+| Baseline | v0.9.0 released |
 | Status | Maintained execution guide |
 | Last reviewed | 2026-08-27 |
 | Planning horizon | Next bounded increment through native-implementation gate |
@@ -29,19 +29,19 @@ Roadmap states mean:
 
 ## Current position
 
-The laboratory has already tested the core causal model over ordinary Git. The
-package and runtime still report v0.8.0, while the v0.9 development baseline
-contains substantial implemented work that has not yet been released.
+The laboratory has already tested the core causal model over ordinary Git.
+v0.9.0 releases the causal-rebase, workspace-lifecycle, checkpoint-forecast,
+scale-benchmark, and scan-batching work accumulated since v0.8.0.
 
 | Area | Status | Current result |
 | --- | --- | --- |
 | Stable change identity and causal landing | Delivered | Change IDs survive supported rewrites; compact merges retain ancestry; hard squashes carry exact absorbed-work receipts. |
 | Proof-aware planning and reconciliation | Delivered | Plans distinguish exact coverage, advisory candidates, and new work; reconciliation is forecastable, resumable, and abortable. |
 | Exact and deterministic resolution | Delivered | Exact conflict results can be reused with explicit approval; indexed Markdown supports conservative deterministic section merges. |
-| Workspaces and checkpoints | Delivered through v0.8; expanded in development | Linked-worktree isolation and non-disruptive checkpoints are released. Move/archive/restore/repair/prune and immutable source-checkpoint forecasts are implemented but unreleased. |
+| Workspaces and checkpoints | Delivered | Linked-worktree isolation, non-disruptive checkpoints, move/archive/restore/repair/prune, and immutable source-checkpoint forecasts are released. |
 | Metadata integrity and portability | Delivered in v0.8 | Accepted shared facts can be inventoried, quarantined, exported, validated, and imported idempotently between related clones. |
-| Causal rebase | Implemented, unreleased | Linear current-branch planning, isolated forecasting, supervised replay, recovery, identity handling, and portable completed receipts are integration-tested. |
-| Scale evidence and scan batching | Implemented, unreleased | A synthetic repository fixture identified workspace-status and resolution-catalog process amplification; the selected invocation-local batching is implemented and the rerun shows one process per workspace and six for the resolution catalog. Nothing justifies an index or service. |
+| Causal rebase | Delivered | Linear current-branch planning, isolated forecasting, supervised replay, recovery, identity handling, and portable completed receipts are integration-tested and released. |
+| Scale evidence and scan batching | Delivered | A synthetic repository fixture identified workspace-status and resolution-catalog process amplification; the selected invocation-local batching is implemented and the rerun shows one process per workspace and six for the resolution catalog. Nothing justifies an index or service. |
 | Trust, remote protocol, and native storage | Gated | Integrity exists, but signatures, authorization, capability negotiation, trusted landing, and a native store are intentionally absent. |
 
 The first pending work is therefore qualification and release of existing
@@ -51,7 +51,7 @@ semantics plus broader evidence, not another storage layer or service.
 
 ### 1. Batch the measured scan hot paths
 
-**Status: implemented, unreleased.** The bounded action selected by
+**Status: delivered in v0.9.0.** The bounded action selected by
 [ADR-0013](adr/0013-measure-scan-amplification-before-adding-indexes-or-a-service.md)
 and tracked by
 [GitHub issue #1](https://github.com/jwh3times/vcs-lab/issues/1) was:
@@ -99,8 +99,9 @@ host result must not recommend a daemon or fixed production target.
 
 ### 3. Qualify and release the accumulated v0.9 work
 
-After the bounded implementation is accepted, run the full
-[release gate](testing.md#release-gate):
+**Status: v0.9.0 released on 2026-08-27** after the full
+[release gate](testing.md#release-gate) passed on a Linux host; the Windows
+rerun of the scale benchmark remains a follow-on evidence step. The gate is:
 
 - ordinary and forced-session integration suites;
 - all maintained demonstrations;

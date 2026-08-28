@@ -13,7 +13,7 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 test("CLI reports the package version", () => {
   assert.equal(
     exec(process.execPath, [cli, "--version"], projectRoot),
-    "vcs-lab 0.8.0",
+    "vcs-lab 0.9.0",
   );
 });
 

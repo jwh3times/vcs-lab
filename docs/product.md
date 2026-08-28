@@ -6,7 +6,7 @@
 | --- | --- |
 | Product | `vcs-lab` / causal source-control laboratory |
 | Document version | 1.0 |
-| Product baseline | v0.8.x release / v0.9 development |
+| Product baseline | v0.9.0 release |
 | Status | Active product baseline |
 | Last updated | 2026-08-27 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
@@ -273,8 +273,7 @@ ADR that explains why.
 
 Priorities use **P0** (required invariant), **P1** (core product), **P2**
 (important expansion), and **P3** (exploratory). Status is **Implemented**,
-**Partial**, **Planned**, or **Deferred** at the current v0.9 development
-baseline after v0.8.0.
+**Partial**, **Planned**, or **Deferred** at the v0.9.0 release baseline.
 
 ### 9.1 Git compatibility and repository adoption
 
@@ -558,7 +557,7 @@ stable IDs, or auditability.
 
 ## 12. Current release scorecard
 
-| Capability | v0.8 status | Evidence |
+| Capability | v0.9 status | Evidence |
 | --- | --- | --- |
 | Stable change identity | Complete for local prototype | Commit/cherry-pick/fork integration tests |
 | Compact and hard-squash landing | Complete for local prototype | Parent-shape and receipt tests |
@@ -675,11 +674,12 @@ criteria.
   reduction.
 - **v0.8:** metadata inventory/validation, quarantine-safe coverage, and
   deterministic Git-bundle export/import between clones.
-- **v0.9 (in development):** accepted causal rebase model with deterministic
-  planning, isolated pinned forecasting, supervised current-branch replay,
-  worktree-private recovery, portable completed receipts for linear history,
-  conservative workspace lifecycle, immutable source-checkpoint forecasts, and
-  an evidence-gated repository/shared-metadata scale benchmark.
+- **v0.9:** accepted causal rebase model with deterministic planning, isolated
+  pinned forecasting, supervised current-branch replay, worktree-private
+  recovery, portable completed receipts for linear history, conservative
+  workspace lifecycle, immutable source-checkpoint forecasts, an
+  evidence-gated repository/shared-metadata scale benchmark, and batched
+  workspace-status and resolution-catalog scans.
 
 ### Completed theme: metadata integrity and portability
 
