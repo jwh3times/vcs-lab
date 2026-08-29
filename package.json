@@ -15,6 +15,8 @@
     "demo:forecast": "node ./scripts/forecast-demo.mjs",
     "demo:spec": "node ./scripts/spec-merge-demo.mjs",
     "demo:git-session": "node ./scripts/git-session-demo.mjs",
+    "test:benchmark": "node ./scripts/benchmark-regression.mjs",
+    "benchmark:record": "node ./scripts/benchmark-regression.mjs --record",
     "sync:agents": "node ./scripts/sync-agent-assets.mjs"
   },
   "engines": {

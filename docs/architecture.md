@@ -930,7 +930,7 @@ CLI and Git executable. This tests filesystem state, refs, notes, worktrees,
 process boundaries, line endings, and recovery behavior that unit mocks would
 hide.
 
-The current development baseline contains 46 scenarios covering:
+The current development baseline covers:
 
 - initialization and versioning;
 - compact/hard-squash landing and causal suppression;

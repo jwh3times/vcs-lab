@@ -662,6 +662,8 @@ A release is eligible when:
 7. New schemas or algorithms include migration/compatibility tests.
 8. New automated decisions identify their proof/confidence and approval model.
 9. Documentation links resolve and the session handoff reflects the release.
+10. `npm run test:benchmark` passes on every host with an entry in
+    `benchmarks/baseline.json`.
 
 Production-readiness requires additional threat modeling, fuzzing, crash/fault
 injection, remote interoperability, performance targets, and a support policy.

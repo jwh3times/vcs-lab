@@ -7,7 +7,9 @@ modules such as `merge-plan.js`, `workspaces.js`, and `metadata.js`; `src/cli.js
 owns command parsing and presentation. `bin/vlab.js` is the executable entry
 point. `test/integration.test.js` exercises the real CLI against disposable Git
 repositories. Maintained demonstrations and repository utilities live in
-`scripts/`. Product, architecture, testing, and ADR documentation lives under
+`scripts/`; `benchmarks/baseline.json` is the per-host benchmark baseline that
+`npm run test:benchmark` consumes. Product, architecture, testing, and ADR
+documentation lives under
 `docs/`; keep only `README.md`, `CHANGELOG.md`, this guide, and the thin
 `CLAUDE.md` that imports it at the root. Agent skills are canonical in
 `.agents/skills/` and mirrored into `.claude/skills/` by `npm run sync:agents`
@@ -21,6 +23,9 @@ or build step.
 
 - `npm test` runs the complete Node integration suite.
 - `npm run test:docs` checks local Markdown link targets.
+- `npm run test:benchmark` compares bounded benchmarks against the committed
+  per-host baseline in `benchmarks/baseline.json`; `npm run benchmark:record`
+  refreshes this host's entry on a quiet machine.
 - `npm run sync:agents` regenerates `.claude/skills/` from `.agents/skills/`;
   `npm run sync:agents -- --check` reports drift without writing.
 - `npm run demo` runs the primary workflow demonstration; the other `demo:*`

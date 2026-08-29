@@ -34,6 +34,7 @@ survive refactoring and session boundaries. They complement the
 | [0014](0014-split-the-native-implementation-gate-into-engine-and-store-gates.md) | Accepted | Split the native implementation gate into engine and store gates |
 | [0015](0015-adopt-a-phased-native-core-program-with-rust.md) | Accepted | Adopt a phased native-core program with Rust as the core language |
 | [0016](0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md) | Accepted | Simulate clean forecast steps with a merge-tree session behind a flag |
+| [0017](0017-commit-a-per-host-benchmark-baseline-with-an-automated-regression-check.md) | Accepted | Commit a per-host benchmark baseline with an automated regression check |
 
 ## Creating or changing an ADR
 

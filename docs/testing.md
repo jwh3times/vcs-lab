@@ -66,6 +66,27 @@ ordinary, forced-session, and merge-tree engine runs before treating a
 cross-cutting or forecast change as qualified. `npm run demo:git-session`
 additionally compares the three forecast modes on one queue.
 
+## Benchmark regression check
+
+`npm run test:benchmark` builds a reduced scale fixture and a 12-change
+forecast fixture in disposable repositories and compares their Git process
+counts and medians against this host's entry in `benchmarks/baseline.json`
+(ADR-0017). A process count above the baseline, a median above twice the
+baseline (or the baseline plus 5 ms, whichever is larger), or a forecast whose
+modes disagree fails the check; a host without an entry is skipped with a
+warning, and a forecast mode the host cannot run (merge-tree below Git 2.45)
+is reported as skipped. The entry's `recordedAt`, `git`, and `node` fields
+are the provenance the check prints, not a result report: the baseline is the
+one committed host-specific measurement, permitted because this check
+consumes it. An interrupted run removes its `vcs-lab-benchmark-check-*`
+fixtures on SIGINT. Record or refresh this host's entry deliberately, on a
+quiet host in a clean checkout, and commit it with the change that moved the
+numbers:
+
+```bash
+npm run benchmark:record
+```
+
 ## Static checks
 
 Before merging a documentation or source change:
@@ -97,8 +118,9 @@ A release candidate is eligible only when:
 7. version constants, package metadata, changelog, and release tag agree; and
 8. the packed artifact passes an install and smoke test outside the source
    checkout; and
-9. when a committed benchmark baseline exists, the automated regression check
-   that consumes it passes.
+9. `npm run test:benchmark` passes on every host that has an entry in
+   `benchmarks/baseline.json`; hosts without an entry are reported as
+   skipped.
 
 New schemas, migration behavior, replay algorithms, or performance decisions
 require focused disposable-repository coverage in addition to this general

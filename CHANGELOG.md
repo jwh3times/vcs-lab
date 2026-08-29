@@ -33,6 +33,13 @@
   ordinary, session, and merge-tree modes (64, 25, and 10 Git processes for
   the 12-change forecast on
   the Windows development host), add a third suite mode, and accept ADR-0016.
+- Add `npm run test:benchmark`, an automated regression check that measures a
+  reduced scale fixture and a 12-change forecast in ordinary, session, and
+  merge-tree modes and compares process counts (exact) and medians (within
+  twice the baseline plus a 5 ms floor) against the committed per-host
+  `benchmarks/baseline.json`, skipping hosts without an entry;
+  `npm run benchmark:record` refreshes an entry. Release gate item 9 is now
+  active on hosts with a baseline; accept ADR-0017.
 - Raise the supported Git baseline from 2.38 to 2.40 (`git merge-tree
   --merge-base`; ADR-0015). Update README, AGENTS.md, testing, and
   architecture requirements accordingly.

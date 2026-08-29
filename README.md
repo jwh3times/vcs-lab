@@ -693,6 +693,13 @@ reconciliation receipts report active application time, excluding time spent
 waiting for a person between a conflict and `--continue`, plus total elapsed
 wall time.
 
+`npm run test:benchmark` compares a reduced scale fixture and a 12-change
+forecast in all three modes against the committed per-host baseline in
+`benchmarks/baseline.json`, failing on higher process counts or medians above
+twice the baseline plus a 5 ms floor (ADR-0017); a host whose Git cannot run
+the merge-tree engine has that mode reported as skipped.
+`npm run benchmark:record` refreshes this host's entry.
+
 Measure indexing and raw/estimated-compressed metadata size without changing the
 current repository:
 

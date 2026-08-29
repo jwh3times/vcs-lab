@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
@@ -4425,6 +4425,56 @@ test("merge-tree forecasts fall back when a queued change is a merge commit", (t
   assert.equal(git(repo, "status", "--porcelain=v1"), "");
   assert.equal(git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "main"));
 });
+
+test("the benchmark regression comparator flags process growth and slow medians but tolerates noise on fast phases", async () => {
+  const { compare, SCALE_PHASES, FORECAST_MODES } = await import(
+    pathToFileURL(path.join(projectRoot, "scripts", "benchmark-regression.mjs")).href
+  );
+  const phases = Object.fromEntries(
+    SCALE_PHASES.map((name, index) => [
+      name,
+      { medianMs: index === 0 ? 0.3 : 100, p95Ms: 120, medianProcesses: 2 },
+    ]),
+  );
+  const forecast = Object.fromEntries(
+    Object.keys(FORECAST_MODES).map((mode) => [
+      mode,
+      { engine: "worktree", fallbacks: 0, processes: 10, queries: 10, forecastMs: 500 },
+    ]),
+  );
+  const entry = { phases, forecast };
+
+  const same = compare(entry, structuredClone(entry));
+  assert.ok(same.length > 0);
+  assert.deepEqual(same.map((item) => item.status), same.map(() => "unchanged"));
+
+  const noisy = structuredClone(entry);
+  noisy.phases[SCALE_PHASES[0]].medianMs = 4; // within the absolute floor
+  noisy.phases[SCALE_PHASES[1]].medianMs = 201; // above twice the baseline
+  noisy.phases[SCALE_PHASES[2]].medianMs = 50; // faster
+  noisy.forecast["worktree-session"].processes = 11; // one more process
+  const findings = compare(entry, noisy);
+  const byKey = Object.fromEntries(findings.map((item) => [`${item.subject} ${item.metric}`, item]));
+  assert.equal(byKey[`scale:${SCALE_PHASES[0]} medianMs`].status, "tolerated");
+  assert.equal(byKey[`scale:${SCALE_PHASES[1]} medianMs`].status, "regressed");
+  assert.equal(byKey[`scale:${SCALE_PHASES[2]} medianMs`].status, "improved");
+  assert.equal(byKey["forecast:worktree-session processes"].status, "regressed");
+  assert.deepEqual(
+    findings.filter((item) => item.status === "regressed").map((item) => `${item.subject} ${item.metric}`),
+    [`scale:${SCALE_PHASES[1]} medianMs`, "forecast:worktree-session processes"],
+  );
+
+  const partial = structuredClone(entry);
+  delete partial.forecast["merge-tree-session"];
+  const skipped = compare(entry, partial).filter((item) => item.status === "skipped");
+  assert.deepEqual([...new Set(skipped.map((item) => item.subject))], ["forecast:merge-tree-session"]);
+  assert.deepEqual(skipped.map((item) => item.metric), ["processes", "forecastMs"]);
+  assert.deepEqual(
+    compare(entry, partial).filter((item) => item.status === "regressed"),
+    [],
+  );
+});
+
 test("merge-tree rebase forecasts match the worktree oracle and apply through --use-forecast", (t) => {
   if (skipWithoutMergeTreeEngine(t)) return;
   const { repo } = makeRepo(t);

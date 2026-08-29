@@ -181,8 +181,9 @@ Show findings before acting. Work through:
   `git worktree prune`, deleting `.git/vcs-lab/`). Anything the user created on
   purpose stays.
 - **Disposable fixtures in the OS temp directory.** Tests, forecasts, and the
-  two benchmarks remove their own `vcs-lab-test-*`, `vcs-lab-forecast-*`,
-  `vcs-lab-scale-benchmark-*`, and `vcs-lab-spec-benchmark-*` repositories, so
+  benchmarks remove their own `vcs-lab-test-*`, `vcs-lab-forecast-*`,
+  `vcs-lab-scale-benchmark-*`, `vcs-lab-spec-benchmark-*`, and
+  `vcs-lab-benchmark-check-*` repositories, so
   any of those left behind mark an interrupted run; the demos keep
   `vcs-lab-*demo-*` repositories by design for inspection; gate or experiment
   scripts may leave `vcs-lab-gate-*` and similar. List them and remove after a
