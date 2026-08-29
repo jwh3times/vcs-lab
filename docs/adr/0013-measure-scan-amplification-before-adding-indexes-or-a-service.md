@@ -121,10 +121,49 @@ volume. The decision policy is therefore refined: a processes-per-entity ratio
 above one is a batching candidate only when the phase measured at least ten
 entities; below that the analysis reports `increase-fixture-volume` for the
 phase and never recommends batching, an index, or a service from it. The
-representative profile stays well above that minimum. The Windows host that
-produced the initial evidence has not yet been remeasured; that rerun, larger
-fixtures, and real repositories are the next evidence, not an index or
-service.
+representative profile stays well above that minimum. The Windows rerun
+below completes the two-host post-batching comparison; larger fixtures and
+real repositories are the next evidence, not an index or service.
+
+## Windows post-batching evidence
+
+The same schema, representative profile, default budget, and three samples
+were rerun on the 2026-08-24 Windows development host on 2026-08-29 (Windows
+11, Git 2.55.0.windows.3, Node 26.4.0, baseline commit `1ce7e15`, v0.9.0
+code) in ordinary mode and with `VLAB_GIT_SESSION=1`. Medians and p95 are in
+milliseconds; the initial column is the 2026-08-24 pre-batching run above.
+
+| Phase | Initial median | Ordinary median (p95) | Forced-session median (p95) | Git processes |
+| --- | ---: | ---: | ---: | ---: |
+| History, 250 commits | 72.74 | 54.43 (59.04) | 51.57 (54.21) | 1 |
+| Git worktree list, 13 worktrees | 59.29 | 39.79 (42.90) | 41.51 (44.11) | 1 |
+| Registry read, 12 workspaces | 0.31 | 0.27 (0.41) | 0.25 (0.35) | 0 |
+| Workspace status, 12 workspaces | 1,597.78 | 409.62 (445.03) | 397.72 (405.55) | 36 → 12 |
+| Note catalog, 300 targets | 172.67 | 131.30 (146.60) | 136.53 (149.79) | 2 |
+| Resolution catalog, 50 records | 5,503.66 | 253.93 (260.16) | 267.14 (267.84) | 103 → 6 |
+| Complete metadata status | 780.25 | 585.84 (919.73) | 582.58 (917.32) | 11 |
+
+Semantic results were identical across samples and between the two modes, no
+phase exceeded the default budget, and the decision output was
+`increase-fixture-volume-and-collect-more-hosts` in both runs. Fixture setup
+took 40.6 s and 39.5 s for 1,148 Git processes (about 35 ms per process),
+which is the Windows process floor this host imposes on every per-entity
+scan: the 12 `git status` processes account for the whole workspace-status
+median. The two modes measure the same path because the benchmark's phases
+use batched `cat-file` processes and never open the invocation-scoped object
+session, and `VLAB_GIT_SESSION` defaults to on for Windows; the
+forced-session column is retained as the equality check the roadmap asked
+for, not as a distinct engine result. The cold complete-metadata-status
+sample (about 918 ms) is the closest any phase comes to the budget.
+
+This rerun satisfies the Windows half of ADR-0014 Gate A item 2. Because
+every batched path is under budget at representative volume, Horizon 1
+optimization ends here and no per-command budget that the batched Git path
+misses has been named; ADR-0014 Gate A item 3 remains open and can be
+answered only by larger fixtures, real repositories, or the Git-best-mode
+baseline of roadmap Horizon 1.5. The raw JSON for both runs is attached to
+[GitHub issue #2](https://github.com/jwh3times/vcs-lab/issues/2) and is not
+committed.
 
 ## Constraints
 
@@ -177,6 +216,7 @@ service.
 - Batched resolution discovery and note reads: `src/resolutions.js`,
   `src/notes.js`
 - Representative measurements and the decisions they support: this ADR's
-  Initial evidence and Post-batching evidence sections
+  Initial evidence, Post-batching evidence, and Windows post-batching
+  evidence sections
 - Batching implementation brief and acceptance checklist:
   [GitHub issue #1](https://github.com/jwh3times/vcs-lab/issues/1)

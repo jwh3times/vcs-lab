@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Record the Windows post-batching rerun of
+  `vcs-lab.repository-scale-benchmark/v1` in ADR-0013: workspace status fell
+  from 1,598 ms to 410 ms (36 to 12 processes) and the resolution catalog from
+  5,504 ms to 254 ms (103 to 6 processes) with identical results in both
+  Git-session modes and no phase over budget, completing the Windows half of
+  ADR-0014 Gate A item 2 and ending Horizon 1 optimization.
 - Raise the supported Git baseline from 2.38 to 2.40 (`git merge-tree
   --merge-base`; ADR-0015). Update README, AGENTS.md, testing, and
   architecture requirements accordingly.

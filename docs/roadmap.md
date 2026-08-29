@@ -6,7 +6,7 @@
 | --- | --- |
 | Baseline | v0.9.0 released |
 | Status | Maintained execution guide |
-| Last reviewed | 2026-08-28 |
+| Last reviewed | 2026-08-29 |
 | Planning horizon | Next bounded increment through the phased native-core program |
 
 This roadmap synthesizes the current
@@ -46,7 +46,7 @@ a Git-native first increment.
 | Workspaces and checkpoints | Delivered | Linked-worktree isolation, non-disruptive checkpoints, move/archive/restore/repair/prune, and immutable source-checkpoint forecasts are released. |
 | Metadata integrity and portability | Delivered in v0.8 | Accepted shared facts can be inventoried, quarantined, exported, validated, and imported idempotently between related clones. |
 | Causal rebase | Delivered | Linear current-branch planning, isolated forecasting, supervised replay, recovery, identity handling, and portable completed receipts are integration-tested and released. |
-| Scale evidence and scan batching | Delivered | A synthetic repository fixture identified workspace-status and resolution-catalog process amplification; the selected invocation-local batching is implemented and the rerun shows one process per workspace and six for the resolution catalog. Nothing justifies an index or service. |
+| Scale evidence and scan batching | Delivered | A synthetic repository fixture identified workspace-status and resolution-catalog process amplification; the selected invocation-local batching is implemented and the Linux and Windows reruns show one process per workspace and six for the resolution catalog, with every phase under the interactive budget on both hosts. Nothing justifies an index or service. |
 | Trust, remote protocol, and native storage | Gated | Integrity exists, but signatures, authorization, capability negotiation, trusted landing, and a native store are intentionally absent. |
 
 The first pending work is therefore Horizon 1.5's Git-native wins and the
@@ -92,25 +92,28 @@ next decision point for FR-PERF-09.
 
 ### 2. Rerun the accepted evidence schema
 
-Rerun `vcs-lab.repository-scale-benchmark/v1` without changing the fixture or
-measurement meaning. Compare pre/post process counts, semantic results, median,
-and p95 for workspace status, resolution catalog, and complete metadata status.
-The Linux before/after comparison is recorded in ADR-0013; the Windows host
-that produced the initial evidence still needs the same rerun.
+**Status: delivered on both hosts.** `vcs-lab.repository-scale-benchmark/v1`
+was rerun without changing the fixture or measurement meaning. The Linux
+before/after comparison and the 2026-08-29 Windows rerun (tracked by
+[GitHub issue #2](https://github.com/jwh3times/vcs-lab/issues/2)) are recorded
+in ADR-0013: on Windows the workspace-status median fell from 1,598 ms to
+410 ms and the resolution-catalog median from 5,504 ms to 254 ms, with
+identical semantic results in ordinary and forced-session modes and no phase
+over the 1,000 ms budget.
 
-If both paths fall under the configured budget, stop optimizing them and gather
-larger real-repository and multi-host evidence. If an already-batched path
-remains over budget, propose an incremental catalog in a new ADR. One synthetic
-host result must not recommend a daemon or fixed production target.
-Under-budget results end Horizon 1 optimization; they neither satisfy nor
+Both paths fall under the configured budget on both hosts, so Horizon 1
+optimization stops here; the next evidence is larger real-repository and
+multi-host measurement. One synthetic host result must not recommend a daemon
+or fixed production target. The under-budget results neither satisfy nor
 block Gate A of ADR-0014, which needs a named Windows/OneDrive budget that the
-batched path misses, measured against Git's best mode (Horizon 1.5).
+batched path misses, measured against Git's best mode (Horizon 1.5); no such
+budget has been named yet.
 
 ### 3. Qualify and release the accumulated v0.9 work
 
 **Status: v0.9.0 released on 2026-08-27** after the full
 [release gate](testing.md#release-gate) passed on a Linux host; the Windows
-rerun of the scale benchmark remains a follow-on evidence step. The gate is:
+rerun of the scale benchmark followed on 2026-08-29 (item 2). The gate is:
 
 - ordinary and forced-session integration suites;
 - all maintained demonstrations;
@@ -138,9 +141,9 @@ current `vlab` path:
    Markdown driver must run; pin per-step and predicted trees exactly as
    `vcs-lab.forecast/v2` and `vcs-lab.rebase-forecast/v1` do today; evaluate
    `git replay` as an alternative or oracle; document `rerere` interaction.
-2. Produce the pending Windows post-batching rerun of
-   `vcs-lab.repository-scale-benchmark/v1` and record it in an ADR-0013
-   addendum.
+2. **Done 2026-08-29:** the Windows post-batching rerun of
+   `vcs-lab.repository-scale-benchmark/v1` is recorded in ADR-0013's Windows
+   post-batching evidence section.
 3. Optionally enable commit-graph, multi-pack index, and fsmonitor in
    `vlab init`, and derive sparse-checkout cones from workspace focus, with
    workspace-creation and materialized-bytes phases added to a v2 benchmark
@@ -324,7 +327,7 @@ signals.
 | FR-PLAN-08 | Planned | Horizons 2 and 4 portable verification |
 | FR-RES-07 | Planned | Horizon 3 isolated lower-confidence experiments |
 | FR-WS-08 | Deferred | Horizon 5 phase 5 under Gate B |
-| FR-WS-09 | Batched status implemented; multi-host evidence pending | Horizon 1.5 Windows rerun, then Horizon 5 phase 1 zero-process status |
+| FR-WS-09 | Batched status implemented; Linux and Windows synthetic evidence recorded | Real-repository evidence, then Horizon 5 phase 1 zero-process status |
 | FR-SPEC-13 | Planned | Horizon 3 adapter conformance and expansion |
 | FR-PERF-09 | Evidence gate | Horizon 5 phases 1-3 and the resident-service row |
 | FR-PROTO-06 | Deferred | Horizon 4 capability negotiation |
