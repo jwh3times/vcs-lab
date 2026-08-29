@@ -3416,7 +3416,9 @@ test("batched resolution catalog lists retained records newest-first and quarant
     note: () => "legacy free-form note\n",
   });
 
-  // (j) A note stored as a bare JSON array of records.
+  // (j) A note stored as a bare JSON array of records. vlab never wrote this
+  // shape; it is not a versioned record container, so the catalog ignores it
+  // exactly as `metadata validate` quarantines it.
   const bareArray = publish({
     id: "res_bare_array",
     stages: stagesFor("theirs bare array\n"),
@@ -3432,7 +3434,6 @@ test("batched resolution catalog lists retained records newest-first and quarant
     commit: entry.commit,
   });
   const expected = [
-    listed(bareArray),
     listed(valid[2]),
     listed(deleted),
     listed(valid[1]),
@@ -3496,9 +3497,22 @@ test("batched resolution catalog lists retained records newest-first and quarant
   assert.ok(errorCodesFor(treeRef).includes("missing-resolution-record"));
   assert.ok(errorCodesFor(danglingRef).includes("missing-resolution-record"));
   assert.ok(errorCodesFor(legacy.commit).includes("malformed-record"));
-  for (const id of ["res_valid_0", "res_valid_1", "res_valid_2", "res_deleted"]) {
+  assert.ok(errorCodesFor(bareArray.commit).includes("malformed-record"));
+  assert.ok(errorCodesFor(bareArray.ref).includes("missing-resolution-record"));
+  assert.ok(!catalog.some((record) => record.id === "res_bare_array"));
+  // Validation peels the tag-pointing retention ref exactly as the catalog
+  // does, so the tagged record and its ref are accepted without diagnostics
+  // while the reported ref target stays raw.
+  for (const id of ["res_valid_0", "res_valid_1", "res_valid_2", "res_deleted", "res_tagged"]) {
     assert.deepEqual(errorCodesFor(id), []);
   }
+  assert.deepEqual(errorCodesFor(tagged.ref), []);
+  const resolutions = report.scopes.sharedPortable.resolutions;
+  assert.equal(resolutions.acceptedRefCount, 5);
+  assert.deepEqual(
+    resolutions.refs.find((entry) => entry.ref === tagged.ref),
+    { ref: tagged.ref, oid: tagObject },
+  );
 });
 
 test("batched resolution catalog scans use a bounded number of Git processes as refs grow", (t) => {
@@ -3574,4 +3588,155 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
   const session = tracedGitCommands(repo, "resolve", "list", "--json", "--git-session");
   assert.deepEqual(JSON.parse(session.stdout), catalog);
   assert.ok(session.commands.length <= processBound, session.commands.join(", "));
+});
+
+test("metadata export and import carry a retention ref that names an annotated tag of its retention commit", (t) => {
+  const { repo, parent } = makeRepo(t);
+  // The stage blobs are committed so a fresh clone carries every object the
+  // resolution record references; the retention commits travel in the bundle.
+  write(repo, "shared.txt", "base\n");
+  write(repo, "stages/ours.txt", "ours\n");
+  write(repo, "stages/theirs-tagged.txt", "theirs tagged\n");
+  write(repo, "stages/theirs-bare-array.txt", "theirs bare array\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  const baseBlob = writeBlob(repo, "base\n");
+  const oursBlob = writeBlob(repo, "ours\n");
+  const resultBlob = writeBlob(repo, "resolved\n");
+  const stagesFor = (theirs) => ({
+    base: { mode: "100644", blob: baseBlob },
+    ours: { mode: "100644", blob: oursBlob },
+    theirs: { mode: "100644", blob: writeBlob(repo, theirs) },
+  });
+
+  // A valid retention whose ref is then repointed at an annotated tag of the
+  // retention commit.
+  const tagged = publishRetainedResolution(repo, {
+    id: "res_tagged",
+    stages: stagesFor("theirs tagged\n"),
+    createdAt: "2026-02-01T00:00:00.000Z",
+    originatingCommit: base.commit,
+    resultBlob,
+  });
+  git(repo, "tag", "-a", "-m", "retention tag", "retention-tag", tagged.commit);
+  const tagObject = git(repo, "rev-parse", "refs/tags/retention-tag");
+  git(repo, "update-ref", tagged.ref, tagObject);
+  git(repo, "tag", "-d", "retention-tag");
+  assert.notEqual(tagObject, tagged.commit);
+  assert.equal(git(repo, "rev-parse", tagged.ref), tagObject);
+
+  // A note stored as a bare JSON array is not a versioned record container:
+  // receipts, the catalog, validation, and export all ignore it.
+  const bareArray = publishRetainedResolution(repo, {
+    id: "res_bare_array",
+    stages: stagesFor("theirs bare array\n"),
+    createdAt: "2026-03-01T00:00:00.000Z",
+    originatingCommit: base.commit,
+    resultBlob,
+    note: (record) => [record],
+  });
+  const receipts = JSON.parse(vlab(repo, "receipts", "--json"));
+  assert.ok(receipts.some((record) => record.id === "res_tagged"));
+  assert.ok(!receipts.some((record) => record.id === "res_bare_array"));
+  assert.deepEqual(
+    JSON.parse(vlab(repo, "resolve", "list", "--json")).map((record) => record.id),
+    ["res_tagged"],
+  );
+
+  const sourceStatus = JSON.parse(vlab(repo, "metadata", "status", "--json"));
+  assert.equal(sourceStatus.scopes.sharedPortable.resolutions.acceptedRefCount, 1);
+  assert.deepEqual(
+    sourceStatus.scopes.sharedPortable.resolutions.refs.find((entry) => entry.ref === tagged.ref),
+    { ref: tagged.ref, oid: tagObject },
+  );
+  assert.ok(
+    sourceStatus.diagnostics.some((item) =>
+      item.code === "missing-resolution-record" && item.subject === bareArray.ref,
+    ),
+  );
+
+  const envelopePath = path.join(parent, "tagged-metadata");
+  const exported = JSON.parse(vlab(repo, "metadata", "export", envelopePath, "--json"));
+  assert.equal(exported.records, 1);
+  assert.equal(exported.refs, 2);
+  const manifest = JSON.parse(fs.readFileSync(path.join(envelopePath, "manifest.json"), "utf8"));
+  assert.deepEqual(
+    manifest.refs.filter((entry) => entry.ref.startsWith("refs/vcs-lab/resolutions/")),
+    [{ ref: tagged.ref, bundleRef: tagged.ref, oid: tagObject }],
+  );
+  assert.deepEqual(manifest.records.map((record) => record.id), ["res_tagged"]);
+
+  const destination = path.join(parent, "destination");
+  git(parent, "clone", "--no-local", repo, destination);
+  git(destination, "config", "core.autocrlf", "false");
+  git(destination, "config", "user.name", "VCS Lab Test");
+  git(destination, "config", "user.email", "vcs-lab@example.test");
+  assert.equal(
+    git(destination, "for-each-ref", "--format=%(refname)", "refs/vcs-lab/resolutions"),
+    "",
+  );
+
+  const preview = JSON.parse(
+    vlab(destination, "metadata", "import", envelopePath, "--dry-run", "--json"),
+  );
+  assert.equal(preview.summary.applicable, true);
+  assert.equal(preview.summary.addRecords, 1);
+  assert.deepEqual(
+    preview.refs.find((entry) => entry.ref === tagged.ref),
+    { ref: tagged.ref, incoming: tagObject, existing: null, action: "create" },
+  );
+
+  const imported = JSON.parse(
+    vlab(destination, "metadata", "import", envelopePath, "--apply", "--json"),
+  );
+  assert.equal(imported.applied, true);
+  assert.equal(imported.changed, true);
+  assert.equal(git(destination, "rev-parse", tagged.ref), tagObject);
+  assert.equal(git(destination, "rev-parse", `${tagged.ref}^{commit}`), tagged.commit);
+  assert.equal(git(destination, "cat-file", "-t", tagObject), "tag");
+  assert.equal(
+    git(destination, "for-each-ref", "--format=%(refname)", "refs/vcs-lab/import-staging"),
+    "",
+  );
+  const destinationCatalog = JSON.parse(vlab(destination, "resolve", "list", "--json"));
+  assert.deepEqual(destinationCatalog.map((record) => record.id), ["res_tagged"]);
+  assert.equal(destinationCatalog[0].commit, tagged.commit);
+  assert.equal(destinationCatalog[0].discoveredRef, tagged.ref);
+  const destinationValidation = vlabResult(destination, "metadata", "validate", "--json");
+  assert.equal(destinationValidation.status, 0, destinationValidation.stderr);
+  assert.equal(JSON.parse(destinationValidation.stdout).summary.valid, true);
+
+  const repeated = JSON.parse(
+    vlab(destination, "metadata", "import", envelopePath, "--apply", "--json"),
+  );
+  assert.equal(repeated.applied, true);
+  assert.equal(repeated.changed, false);
+  assert.equal(repeated.summary.conflicts, 0);
+  assert.equal(repeated.summary.addRecords, 0);
+  assert.equal(
+    repeated.refs.find((entry) => entry.ref === tagged.ref).action,
+    "noop",
+  );
+  assert.equal(git(destination, "rev-parse", tagged.ref), tagObject);
+
+  // Ref targets are compared raw: a destination that already names the
+  // retention commit directly conflicts with the tag-pointing source ref.
+  const direct = path.join(parent, "direct");
+  git(parent, "clone", "--no-local", repo, direct);
+  git(direct, "config", "user.name", "VCS Lab Test");
+  git(direct, "config", "user.email", "vcs-lab@example.test");
+  git(direct, "fetch", "--no-tags", repo, `${tagged.ref}:${tagged.ref}`);
+  git(direct, "update-ref", tagged.ref, tagged.commit);
+  assert.equal(git(direct, "rev-parse", tagged.ref), tagged.commit);
+  const directPreview = vlabResult(direct, "metadata", "import", envelopePath, "--dry-run", "--json");
+  assert.notEqual(directPreview.status, 0);
+  const directReport = JSON.parse(directPreview.stdout);
+  assert.equal(directReport.summary.applicable, false);
+  assert.deepEqual(
+    directReport.refs.find((entry) => entry.ref === tagged.ref),
+    { ref: tagged.ref, incoming: tagObject, existing: tagged.commit, action: "conflict" },
+  );
+  assert.equal(git(direct, "rev-parse", tagged.ref), tagged.commit);
 });

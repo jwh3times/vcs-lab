@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  inspectGitObjects,
   readGitObjects,
   repoContext,
   runGit,
@@ -64,6 +65,22 @@ function listRefs(prefix, cwd) {
     })
     .filter((entry) => entry.ref && entry.oid)
     .sort((left, right) => left.ref.localeCompare(right.ref));
+}
+
+/**
+ * Peel each retention ref target to a commit with one batched object check,
+ * exactly as the resolution catalog does (`<oid>^{commit}`), so a ref that
+ * names an annotated tag of its retention commit validates the same way it is
+ * listed. A target that does not peel to a commit (a tree, a blob, or a
+ * dangling ID) maps to `null` instead of aborting the scan.
+ */
+function peelResolutionRefs(refs, cwd) {
+  if (refs.length === 0) return new Map();
+  const objects = inspectGitObjects(refs.map((entry) => `${entry.oid}^{commit}`), cwd);
+  return new Map(refs.map((entry, index) => [
+    entry.ref,
+    objects[index].exists && objects[index].type === "commit" ? objects[index].oid : null,
+  ]));
 }
 
 function addDiagnostic(diagnostics, code, severity, scope, subject, message, extra = {}) {
@@ -263,8 +280,11 @@ function validatePortableNotes(context, diagnostics, options) {
   const referenced = options.validateReferences === false
     ? new Map()
     : objectLookup(references.map((reference) => reference.oid), context.root);
+  // `resolutionRefs[].oid` stays the raw ref target (it is reported as
+  // `resolutions.refs` and compared raw by envelope export/import); only the
+  // record check below uses the peeled commit.
   const resolutionRefs = listRefs(RESOLUTION_REFS, context.root);
-  const resolutionRefMap = new Map(resolutionRefs.map((entry) => [entry.ref, entry.oid]));
+  const resolutionRefMap = peelResolutionRefs(resolutionRefs, context.root);
   const resolutionTreeObjects = objectLookup(
     structural
       .filter((entry) => entry.structurallyValid && entry.record.type === "resolution" && entry.record.resultBlob)

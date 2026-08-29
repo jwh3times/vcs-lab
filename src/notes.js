@@ -9,17 +9,18 @@ function emptyNote() {
 }
 
 /**
- * Parse one note's trimmed text with the lenient single-note rules: a bare
- * array is accepted as records, an unparsable note becomes an opaque legacy
- * record, and anything else yields no records.
+ * Parse one note's trimmed text. This is the single note parser shared by
+ * `readNote`, `readNotes`, and `listNoteRecords` so the resolution catalog,
+ * receipts, and note rewriting cannot disagree about a note's shape: only a
+ * versioned `vcs-lab.note/v1` container yields records, an unparsable note
+ * becomes an opaque legacy record so it is preserved on rewrite, and any other
+ * JSON shape (including a bare array of records, which `metadata validate`
+ * rejects as a malformed container) yields no records.
  */
 function parseNoteText(text) {
   if (!text) return emptyNote();
   try {
     const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) {
-      return { schema: NOTE_SCHEMA, records: parsed };
-    }
     if (parsed?.schema === NOTE_SCHEMA && Array.isArray(parsed.records)) {
       return parsed;
     }
@@ -97,24 +98,6 @@ function listNoteEntries(cwd = process.cwd()) {
     .filter(Boolean);
 }
 
-function parseNoteContent(content) {
-  const text = content.toString("utf8").trim();
-  try {
-    const parsed = JSON.parse(text);
-    if (
-      parsed &&
-      parsed.schema === "vcs-lab.note/v1" &&
-      Array.isArray(parsed.records)
-    ) return parsed;
-  } catch {
-    return {
-      schema: "vcs-lab.note/v1",
-      records: [{ type: "legacy-note", text }],
-    };
-  }
-  return { schema: "vcs-lab.note/v1", records: [] };
-}
-
 function recordsForEntries(entries, cwd) {
   if (entries.length === 0) return [];
   const objects = readGitObjects(entries.map((entry) => entry.note), cwd);
@@ -122,7 +105,8 @@ function recordsForEntries(entries, cwd) {
   for (let index = 0; index < entries.length; index += 1) {
     const object = objects[index];
     if (!object.exists || object.type !== "blob") continue;
-    for (const record of parseNoteContent(object.content).records) {
+    const note = parseNoteText(object.content.toString("utf8").trim());
+    for (const record of note.records) {
       records.push({ ...record, attachedTo: entries[index].target });
     }
   }

@@ -7,7 +7,6 @@ import {
   readGitObjects,
   refExists,
   repoContext,
-  resolveRevision,
   runGit,
 } from "./git.js";
 import { sha256 } from "./ids.js";
@@ -404,6 +403,12 @@ function importPreview(envelope, incoming, cwd) {
       cwd,
       allowFailure: true,
     });
+    // Ref targets are compared raw, without peeling: the manifest records the
+    // unpeeled object ID of each exported ref, so a retention ref that names
+    // an annotated tag of its retention commit round-trips exactly. As a
+    // consequence, a destination ref that names the retention commit directly
+    // and a source ref that names a tag of that same commit are different
+    // targets and are reported as a conflict rather than a noop.
     let action = "create";
     if (entry.ref === NOTES_REF && current.ok) action = hasRecordAdds ? "merge" : "noop";
     else if (current.ok && current.stdout === entry.oid) action = "noop";
@@ -459,7 +464,14 @@ function stageEnvelopeRefs(envelope, cwd) {
     { cwd },
   );
   for (const entry of staged) {
-    if (resolveRevision(entry.stageRef, cwd) !== entry.oid) {
+    // Compare the raw staged target rather than a peeled commit: the manifest
+    // carries the unpeeled object ID, and a retention ref may legitimately
+    // name an annotated tag of its retention commit.
+    const stagedTarget = runGit(["show-ref", "--verify", "--hash", entry.stageRef], {
+      cwd,
+      allowFailure: true,
+    });
+    if (!stagedTarget.ok || stagedTarget.stdout !== entry.oid) {
       throw new CliError(`Staged metadata ref '${entry.ref}' changed during import.`);
     }
   }

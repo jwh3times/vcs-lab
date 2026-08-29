@@ -714,7 +714,7 @@ Those should be built only after these local semantics prove useful.
 npm test
 ```
 
-The 43-test integration suite creates disposable Git repositories and exercises
+The integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
 non-mutating and stale-safe forecasts, pinned batch application, committed-head

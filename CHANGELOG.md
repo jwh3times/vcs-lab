@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Make `vlab metadata validate` and `vlab resolve list` agree on retention
+  state (issue #4): validation now peels each `refs/vcs-lab/resolutions/*`
+  target exactly as the catalog does, so a ref that names an annotated tag of
+  its retention commit is accepted (and `metadata export`/`import` carry the
+  raw tag target through), and the catalog no longer reads a note stored as a
+  bare JSON array of records, which validation already quarantined as a
+  malformed container. Migration: `vlab` never wrote either shape; a bare-array
+  note must be rewritten as `{"schema":"vcs-lab.note/v1","records":[...]}` or
+  its conflict re-resolved once (`vlab resolve` republishes over such a ref).
+  The peel costs complete metadata status one additional bounded Git process
+  outside the object session (12 rather than 11 in the ADR-0013 fixture).
 - Record the Windows post-batching rerun of
   `vcs-lab.repository-scale-benchmark/v1` in ADR-0013: workspace status fell
   from 1,598 ms to 410 ms (36 to 12 processes) and the resolution catalog from

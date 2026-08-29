@@ -165,6 +165,10 @@ baseline of roadmap Horizon 1.5. The raw JSON for both runs is attached to
 [GitHub issue #2](https://github.com/jwh3times/vcs-lab/issues/2) and is not
 committed.
 
+These figures are at `1ce7e15`. The issue #4 correction that followed adds
+one bounded peel process to complete metadata status (12 rather than 11 at
+this profile); the other phases are unaffected.
+
 ## Constraints
 
 - The benchmark must not mutate or disclose data from the caller repository.

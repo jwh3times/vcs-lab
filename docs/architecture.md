@@ -6,7 +6,7 @@
 | --- | --- |
 | Architecture baseline | v0.9.0 release |
 | Status | Current implementation reference |
-| Last updated | 2026-08-28 |
+| Last updated | 2026-08-29 |
 | Runtime | Node.js 20+ (ES modules), Git 2.40+ |
 | External runtime dependencies | None beyond Node.js and Git |
 
@@ -553,7 +553,9 @@ checks validate referenced blobs and the retained `result` entry. A record is
 quarantined when its stored ref, retention commit, ordered signature, or
 retained result blob disagrees with the discovered state; a retention ref that
 is dangling or does not name a commit is ignored, and a failed scan is an error
-rather than an empty catalog. Accepted records are ordered newest-first by
+rather than an empty catalog. `vlab metadata validate` peels retention refs
+exactly as the catalog does, so the two never disagree about whether a
+retention ref accepts its record. Accepted records are ordered newest-first by
 creation time.
 
 ## 12. Workspace and checkpoint architecture
@@ -915,9 +917,12 @@ The current development baseline contains 46 scenarios covering:
 - batched workspace status across active, dirty, detached, unborn, archived,
   missing, invalid, non-directory, and unreadable-index paths, and batched
   resolution catalog discovery across valid, deleted, mismatched, malformed,
-  dangling, tag-peeled, and legacy-note records, each with bounded process
-  counts, ordinary/forced-session equality, and a volume-aware amplification
-  decision.
+  dangling, tag-peeled, non-JSON, and bare-array notes (the last two are
+  ignored, not listed), each with bounded process counts, ordinary/forced-
+  session equality, and a volume-aware amplification decision.
+- metadata validation and the resolution catalog agreeing on tag-pointing
+  retention refs and bare-array notes, with an export/import round trip that
+  carries a tag-pointing retention ref between clones.
 
 The same suite is run with the session forced on. Demos complement tests by
 providing user-inspectable repositories and commands.
