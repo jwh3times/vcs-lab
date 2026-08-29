@@ -7,7 +7,7 @@
 | Architecture baseline | v0.9.0 release |
 | Status | Current implementation reference |
 | Last updated | 2026-08-29 |
-| Runtime | Node.js 20+ (ES modules), Git 2.40+ |
+| Runtime | Node.js 20+ (ES modules), Git 2.40+ (merge-tree forecast engine: Git 2.45+) |
 | External runtime dependencies | None beyond Node.js and Git |
 
 This document explains the system that exists. [product.md](product.md) defines
@@ -86,7 +86,8 @@ but a receipt does not rewrite a commit or tree ID.
 - CLI parsing and human/JSON formatting.
 - Git command orchestration and metrics.
 - Causal plan construction.
-- Temporary-worktree simulation.
+- Temporary-worktree simulation, with an opt-in merge-tree session for clean
+  forecast steps.
 - Worktree-local operation journals and forecasts.
 - Receipt creation and storage through Git notes.
 - Resolution signature/catalog management.
@@ -111,8 +112,9 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
 | `src/errors.js` | Expected CLI error type with optional detail | None |
 | `src/ids.js` | Unique protocol IDs, SHA-256, Git blob hashing, slugs | Node crypto |
-| `src/git.js` | Safe synchronous Git adapter, repository context, object reads, sessions, metrics | Git executable, worker |
+| `src/git.js` | Safe synchronous Git adapter, repository context, object reads, object and merge-tree sessions, forecast engine selection, metrics | Git executable, workers |
 | `src/git-session-worker.js` | Owns asynchronous `git cat-file --batch-command` stream for a synchronous caller | Worker threads, Git |
+| `src/merge-tree-session-worker.js` | Owns one asynchronous `git merge-tree --stdin` stream for the synchronous merge-tree forecast engine | Worker threads, Git |
 | `src/store.js` | Common runtime directory and atomic JSON read/write | `src/git.js` |
 | `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab`, including one batched read for many targets | `src/git.js` |
 | `src/schemas.js` | Supported schema registry, structural record validation, object-reference and resolution-signature rules | IDs |
@@ -127,7 +129,7 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts | Rebase plan/forecast, Git, notes, specs, resolutions |
 | `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
 | `src/pending-operation.js` | Safe reconciliation/rebase journal routing for shared conflict tools | Reconciliation and rebase state |
-| `src/forecasts.js` | Plan fingerprint, temporary-worktree simulation, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
+| `src/forecasts.js` | Plan fingerprint, merge-tree and temporary-worktree simulation engines with recorded fallback, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
 | `src/resolutions.js` | Exact three-way conflict signatures, candidate selection, result retention, outcome audit | Git adapter, notes, reconciliation state |
@@ -406,7 +408,16 @@ caller worktree (captured invariants)
         |
         +--> build exact causal plan
         |
-        +--> create detached temporary worktree at target OID
+        +--> merge-tree engine (opt-in): one batched object inspection, then
+        |    one persistent git merge-tree --stdin process merges each queued
+        |    change onto the accumulated tree
+        |           |
+        |           +--> every step clean: record step/result trees
+        |           +--> any step conflicted, empty, or unsupported:
+        |                discard the attempt, record the reason, fall back
+        |
+        +--> worktree simulator (default, and the oracle):
+             create detached temporary worktree at target OID
                     |
                     +--> apply each reviewed-new change
                     +--> inspect exact conflicts
@@ -419,6 +430,11 @@ caller worktree (captured invariants)
         +--> save pinned forecast in caller's private Git dir
 ```
 
+The engine is selected by `VLAB_FORECAST_ENGINE` or `--forecast-engine`
+(`worktree` by default). Both engines pin the same per-step and predicted
+tree IDs; [ADR-0016](adr/0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md)
+records the algorithm, the fallback rule, and the Git constraints.
+
 ### 9.1 Forecast contents
 
 - source/target commit and tree IDs;
@@ -430,14 +446,30 @@ caller worktree (captured invariants)
 - deterministic spec signatures and result hashes;
 - partial tree for a blocker;
 - predicted final tree for a complete simulation;
-- phase timings and Git logical/process metrics.
+- the engine that produced the simulation and every recorded fallback;
+- phase, worktree, and merge-tree timings and Git logical/process metrics.
 
 ### 9.2 Isolation mechanics
 
-The implementation creates a temporary detached Git worktree, performs the
-simulation there, aborts any in-progress cherry-pick, and removes/prunes the
-temporary worktree in cleanup. The caller's head, tree, and porcelain status
-are captured before and after. A difference is an invariant violation.
+The worktree simulator creates a temporary detached Git worktree, performs
+the simulation there, aborts any in-progress cherry-pick, and removes/prunes
+the temporary worktree in cleanup. The caller's head, tree, and porcelain
+status are captured before and after. A difference is an invariant violation.
+
+The merge-tree engine never creates a worktree. It runs one
+`git merge-tree --stdin` process in the caller worktree with
+`GIT_ATTR_SOURCE` set to the target tree, so attribute lookup matches the
+worktree simulator's checkout rather than the caller's checkout; the process
+reads and writes objects only and never touches HEAD, the index, or working
+files. Both engines leave unreferenced objects (result trees, or the
+simulator's commits) for Git to garbage-collect. A conflicted, empty,
+merge-commit, root-commit, or attribute-changing step, or a session failure,
+discards the merge-tree attempt and reruns the whole queue in the worktree
+simulator with the reason recorded in the forecast. The engine needs Git
+2.45, which accepts bare tree operands to `merge-tree`; on older Git the
+first step fails and the forecast records a `git-too-old` fallback, so the
+version is checked only on that failure path and costs no Git process on the
+supported path.
 
 Forecasts use committed heads by default. A workspace forecast may explicitly
 select one immutable source checkpoint and records that distinct scope. Dirty
@@ -733,6 +765,12 @@ shared-memory waits, Git request/response events, fallback, and shutdown. They
 are disabled during normal operation and are intended for bounded process-tree
 investigation.
 
+The merge-tree forecast engine reuses the same shape: a `MergeTreeSession`
+whose worker owns one `git merge-tree --stdin` process for the forecast,
+answers each merge through the shared-memory channel, records merges as the
+synthetic `merge-tree-session` command with one counted process, and is
+closed within the same bounds when the simulation ends.
+
 ### 14.3 Cache and safety rules
 
 - Only expressions rooted at a complete SHA-1 or SHA-256 OID are immutable
@@ -800,6 +838,7 @@ not signatures or authorization. The historical phrase
 | Exact resolution is ambiguous | Require explicit record ID. |
 | Spec merge is ambiguous or metadata stale | Leave blocked; require manual edit/reindex. |
 | Persistent object worker fails | Mark session failed and use ordinary Git. |
+| Merge-tree session fails or a forecast step is not clean | Discard the merge-tree attempt, rerun the whole queue in the worktree simulator, and record the reason in the forecast. |
 | Unknown/malformed/dangling causal record | Diagnose and quarantine it from coverage, resolution lookup, and export. |
 | Envelope payload or inventory mismatch | Reject before destination mutation. |
 | Import ID/ref conflict | Report exact conflict during dry-run; never overwrite silently. |
@@ -851,8 +890,9 @@ and test process termination at every boundary.
 - failures;
 - aggregate/maximum duration by Git subcommand.
 
-Forecasts separate preflight, planning, simulation, invariant, and temporary
-worktree phases. Reconciliation accumulates active time across start/continue
+Forecasts separate preflight, planning, simulation, invariant, temporary
+worktree, and merge-tree session phases, and name the engine that produced the
+pinned trees. Reconciliation accumulates active time across start/continue
 processes and separately records elapsed wall time.
 
 `vlab doctor --benchmark` measures ordinary repository probes and the object
@@ -862,8 +902,10 @@ disposable repository and measures history, stock worktree discovery, registry
 reads, complete workspace status, notes, retained resolutions, and complete
 metadata status. Every phase checks semantic equality across samples and
 reports cold/median/p95 latency plus Git metrics; setup is reported separately.
-`npm run demo:git-session` compares optimized and ordinary forecasts for
-semantic equality and process count.
+`npm run demo:git-session` compares ordinary, object-session, and merge-tree
+forecasts of one 12-change queue for plan, per-step tree, and predicted-tree
+equality and process count; on the 2026-08-29 Windows development host the
+three modes used 64, 25, and 10 Git processes (ADR-0016).
 
 The initial representative Windows profile contains 250 commits, 12 registered
 linked worktrees, 250 causal notes, and 50 retained resolutions. It measured
@@ -896,6 +938,10 @@ The current development baseline contains 46 scenarios covering:
 - checkpoints and linked-worktree isolation;
 - spec identity, migration, indexing, deterministic/blocked merges;
 - forecast non-mutation, staleness, result mismatch, and batch approval;
+- merge-tree forecast engine equality with the worktree simulator for clean
+  reconciliation, rebase, workspace, and attribute-dependent queues, recorded
+  fallbacks for conflicted, empty, attribute-changing, and unavailable-session
+  cases, engine selection errors, and application of merge-tree forecasts;
 - resumable conflicts, continue, abort, and contextual fork;
 - exact resolution reuse, ambiguity, modification, and rejection;
 - query batching, metrics, session equality, fallback, and worktree scoping.
@@ -924,8 +970,9 @@ The current development baseline contains 46 scenarios covering:
   retention refs and bare-array notes, with an export/import round trip that
   carries a tag-pointing retention ref between clones.
 
-The same suite is run with the session forced on. Demos complement tests by
-providing user-inspectable repositories and commands.
+The same suite is run with the session forced on and with the merge-tree
+forecast engine selected. Demos complement tests by providing user-inspectable
+repositories and commands.
 
 ## 20. Extension rules
 
@@ -991,10 +1038,13 @@ per-entity process amplification.
 
 [ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
 and [ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) set
-the next increments: first Git-native wins with no new language (clean
-forecast steps through `git merge-tree`, the Windows rerun, sparse cones), then
-a schema catalog and a read-side engine seam, then a Rust `vlab-core` behind
-that seam under Gate A with a kill switch and sunset. A canonical fact log with
+the next increments: first Git-native wins with no new language, then a schema
+catalog and a read-side engine seam, then a Rust `vlab-core` behind that seam
+under Gate A with a kill switch and sunset. The first increment is delivered
+on the Windows host: [ADR-0016](adr/0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md)
+simulates clean forecast steps through one `git merge-tree` session behind a
+flag, and the Windows post-batching rerun is recorded in ADR-0013; sparse cones
+remain optional, and the POSIX differential run is the next evidence. A canonical fact log with
 Git notes and refs as projections, private draft stacks, and any gateway
 remain behind Gate B. Git stays the exact-state store and escape hatch in
 every phase; a server or resident service still requires ADR-0013's row to

@@ -19,6 +19,20 @@
   5,504 ms to 254 ms (103 to 6 processes) with identical results in both
   Git-session modes and no phase over budget, completing the Windows half of
   ADR-0014 Gate A item 2 and ending Horizon 1 optimization.
+- Add an opt-in merge-tree forecast engine (`VLAB_FORECAST_ENGINE=merge-tree`,
+  `--forecast-engine`) that simulates clean reconciliation, workspace, and
+  rebase forecast steps through one persistent `git merge-tree --stdin`
+  process with no temporary worktree, pins the same per-step and predicted
+  trees as the worktree simulator, falls back to the worktree simulator with a
+  recorded reason for any conflicted, empty, merge-commit, root-commit, or
+  attribute-changing step or session failure, and reports `engine`,
+  `fallbacks`, and `timings.mergeTree` in both forecast schemas without a
+  version change. The engine needs Git 2.45 (bare tree operands to
+  `merge-tree`) and records a `git-too-old` fallback on older Git, where the
+  merge-tree suite scenarios skip. Extend `demo:git-session` to compare
+  ordinary, session, and merge-tree modes (64, 25, and 10 Git processes for
+  the 12-change forecast on
+  the Windows development host), add a third suite mode, and accept ADR-0016.
 - Raise the supported Git baseline from 2.38 to 2.40 (`git merge-tree
   --merge-base`; ADR-0015). Update README, AGENTS.md, testing, and
   architecture requirements accordingly.

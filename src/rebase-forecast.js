@@ -156,7 +156,15 @@ function emptySimulation(status, blockedReason = null, remainingChanges = 0) {
     partialResultTree: null,
     predictedResultTree: null,
     exactStateEqualityAfter: null,
+    engine: null,
+    fallbacks: [],
     worktreeTimings: {
+      setupMs: 0,
+      applicationMs: 0,
+      cleanupMs: 0,
+      totalMs: 0,
+    },
+    mergeTreeTimings: {
       setupMs: 0,
       applicationMs: 0,
       cleanupMs: 0,
@@ -217,7 +225,13 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
 
   const context = repoContext(cwd);
   const git = endGitMetrics(gitMetrics);
-  const { worktreeTimings, ...simulationResult } = simulation;
+  const {
+    worktreeTimings,
+    mergeTreeTimings,
+    engine,
+    fallbacks,
+    ...simulationResult
+  } = simulation;
   const forecast = {
     schema: "vcs-lab.rebase-forecast/v1",
     id: newId("rebase_forecast"),
@@ -248,6 +262,8 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     planFingerprint: plan.fingerprint,
     plan,
     ...simulationResult,
+    engine,
+    fallbacks,
     callerInvariants: {
       preserved: true,
       ...callerEvidence(before),
@@ -261,6 +277,7 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
         ]),
       ),
       worktree: worktreeTimings,
+      mergeTree: mergeTreeTimings,
       git,
     },
     startedAt,
@@ -281,6 +298,20 @@ function short(value) {
   return value ? value.slice(0, 12) : "-";
 }
 
+export function formatForecastEngine(forecast) {
+  const lines = [];
+  if (forecast.engine) lines.push(`engine       ${forecast.engine}`);
+  for (const fallback of forecast.fallbacks ?? []) {
+    const where = fallback.step === undefined
+      ? ""
+      : ` at step ${fallback.step + 1}${fallback.sourceCommit ? ` (${short(fallback.sourceCommit)})` : ""}`;
+    lines.push(
+      `fallback     ${fallback.engine} -> ${forecast.engine}: ${fallback.reason}${where}`,
+    );
+  }
+  return lines;
+}
+
 export function formatRebaseForecast(forecast) {
   const lines = [
     "Causal rebase forecast",
@@ -294,6 +325,7 @@ export function formatRebaseForecast(forecast) {
     `predicted    ${short(forecast.predictedResultTree)}`,
     `partial      ${short(forecast.partialResultTree)}`,
     `fingerprint  ${forecast.planFingerprint}`,
+    ...formatForecastEngine(forecast),
   ];
 
   if (forecast.ignoredCallerDirtyFiles) {

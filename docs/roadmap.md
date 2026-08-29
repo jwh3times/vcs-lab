@@ -49,9 +49,13 @@ a Git-native first increment.
 | Scale evidence and scan batching | Delivered | A synthetic repository fixture identified workspace-status and resolution-catalog process amplification; the selected invocation-local batching is implemented and the Linux and Windows reruns show one process per workspace and six for the resolution catalog, with every phase under the interactive budget on both hosts. Nothing justifies an index or service. |
 | Trust, remote protocol, and native storage | Gated | Integrity exists, but signatures, authorization, capability negotiation, trusted landing, and a native store are intentionally absent. |
 
-The first pending work is therefore Horizon 1.5's Git-native wins and the
-Windows rerun, then the contract catalog and engine seam that Gate A requires;
-no storage layer or service is approved.
+Horizon 1.5's first two items are delivered on the Windows host: clean
+forecast steps run through a `git merge-tree` session behind a flag
+([ADR-0016](adr/0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md))
+and the Windows post-batching rerun is recorded in ADR-0013. The first pending
+work is therefore the POSIX differential run of the merge-tree engine, then
+the contract catalog and engine seam that Gate A requires; no storage layer or
+service is approved.
 
 ## Horizon 1: close the current development line
 
@@ -135,12 +139,14 @@ Program phase 0a of ADR-0015. Exhaust what stock Git already offers, so every
 later native claim is measured against Git's best mode rather than against the
 current `vlab` path:
 
-1. Simulate clean forecast steps with `git merge-tree --write-tree
-   --merge-base` behind a flag mirroring the session-flag pattern, falling back
-   to the temporary-worktree simulator when a step conflicts or a resolution or
-   Markdown driver must run; pin per-step and predicted trees exactly as
-   `vcs-lab.forecast/v2` and `vcs-lab.rebase-forecast/v1` do today; evaluate
-   `git replay` as an alternative or oracle; document `rerere` interaction.
+1. **Done 2026-08-29 (ADR-0016):** simulate clean forecast steps with one
+   `git merge-tree --stdin` session behind `VLAB_FORECAST_ENGINE` /
+   `--forecast-engine`, falling back to the temporary-worktree simulator when
+   a step conflicts, is empty, or a resolution or Markdown driver must run;
+   pin per-step and predicted trees exactly as `vcs-lab.forecast/v2` and
+   `vcs-lab.rebase-forecast/v1` do today; `git replay` evaluated and not
+   adopted; `rerere` interaction documented and its hardening tracked by
+   [GitHub issue #6](https://github.com/jwh3times/vcs-lab/issues/6).
 2. **Done 2026-08-29:** the Windows post-batching rerun of
    `vcs-lab.repository-scale-benchmark/v1` is recorded in ADR-0013's Windows
    post-batching evidence section.
@@ -156,6 +162,16 @@ divergences are documented as Git constraints with the flag off for those
 cases; the Windows post-batching rerun and the Git-best-mode baseline are
 recorded (ADR-0014 Gate A item 2); the supported Git baseline is 2.40. This
 horizon needs no new language and is reversible by flag.
+
+Status on 2026-08-29: the suite and the 12-change demo pin byte-identical
+trees across engines in both session modes on the Windows host; the demo
+forecast uses nine Git processes inside the forecast (ten for the command)
+with no temporary worktree; the divergences found are recorded as Git
+constraints in ADR-0016 (the engine needs Git 2.45 and falls back below it);
+the Windows rerun is recorded. The POSIX differential
+run and the POSIX process/time deltas are the remaining evidence, tracked on
+[GitHub issue #3](https://github.com/jwh3times/vcs-lab/issues/3); the default
+engine stays `worktree` until both hosts have reported.
 
 ## Horizon 2: harden and publish the local contracts
 
@@ -282,7 +298,7 @@ resident service, or wire protocol is approved before its phase and gate.
 
 | Phase | Gate | Scope | Exit criterion | Reversibility |
 | --- | --- | --- | --- | --- |
-| 0a Git-native wins | none | Horizon 1.5 | Horizon 1.5 exit criteria | Flag only; complete outcome on its own. |
+| 0a Git-native wins | none | Horizon 1.5 | Horizon 1.5 exit criteria (met on Windows 2026-08-29 by ADR-0016 and the ADR-0013 rerun; POSIX run pending) | Flag only; complete outcome on its own. |
 | 0b Contract freeze and engine seam | none | Horizon 2 item 1 | Horizon 2 item 1 exit criteria | Pure refactor. |
 | 1 Native read engine in Rust | Gate A | Repository context, batched object reads, peeling, history walks, merge-base, ancestry, refs, notes reads, and worktree-scoped status through `vlab-core` behind the seam; per-operation backend matrix in its ADR; bounded jj-lib spike | Suite green in native mode on Linux and Windows with identical JSON; zero Git processes for history, registry, note-catalog, resolution-catalog, and per-workspace status in the scale benchmark; the Gate A named budget met; `git fsck` clean; no lingering processes | Engine selector or uninstall the binding; kill switch and two-release sunset. |
 | 2 Native planning and status | Gate A | Merge-plan and rebase-plan construction, receipt reachability, Change-ID extraction, the advisory `git-patch-id-heuristic` proof (a stable patch-id proof, if wanted, gets its own ADR), spec blob-identity checks; FR-ID-06 audit; FR-PLAN-08 proof bundle and verifier | Plan fingerprints byte-identical across engines on the suite plus at least 1,000 generated histories; status semantics preserved at zero processes | Per-operation fallback. |

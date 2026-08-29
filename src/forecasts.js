@@ -3,9 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
+  gitAtLeast,
+  gitVersion,
+  MERGE_TREE_ENGINE_MIN_GIT,
   beginGitMetrics,
   currentHead,
   endGitMetrics,
+  forecastEngine,
+  inspectGitObjects,
+  MergeTreeSession,
   repoContext,
   resolveObjectIds,
   resolveRevision,
@@ -195,6 +201,183 @@ function blockedReason(conflicts) {
   return "unresolved-conflict";
 }
 
+function zeroTimings() {
+  return { setupMs: 0, applicationMs: 0, cleanupMs: 0, totalMs: 0 };
+}
+
+function roundTimings(timings) {
+  return Object.fromEntries(
+    Object.entries(timings).map(([name, value]) => [name, Number(value.toFixed(2))]),
+  );
+}
+
+/**
+ * Simulate a queue of clean steps with one `git merge-tree --stdin` process
+ * and no temporary worktree. Each step merges the change's tree onto the
+ * accumulated target tree relative to the change's parent tree, which is the
+ * three-way merge `git cherry-pick` performs. The engine reproduces only the
+ * cases whose result the worktree simulator would also label `clean`; the
+ * first conflicted step, a step whose result tree equals its input (which
+ * `cherry-pick` reports as an empty pick and the worktree simulator blocks),
+ * a merge or root commit, a change that edits the root `.gitattributes` (a
+ * later step would then merge under attributes the session cannot see), or
+ * any session failure hands the whole forecast to the worktree simulator,
+ * which remains the oracle. Attributes are read from the target tree through
+ * `GIT_ATTR_SOURCE`, matching the worktree simulator's checkout. The engine
+ * needs Git 2.45 (bare tree operands to merge-tree); a session that fails on
+ * its first step on older Git is reported as `git-too-old`, so the version
+ * check costs no process on the happy path.
+ */
+function simulatePlanWithMergeTree(cwd, options) {
+  const { targetHead, expectedResultTree, cleanRelation, queue } = options;
+  const totalStarted = performance.now();
+  const setupStarted = totalStarted;
+  let setupMs = null;
+  let applicationStarted = null;
+  const fallback = (reason, extra = {}) => {
+    const now = performance.now();
+    return {
+      fallback: { engine: "merge-tree", reason, ...extra },
+      timings: roundTimings({
+        setupMs: setupMs ?? now - setupStarted,
+        applicationMs: applicationStarted === null ? 0 : now - applicationStarted,
+        cleanupMs: 0,
+        totalMs: now - totalStarted,
+      }),
+    };
+  };
+  const expressions = [`${targetHead}^{tree}`];
+  const perChange = 5;
+  for (const change of queue) {
+    expressions.push(
+      `${change.commit}^{tree}`,
+      `${change.commit}^^{tree}`,
+      `${change.commit}^2^{commit}`,
+      `${change.commit}:.gitattributes`,
+      `${change.commit}^:.gitattributes`,
+    );
+  }
+  const objects = inspectGitObjects(expressions, cwd);
+  const targetTree = objects[0];
+  if (!targetTree.exists || targetTree.type !== "tree") {
+    return fallback("target-tree-unavailable");
+  }
+  const inputs = [];
+  for (const [index, change] of queue.entries()) {
+    const changeTree = objects[1 + index * perChange];
+    const parentTree = objects[2 + index * perChange];
+    const secondParent = objects[3 + index * perChange];
+    const attributesAfter = objects[4 + index * perChange];
+    const attributesBefore = objects[5 + index * perChange];
+    if (secondParent.exists) {
+      return fallback("merge-commit", { step: index, sourceCommit: change.commit });
+    }
+    if (!changeTree.exists || changeTree.type !== "tree") {
+      return fallback("change-tree-unavailable", {
+        step: index,
+        sourceCommit: change.commit,
+      });
+    }
+    if (!parentTree.exists || parentTree.type !== "tree") {
+      return fallback("root-commit", { step: index, sourceCommit: change.commit });
+    }
+    if (
+      index < queue.length - 1 &&
+      (attributesAfter.exists !== attributesBefore.exists ||
+        attributesAfter.oid !== attributesBefore.oid)
+    ) {
+      return fallback("attributes-changed", {
+        step: index,
+        sourceCommit: change.commit,
+      });
+    }
+    inputs.push({ change, changeTree: changeTree.oid, parentTree: parentTree.oid });
+  }
+  setupMs = performance.now() - setupStarted;
+
+  const steps = [];
+  let accumulated = targetTree.oid;
+  const session = new MergeTreeSession(cwd, { attrSource: targetTree.oid });
+  let applicationMs = 0;
+  let cleanupMs = 0;
+  try {
+    applicationStarted = performance.now();
+    for (const [index, input] of inputs.entries()) {
+      let merged;
+      try {
+        merged = session.merge(input.parentTree, accumulated, input.changeTree);
+      } catch (error) {
+        if (
+          index === 0 &&
+          error.sessionFailure === "exited" &&
+          !gitAtLeast(MERGE_TREE_ENGINE_MIN_GIT, cwd)
+        ) {
+          return fallback("git-too-old", {
+            step: index,
+            sourceCommit: input.change.commit,
+            requiredGit: MERGE_TREE_ENGINE_MIN_GIT,
+            git: gitVersion(cwd).raw,
+            detail: error.message,
+          });
+        }
+        return fallback("merge-tree-unavailable", {
+          step: index,
+          sourceCommit: input.change.commit,
+          detail: error.message,
+        });
+      }
+      if (!merged.clean) {
+        return fallback("conflicted-step", {
+          step: index,
+          sourceCommit: input.change.commit,
+        });
+      }
+      if (merged.tree === accumulated) {
+        return fallback("empty-step", {
+          step: index,
+          sourceCommit: input.change.commit,
+        });
+      }
+      steps.push({
+        sourceCommit: input.change.commit,
+        changeId: input.change.changeId,
+        subject: input.change.subject,
+        outcome: "clean",
+        relation: cleanRelation,
+        targetBeforeTree: accumulated,
+        resultTree: merged.tree,
+      });
+      accumulated = merged.tree;
+    }
+    applicationMs = performance.now() - applicationStarted;
+  } finally {
+    const cleanupStarted = performance.now();
+    session.close();
+    cleanupMs = performance.now() - cleanupStarted;
+  }
+  return {
+    result: {
+      status: "complete",
+      blockedReason: null,
+      steps,
+      approvedResolutions: [],
+      approvedSpecMerges: [],
+      counts: simulationCounts(steps),
+      simulatedChanges: steps.length,
+      remainingChanges: 0,
+      partialResultTree: accumulated,
+      predictedResultTree: accumulated,
+      exactStateEqualityAfter: accumulated === expectedResultTree,
+    },
+    timings: roundTimings({
+      setupMs,
+      applicationMs,
+      cleanupMs,
+      totalMs: performance.now() - totalStarted,
+    }),
+  };
+}
+
 function simulatePlan(plan, cwd, options = {}) {
   const targetHead = options.targetHead ?? plan.targetHead;
   const expectedResultTree = options.expectedResultTree ?? plan.sourceTree;
@@ -203,6 +386,27 @@ function simulatePlan(plan, cwd, options = {}) {
     options.contextualRelation ?? "contextual-application";
   const queue =
     options.queue ?? plan.changes.filter((change) => change.status === "new");
+  const fallbacks = [];
+  let mergeTreeTimings = zeroTimings();
+  if (forecastEngine() === "merge-tree") {
+    const attempt = simulatePlanWithMergeTree(cwd, {
+      targetHead,
+      expectedResultTree,
+      cleanRelation,
+      queue,
+    });
+    mergeTreeTimings = attempt.timings;
+    if (attempt.result) {
+      return {
+        ...attempt.result,
+        engine: "merge-tree",
+        fallbacks,
+        worktreeTimings: zeroTimings(),
+        mergeTreeTimings,
+      };
+    }
+    fallbacks.push(attempt.fallback);
+  }
   const simulated = withTemporaryWorktree(targetHead, cwd, (temporaryWorktree) => {
     const steps = [];
     const approvedResolutions = [];
@@ -379,7 +583,10 @@ function simulatePlan(plan, cwd, options = {}) {
   });
   return {
     ...simulated.value,
+    engine: "worktree",
+    fallbacks,
     worktreeTimings: simulated.timings,
+    mergeTreeTimings,
   };
 }
 
@@ -450,7 +657,13 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
 
   const context = repoContext(cwd);
   const git = endGitMetrics(gitMetrics);
-  const { worktreeTimings, ...simulationResult } = simulation;
+  const {
+    worktreeTimings,
+    mergeTreeTimings,
+    engine,
+    fallbacks,
+    ...simulationResult
+  } = simulation;
   const forecast = {
     schema: "vcs-lab.forecast/v2",
     id: newId("forecast"),
@@ -467,6 +680,8 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
     planFingerprint: planFingerprint(plan),
     plan,
     ...simulationResult,
+    engine,
+    fallbacks,
     workspaceComparison: options.workspaceComparison ?? null,
     timings: {
       forecastMs: Number((performance.now() - started).toFixed(2)),
@@ -474,6 +689,7 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
         Object.entries(phases).map(([name, value]) => [name, Number(value.toFixed(2))]),
       ),
       worktree: worktreeTimings,
+      mergeTree: mergeTreeTimings,
       git,
     },
     startedAt,

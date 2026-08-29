@@ -30,13 +30,13 @@ function write(content) {
   fs.writeFileSync(path.join(repo, "history.txt"), content);
 }
 
-function measure(flag) {
+function measure(...flags) {
   const started = performance.now();
   const result = run(process.execPath, [
     cli,
     "forecast",
     "feature",
-    flag,
+    ...flags,
     "--trace-git",
     "--json",
   ]);
@@ -80,34 +80,72 @@ for (let index = 1; index <= 12; index += 1) {
 }
 git("switch", "-q", "main");
 
-const session = measure("--git-session");
-const ordinary = measure("--no-git-session");
-assert.deepEqual(session.forecast.plan.changes, ordinary.forecast.plan.changes);
-assert.equal(
-  session.forecast.predictedResultTree,
-  ordinary.forecast.predictedResultTree,
-);
-assert.deepEqual(
-  session.forecast.steps.map((step) => [step.outcome, step.resultTree]),
-  ordinary.forecast.steps.map((step) => [step.outcome, step.resultTree]),
-);
-const reduction = ordinary.processes
-  ? Number(((1 - session.processes / ordinary.processes) * 100).toFixed(1))
-  : 0;
+// The merge-tree engine needs Git 2.45 (bare tree operands to merge-tree);
+// older Git records a git-too-old fallback and the worktree simulator answers.
+const mergeTreeSupported = (() => {
+  const match = git("--version").match(/(\d+)\.(\d+)/);
+  if (!match) return true;
+  const [major, minor] = [Number(match[1]), Number(match[2])];
+  return major > 2 || (major === 2 && minor >= 45);
+})();
+
+const session = measure("--git-session", "--forecast-engine", "worktree");
+const ordinary = measure("--no-git-session", "--forecast-engine", "worktree");
+const mergeTree = measure("--git-session", "--forecast-engine", "merge-tree");
+const projection = (forecast) => ({
+  changes: forecast.plan.changes,
+  predictedResultTree: forecast.predictedResultTree,
+  steps: forecast.steps.map((step) => [
+    step.outcome,
+    step.targetBeforeTree,
+    step.resultTree,
+  ]),
+});
+assert.deepEqual(projection(ordinary.forecast), projection(session.forecast));
+assert.deepEqual(projection(mergeTree.forecast), projection(session.forecast));
+assert.equal(session.forecast.engine, "worktree");
+if (mergeTreeSupported) {
+  assert.equal(mergeTree.forecast.engine, "merge-tree");
+  assert.deepEqual(mergeTree.forecast.fallbacks, []);
+  assert.equal(mergeTree.forecast.timings.worktree.totalMs, 0);
+} else {
+  assert.equal(mergeTree.forecast.engine, "worktree");
+  assert.equal(mergeTree.forecast.fallbacks[0]?.reason, "git-too-old");
+}
+const cut = (measured) =>
+  ordinary.processes
+    ? Number(((1 - measured.processes / ordinary.processes) * 100).toFixed(1))
+    : 0;
+const merges =
+  mergeTree.forecast.timings.git.byCommand.find(
+    (item) => item.command === "merge-tree-session",
+  )?.count ?? 0;
 
 console.log("Equivalent forecasts produced without changing the target.");
 console.log(`changes      ${session.forecast.plan.changes.length}`);
 console.log(
-  `session      ${session.processes} processes; ${session.queries} queries; ${session.wallMs.toFixed(2)} ms`,
+  `ordinary     ${ordinary.processes} processes; ${ordinary.queries} queries; ${ordinary.wallMs.toFixed(2)} ms (worktree simulator, one process per query)`,
 );
 console.log(
-  `ordinary     ${ordinary.processes} processes; ${ordinary.queries} queries; ${ordinary.wallMs.toFixed(2)} ms`,
+  `session      ${session.processes} processes; ${session.queries} queries; ${session.wallMs.toFixed(2)} ms (worktree simulator, object session; cut ${cut(session).toFixed(1)}%)`,
 );
-console.log(`process cut  ${reduction.toFixed(1)}%`);
+console.log(
+  `merge-tree   ${mergeTree.processes} processes; ${mergeTree.queries} queries; ${mergeTree.wallMs.toFixed(2)} ms (merge-tree engine, object session; cut ${cut(mergeTree).toFixed(1)}%)`,
+);
 console.log(
   `session I/O  ${session.sessionQueries} persistent queries; ${session.cacheHits} immutable cache hits`,
 );
 console.log(
-  "Windows enables the session automatically. Wall time is machine-specific; plan equality and process reduction are the acceptance invariants.",
+  `merge-tree   ${merges} merges through one persistent process; ${mergeTree.forecast.timings.git.processes} processes inside the forecast itself; no temporary worktree`,
 );
-console.log(`\nInspect the repository with:\n  cd ${repo}\n  vlab forecast feature --trace-git`);
+if (!mergeTreeSupported) {
+  console.log(
+    `merge-tree   engine unavailable (${git("--version")}; it needs Git 2.45): the mode above fell back to the worktree simulator`,
+  );
+}
+console.log(
+  "Windows enables the session automatically; the merge-tree engine is opt-in. Wall time is machine-specific; plan, per-step tree, and predicted-tree equality plus process reduction are the acceptance invariants.",
+);
+console.log(
+  `\nInspect the repository with:\n  cd ${repo}\n  vlab forecast feature --trace-git\n  vlab forecast feature --trace-git --forecast-engine merge-tree`,
+);

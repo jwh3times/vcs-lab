@@ -12,6 +12,7 @@ import { buildMergePlan, formatMergePlan } from "./merge-plan.js";
 import { buildRebasePlan, formatRebasePlan } from "./rebase-plan.js";
 import {
   forecastRebase,
+  formatForecastEngine,
   formatRebaseForecast,
 } from "./rebase-forecast.js";
 import {
@@ -23,6 +24,8 @@ import {
 import { land } from "./landings.js";
 import { initLab } from "./store.js";
 import {
+  FORECAST_ENGINES,
+  forecastEngine,
   beginGitMetrics,
   commitSubject,
   currentHead,
@@ -127,6 +130,9 @@ Global diagnostics:
   --trace-git        print per-command process/session timings to stderr
   --git-session      force persistent Git object plumbing for this command
   --no-git-session  use ordinary one-process-per-command Git plumbing
+  --forecast-engine <worktree|merge-tree>
+                     simulate clean forecast steps in a temporary worktree
+                     (default, the oracle) or with one git merge-tree process
 `;
 
 function parseArgs(args) {
@@ -580,6 +586,7 @@ function formatForecast(forecast) {
     forecast.timings.git
       ? formatGitActivity(forecast.timings.git)
       : null,
+    ...formatForecastEngine(forecast),
   ].filter(Boolean);
   if (forecast.ignoredTargetDirtyFiles) {
     lines.push(`target dirty ${forecast.ignoredTargetDirtyFiles} files ignored`);
@@ -866,9 +873,28 @@ export async function main(rawArgs) {
   if (rawArgs.includes("--trace-git")) process.env.VLAB_TRACE = "1";
   if (forceSession) process.env.VLAB_GIT_SESSION = "1";
   if (disableSession) process.env.VLAB_GIT_SESSION = "0";
-  const args = rawArgs.filter(
-    (item) => !["--trace-git", "--git-session", "--no-git-session"].includes(item),
-  );
+  const args = [];
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const item = rawArgs[index];
+    if (["--trace-git", "--git-session", "--no-git-session"].includes(item)) continue;
+    if (item === "--forecast-engine" || item.startsWith("--forecast-engine=")) {
+      const inline = item.includes("=");
+      const value = inline
+        ? item.slice("--forecast-engine=".length)
+        : rawArgs[index + 1];
+      if (!inline) index += 1;
+      if (!FORECAST_ENGINES.includes(value)) {
+        throw new CliError(
+          `--forecast-engine requires one of: ${FORECAST_ENGINES.join(", ")}.`,
+        );
+      }
+      process.env.VLAB_FORECAST_ENGINE = value;
+      continue;
+    }
+    args.push(item);
+  }
+  // Validate the environment selection on every command, as the flag is.
+  forecastEngine();
   const [command, ...rest] = args;
   if (!command || command === "help" || command === "--help" || command === "-h") {
     console.log(HELP);

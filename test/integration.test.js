@@ -30,6 +30,25 @@ function git(cwd, ...args) {
   return exec("git", args, cwd);
 }
 
+/**
+ * The merge-tree forecast engine needs Git 2.45 (bare tree operands to
+ * `git merge-tree`; `GIT_ATTR_SOURCE` from 2.43). The supported baseline is
+ * 2.40, so the differential tests skip rather than fail on older Git, where
+ * the engine falls back to the worktree simulator with `git-too-old`.
+ */
+function mergeTreeEngineSupported() {
+  const match = exec("git", ["--version"], projectRoot).match(/(\d+)\.(\d+)/);
+  if (!match) return true;
+  const [major, minor] = [Number(match[1]), Number(match[2])];
+  return major > 2 || (major === 2 && minor >= 45);
+}
+
+function skipWithoutMergeTreeEngine(t) {
+  if (mergeTreeEngineSupported()) return false;
+  t.skip("the merge-tree forecast engine needs Git 2.45 or newer; older Git falls back to the worktree simulator");
+  return true;
+}
+
 function vlab(cwd, ...args) {
   return exec(process.execPath, [cli, ...args], cwd);
 }
@@ -1280,8 +1299,10 @@ test("forecast deterministically merges independent specification blocks", (t) =
       .manifest.blocks.map((block) => [block.semanticKey, block.id]),
   );
 
+  // This scenario compares the object session with ordinary Git, so the
+  // forecast engine is pinned to the worktree simulator in both runs.
   const forecast = JSON.parse(
-    vlab(repo, "forecast", "feature", "--git-session", "--json"),
+    vlab(repo, "forecast", "feature", "--git-session", "--forecast-engine", "worktree", "--json"),
   );
   assert.equal(forecast.schema, "vcs-lab.forecast/v2");
   assert.equal(forecast.status, "complete");
@@ -1302,7 +1323,7 @@ test("forecast deterministically merges independent specification blocks", (t) =
   assert.equal(git(repo, "status", "--porcelain=v1"), before.status);
 
   const fallback = JSON.parse(
-    vlab(repo, "forecast", "feature", "--no-git-session", "--json"),
+    vlab(repo, "forecast", "feature", "--no-git-session", "--forecast-engine", "worktree", "--json"),
   );
   assert.equal(fallback.predictedResultTree, forecast.predictedResultTree);
   assert.deepEqual(fallback.plan.changes, forecast.plan.changes);
@@ -3739,4 +3760,845 @@ test("metadata export and import carry a retention ref that names an annotated t
     { ref: tagged.ref, incoming: tagObject, existing: tagged.commit, action: "conflict" },
   );
   assert.equal(git(direct, "rev-parse", tagged.ref), tagged.commit);
+});
+
+// ---------------------------------------------------------------------------
+// Merge-tree forecast engine
+// ---------------------------------------------------------------------------
+
+function vlabWithEngine(cwd, engine, ...args) {
+  const result = spawnSync(process.execPath, [cli, ...args], {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+      VLAB_FORECAST_ENGINE: engine,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
+
+function forecastWithEngine(cwd, engine, ...args) {
+  return JSON.parse(vlabWithEngine(cwd, engine, ...args, "--json"));
+}
+
+/**
+ * Project a forecast onto the fields both engines must agree on, dropping
+ * identifiers, timings, and engine bookkeeping that legitimately differ
+ * between runs.
+ */
+function normalizeForecast(forecast) {
+  return {
+    status: forecast.status,
+    blockedReason: forecast.blockedReason,
+    predictedResultTree: forecast.predictedResultTree,
+    partialResultTree: forecast.partialResultTree,
+    exactStateEqualityAfter: forecast.exactStateEqualityAfter,
+    counts: forecast.counts,
+    simulatedChanges: forecast.simulatedChanges,
+    remainingChanges: forecast.remainingChanges,
+    planFingerprint: forecast.planFingerprint,
+    planChanges: forecast.plan.changes,
+    approvedResolutions: forecast.approvedResolutions,
+    approvedSpecMerges: forecast.approvedSpecMerges,
+    steps: forecast.steps.map((step) => ({
+      sourceCommit: step.sourceCommit,
+      changeId: step.changeId,
+      outcome: step.outcome,
+      relation: step.relation ?? null,
+      targetBeforeTree: step.targetBeforeTree,
+      resultTree: step.resultTree ?? null,
+      conflicts: (step.conflicts ?? []).map((conflict) => ({
+        path: conflict.path,
+        candidates: conflict.candidates.length,
+      })),
+      resolutions: (step.resolutions ?? []).map((resolution) => ({
+        path: resolution.path,
+        resultBlob: resolution.resultBlob,
+      })),
+      semanticMerges: (step.semanticMerges ?? []).map((merge) => ({
+        path: merge.path,
+        resultMarkdownHash: merge.resultMarkdownHash,
+        resultManifestHash: merge.resultManifestHash,
+      })),
+    })),
+  };
+}
+
+function forecastFileCount(repo) {
+  const directory = path.resolve(
+    repo,
+    git(repo, "rev-parse", "--git-path", "vcs-lab/forecasts"),
+  );
+  return fs.existsSync(directory) ? fs.readdirSync(directory).length : 0;
+}
+
+function numberedLines(prefix, count = 12) {
+  return `${Array.from({ length: count }, (_, index) => `${prefix} ${index + 1}`).join("\n")}\n`;
+}
+
+function replaceLine(repo, relative, lineNumber, content) {
+  const lines = readText(repo, relative).split("\n");
+  lines[lineNumber - 1] = content;
+  write(repo, relative, lines.join("\n"));
+}
+
+test("merge-tree forecasts of a clean queue match the worktree oracle without a temporary worktree", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", numberedLines("shared"));
+  write(repo, "old-name.txt", numberedLines("renamed"));
+  write(repo, "app.txt", numberedLines("app"));
+  write(repo, "mode.sh", "#!/bin/sh\necho hello\n");
+  fs.writeFileSync(
+    path.join(repo, "blob.bin"),
+    Buffer.from([0, 1, 2, 3, 255, 254, 0, 10, 13, 0]),
+  );
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  // The target renames a file the source later edits and touches the top of
+  // a file the source edits at the bottom.
+  git(repo, "mv", "old-name.txt", "new-name.txt");
+  vlab(repo, "commit", "-m", "target renames old-name");
+  replaceLine(repo, "shared.txt", 1, "shared 1 (target)");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target edits shared top");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  const sourceCommits = [];
+  const commitSource = (subject) => {
+    git(repo, "add", "-A");
+    sourceCommits.push(JSON.parse(vlab(repo, "commit", "-m", subject)));
+  };
+  write(repo, "source/one.txt", "one\n");
+  commitSource("source adds one");
+  replaceLine(repo, "shared.txt", 12, "shared 12 (source)");
+  commitSource("source edits shared bottom");
+  replaceLine(repo, "old-name.txt", 6, "renamed 6 (source)");
+  commitSource("source edits the renamed file");
+  // On POSIX `git add -A` re-reads the mode from disk, so the executable bit
+  // must be set on the file as well as in the index for the step to commit.
+  fs.chmodSync(path.join(repo, "mode.sh"), 0o755);
+  git(repo, "update-index", "--chmod=+x", "mode.sh");
+  commitSource("source marks mode.sh executable");
+  fs.writeFileSync(
+    path.join(repo, "blob.bin"),
+    Buffer.from([0, 9, 8, 7, 255, 0, 1, 10, 13, 0, 42]),
+  );
+  commitSource("source rewrites the binary");
+  write(repo, "source/two.txt", "two\n");
+  commitSource("source adds two");
+  replaceLine(repo, "app.txt", 1, "app 1 (source)");
+  commitSource("source edits app top");
+  git(repo, "rm", "-q", "source/one.txt");
+  commitSource("source removes one");
+  replaceLine(repo, "shared.txt", 11, "shared 11 (source)");
+  commitSource("source edits shared again");
+  write(repo, "docs/notes.md", "# Notes\n");
+  commitSource("source adds notes");
+  replaceLine(repo, "app.txt", 12, "app 12 (source)");
+  commitSource("source edits app bottom");
+  write(repo, "source/three.txt", "three\n");
+  commitSource("source adds three");
+  assert.equal(sourceCommits.length, 12);
+  git(repo, "switch", "main");
+
+  const before = {
+    head: git(repo, "rev-parse", "HEAD"),
+    status: git(repo, "status", "--porcelain=v1"),
+    worktrees: git(repo, "worktree", "list", "--porcelain"),
+  };
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "feature");
+  const mergeTree = forecastWithEngine(repo, "merge-tree", "forecast", "feature");
+  const flagged = JSON.parse(
+    vlab(repo, "forecast", "feature", "--forecast-engine", "merge-tree", "--json"),
+  );
+  const inlineFlag = JSON.parse(
+    vlab(repo, "forecast", "feature", "--forecast-engine=merge-tree", "--json"),
+  );
+
+  assert.equal(worktree.engine, "worktree");
+  assert.equal(worktree.status, "complete");
+  assert.equal(worktree.steps.length, 12);
+  assert.ok(worktree.steps.every((step) => step.outcome === "clean"));
+  assert.ok(worktree.timings.worktree.totalMs > 0);
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.deepEqual(normalizeForecast(flagged), normalizeForecast(worktree));
+  assert.deepEqual(normalizeForecast(inlineFlag), normalizeForecast(worktree));
+  assert.equal(flagged.engine, "merge-tree");
+  assert.equal(inlineFlag.engine, "merge-tree");
+  assert.equal(mergeTree.engine, "merge-tree");
+  assert.deepEqual(mergeTree.fallbacks, []);
+  assert.equal(mergeTree.schema, "vcs-lab.forecast/v2");
+  assert.equal(mergeTree.predictedResultTree, worktree.predictedResultTree);
+  assert.deepEqual(mergeTree.timings.worktree, {
+    setupMs: 0,
+    applicationMs: 0,
+    cleanupMs: 0,
+    totalMs: 0,
+  });
+  for (const phase of ["setupMs", "applicationMs", "cleanupMs", "totalMs"]) {
+    assert.ok(mergeTree.timings.mergeTree[phase] >= 0, phase);
+  }
+  assert.ok(
+    mergeTree.timings.mergeTree.totalMs >= mergeTree.timings.mergeTree.applicationMs,
+  );
+  const commands = mergeTree.timings.git.byCommand.map((item) => item.command);
+  const session = mergeTree.timings.git.byCommand.find(
+    (item) => item.command === "merge-tree-session",
+  );
+  assert.ok(session, commands.join(", "));
+  assert.equal(session.processes, 1);
+  assert.equal(session.count, mergeTree.steps.length);
+  assert.equal(session.sessionQueries, mergeTree.steps.length);
+  assert.ok(!commands.includes("worktree"), commands.join(", "));
+  assert.ok(!commands.includes("cherry-pick"), commands.join(", "));
+  const worktreeCommands = worktree.timings.git.byCommand.map((item) => item.command);
+  assert.ok(worktreeCommands.includes("cherry-pick"), worktreeCommands.join(", "));
+  assert.ok(
+    !worktreeCommands.includes("merge-tree-session"),
+    worktreeCommands.join(", "),
+  );
+
+  const sessionRun = forecastWithEngine(
+    repo,
+    "merge-tree",
+    "forecast",
+    "feature",
+    "--git-session",
+  );
+  assert.deepEqual(normalizeForecast(sessionRun), normalizeForecast(worktree));
+  assert.equal(sessionRun.engine, "merge-tree");
+  assert.ok(
+    sessionRun.timings.git.processes < sessionRun.steps.length,
+    `expected fewer than ${sessionRun.steps.length} Git processes, saw ${sessionRun.timings.git.processes}`,
+  );
+  assert.ok(
+    sessionRun.timings.git.processes < worktree.timings.git.processes,
+    `merge-tree ${sessionRun.timings.git.processes} vs worktree ${worktree.timings.git.processes}`,
+  );
+  const text = vlabWithEngine(repo, "merge-tree", "forecast", "feature");
+  assert.match(text, /engine {7}merge-tree/);
+  assert.doesNotMatch(text, /fallback/);
+  assert.match(text, /status {7}complete/);
+
+  assert.equal(git(repo, "rev-parse", "HEAD"), before.head);
+  assert.equal(git(repo, "status", "--porcelain=v1"), before.status);
+  assert.equal(git(repo, "worktree", "list", "--porcelain"), before.worktrees);
+
+  const reconciled = JSON.parse(
+    vlab(repo, "reconcile", "feature", "--use-forecast", mergeTree.id, "--json"),
+  );
+  assert.equal(reconciled.receipt.forecastId, mergeTree.id);
+  assert.equal(reconciled.receipt.resultTree, mergeTree.predictedResultTree);
+  assert.equal(reconciled.receipt.applied.length, 12);
+  assert.equal(git(repo, "rev-parse", "HEAD^{tree}"), mergeTree.predictedResultTree);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(readText(repo, "new-name.txt").split("\n")[5], "renamed 6 (source)");
+  assert.equal(readText(repo, "shared.txt").split("\n")[0], "shared 1 (target)");
+  assert.equal(readText(repo, "shared.txt").split("\n")[11], "shared 12 (source)");
+  assert.equal(git(repo, "ls-files", "--stage", "mode.sh").split(" ")[0], "100755");
+  assert.equal(fs.existsSync(path.join(repo, "source/one.txt")), false);
+  assert.equal(
+    JSON.parse(vlab(repo, "reconcile", "--status", "--json")).active,
+    false,
+  );
+});
+
+test("merge-tree forecasts fall back to the worktree oracle on a conflicted step", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source edit"));
+  git(repo, "switch", "main");
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target edit");
+  const worktreesBefore = git(repo, "worktree", "list", "--porcelain");
+
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "feature");
+  const mergeTree = forecastWithEngine(repo, "merge-tree", "forecast", "feature");
+  assert.equal(worktree.status, "blocked");
+  assert.equal(worktree.blockedReason, "missing-exact-resolution");
+  assert.equal(worktree.steps[0].outcome, "blocked-conflict");
+  assert.deepEqual(worktree.fallbacks, []);
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.status, "blocked");
+  assert.equal(mergeTree.blockedReason, "missing-exact-resolution");
+  assert.equal(mergeTree.engine, "worktree");
+  assert.deepEqual(mergeTree.fallbacks, [
+    {
+      engine: "merge-tree",
+      reason: "conflicted-step",
+      step: 0,
+      sourceCommit: source.commit,
+    },
+  ]);
+  assert.ok(mergeTree.timings.mergeTree.totalMs >= 0);
+  assert.ok(mergeTree.timings.worktree.totalMs > 0);
+  assert.equal(
+    mergeTree.timings.git.byCommand.find(
+      (item) => item.command === "merge-tree-session",
+    ).processes,
+    1,
+  );
+
+  const text = vlabWithEngine(repo, "merge-tree", "forecast", "feature");
+  assert.match(text, /engine {7}worktree/);
+  assert.ok(
+    text.includes(
+      `fallback     merge-tree -> worktree: conflicted-step at step 1 (${source.commit.slice(0, 12)})`,
+    ),
+    text,
+  );
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(git(repo, "worktree", "list", "--porcelain"), worktreesBefore);
+});
+
+test("merge-tree forecasts reuse pinned exact resolutions through the worktree fallback", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", "shared.txt");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "source-one", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "source one");
+  git(repo, "switch", "-c", "target-one", base.commit);
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "target one");
+  assert.notEqual(vlabResult(repo, "reconcile", "source-one").status, 0);
+  write(repo, "shared.txt", "remembered\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "reconcile", "--continue", "--json");
+
+  git(repo, "switch", "-c", "source-two", base.commit);
+  write(repo, "shared.txt", "source\n");
+  git(repo, "add", "shared.txt");
+  const sourceTwo = JSON.parse(vlab(repo, "commit", "-m", "source two"));
+  git(repo, "switch", "-c", "target-two", base.commit);
+  write(repo, "shared.txt", "target\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "target two");
+
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "source-two");
+  const mergeTree = forecastWithEngine(repo, "merge-tree", "forecast", "source-two");
+  assert.equal(worktree.status, "complete");
+  assert.equal(worktree.steps[0].outcome, "exact-resolution");
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.status, "complete");
+  assert.equal(mergeTree.engine, "worktree");
+  assert.equal(mergeTree.steps[0].outcome, "exact-resolution");
+  assert.equal(mergeTree.counts.exactResolution, 1);
+  assert.equal(mergeTree.approvedResolutions.length, 1);
+  assert.deepEqual(mergeTree.fallbacks, [
+    {
+      engine: "merge-tree",
+      reason: "conflicted-step",
+      step: 0,
+      sourceCommit: sourceTwo.commit,
+    },
+  ]);
+  assert.ok(mergeTree.predictedResultTree);
+
+  const reconciled = JSON.parse(
+    vlab(repo, "reconcile", "source-two", "--use-forecast", mergeTree.id, "--json"),
+  );
+  assert.equal(reconciled.receipt.forecastId, mergeTree.id);
+  assert.equal(reconciled.receipt.resultTree, mergeTree.predictedResultTree);
+  assert.equal(
+    reconciled.receipt.applied[0].resolutions[0].selectionMethod,
+    "forecast-batch",
+  );
+  assert.equal(readText(repo, "shared.txt"), "remembered\n");
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("merge-tree forecasts fall back on an empty step that the worktree oracle blocks", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  // The target reaches the source's exact content through two different
+  // patches, so the plan still classifies the source change as new.
+  write(repo, "dup.txt", "one\ntwo\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target adds dup with an extra line");
+  write(repo, "dup.txt", "one\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target trims dup");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "dup.txt", "one\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source adds dup"));
+  git(repo, "switch", "main");
+
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "feature");
+  const mergeTree = forecastWithEngine(repo, "merge-tree", "forecast", "feature");
+  assert.equal(worktree.plan.changes[0].status, "new");
+  assert.equal(worktree.status, "blocked");
+  assert.equal(worktree.blockedReason, "git-application-error");
+  assert.equal(worktree.steps[0].outcome, "blocked-git-error");
+  assert.equal(worktree.steps[0].targetBeforeTree, worktree.plan.targetTree);
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.engine, "worktree");
+  assert.deepEqual(mergeTree.fallbacks, [
+    {
+      engine: "merge-tree",
+      reason: "empty-step",
+      step: 0,
+      sourceCommit: source.commit,
+    },
+  ]);
+  assert.equal(mergeTree.status, worktree.status);
+  assert.equal(mergeTree.blockedReason, worktree.blockedReason);
+  assert.equal(mergeTree.steps[0].outcome, worktree.steps[0].outcome);
+  assert.equal(
+    mergeTree.steps[0].targetBeforeTree,
+    worktree.steps[0].targetBeforeTree,
+  );
+  assert.match(
+    vlabWithEngine(repo, "merge-tree", "forecast", "feature"),
+    /fallback {5}merge-tree -> worktree: empty-step at step 1/,
+  );
+});
+
+test("merge-tree forecasts fall back when a non-final change edits the root .gitattributes", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  write(repo, "target.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target adds target");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, ".gitattributes", "*.txt text\n");
+  git(repo, "add", ".");
+  const attributes = JSON.parse(vlab(repo, "commit", "-m", "source adds attributes"));
+  write(repo, "other.txt", "other\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source adds other");
+  git(repo, "switch", "main");
+
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "feature");
+  const mergeTree = forecastWithEngine(repo, "merge-tree", "forecast", "feature");
+  assert.equal(worktree.status, "complete");
+  assert.equal(worktree.steps.length, 2);
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.engine, "worktree");
+  assert.deepEqual(mergeTree.fallbacks, [
+    {
+      engine: "merge-tree",
+      reason: "attributes-changed",
+      step: 0,
+      sourceCommit: attributes.commit,
+    },
+  ]);
+  assert.equal(
+    mergeTree.timings.git.byCommand.find(
+      (item) => item.command === "merge-tree-session",
+    ),
+    undefined,
+  );
+  assert.equal(mergeTree.predictedResultTree, worktree.predictedResultTree);
+
+  // A final change editing attributes needs no fallback: nothing merges
+  // after it under the changed attributes.
+  git(repo, "switch", "-c", "attributes-last", base.commit);
+  write(repo, "other.txt", "other\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source adds other first");
+  write(repo, ".gitattributes", "*.txt text\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source adds attributes last");
+  git(repo, "switch", "main");
+  const worktreeLast = forecastWithEngine(
+    repo,
+    "worktree",
+    "forecast",
+    "attributes-last",
+  );
+  const mergeTreeLast = forecastWithEngine(
+    repo,
+    "merge-tree",
+    "forecast",
+    "attributes-last",
+  );
+  assert.deepEqual(normalizeForecast(mergeTreeLast), normalizeForecast(worktreeLast));
+  assert.equal(mergeTreeLast.engine, "merge-tree");
+  assert.deepEqual(mergeTreeLast.fallbacks, []);
+});
+
+test("merge-tree forecasts fall back with a reason when the merge-tree session is unavailable", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "feature\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "feature"));
+  git(repo, "switch", "main");
+  write(repo, "target.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target");
+
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "feature");
+  const failed = spawnSync(process.execPath, [cli, "forecast", "feature", "--json"], {
+    cwd: repo,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+      VLAB_FORECAST_ENGINE: "merge-tree",
+      VLAB_TEST_MERGE_TREE_SESSION_FAILURE: "1",
+    },
+  });
+  assert.equal(failed.status, 0, failed.stderr);
+  const mergeTree = JSON.parse(failed.stdout);
+  assert.equal(worktree.status, "complete");
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.engine, "worktree");
+  assert.equal(mergeTree.status, "complete");
+  assert.equal(mergeTree.fallbacks.length, 1);
+  const [fallback] = mergeTree.fallbacks;
+  assert.equal(fallback.engine, "merge-tree");
+  assert.equal(fallback.reason, "merge-tree-unavailable");
+  assert.equal(fallback.step, 0);
+  assert.equal(fallback.sourceCommit, source.commit);
+  assert.equal(typeof fallback.detail, "string");
+  assert.ok(fallback.detail.length > 0, "fallback detail should explain the failure");
+  assert.ok(mergeTree.timings.worktree.totalMs > 0);
+
+  const reconciled = JSON.parse(
+    vlab(repo, "reconcile", "feature", "--use-forecast", mergeTree.id, "--json"),
+  );
+  assert.equal(reconciled.receipt.resultTree, mergeTree.predictedResultTree);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("unknown merge-tree or worktree engine selections fail before any forecast is written", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "feature\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature");
+  git(repo, "switch", "main");
+  assert.equal(forecastFileCount(repo), 0);
+
+  const viaEnvironment = spawnSync(
+    process.execPath,
+    [cli, "forecast", "feature", "--json"],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        VLAB_FORECAST_ENGINE: "bogus",
+      },
+    },
+  );
+  assert.notEqual(viaEnvironment.status, 0);
+  assert.ok(
+    viaEnvironment.stderr.includes(
+      "Unknown forecast engine 'bogus'. Use one of: worktree, merge-tree.",
+    ),
+    viaEnvironment.stderr,
+  );
+  assert.equal(forecastFileCount(repo), 0);
+
+  for (const args of [
+    ["forecast", "feature", "--forecast-engine", "bogus", "--json"],
+    ["forecast", "feature", "--forecast-engine=bogus", "--json"],
+    ["forecast", "feature", "--json", "--forecast-engine"],
+  ]) {
+    const viaFlag = vlabResult(repo, ...args);
+    assert.notEqual(viaFlag.status, 0, args.join(" "));
+    assert.ok(
+      viaFlag.stderr.includes(
+        "--forecast-engine requires one of: worktree, merge-tree.",
+      ),
+      viaFlag.stderr,
+    );
+  }
+  assert.equal(forecastFileCount(repo), 0);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "main"));
+
+  // The flag overrides an unusable environment selection.
+  const overridden = spawnSync(
+    process.execPath,
+    [cli, "forecast", "feature", "--forecast-engine", "merge-tree", "--json"],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        VLAB_FORECAST_ENGINE: "bogus",
+      },
+    },
+  );
+  assert.equal(overridden.status, 0, overridden.stderr);
+  assert.equal(
+    JSON.parse(overridden.stdout).engine,
+    mergeTreeEngineSupported() ? "merge-tree" : "worktree",
+  );
+  assert.equal(forecastFileCount(repo), 1);
+});
+
+test("merge-tree forecasts fall back when a queued change is a merge commit", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  write(repo, "target.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target adds target");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "a.txt", "a\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source adds a");
+  git(repo, "switch", "-c", "side", base.commit);
+  write(repo, "side.txt", "side\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "side adds side");
+  git(repo, "switch", "feature");
+  git(repo, "merge", "--no-ff", "--no-edit", "-q", "side");
+  const merge = git(repo, "rev-parse", "HEAD");
+  write(repo, "b.txt", "b\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source adds b");
+  git(repo, "switch", "main");
+
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "feature");
+  const mergeTree = forecastWithEngine(repo, "merge-tree", "forecast", "feature");
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.engine, "worktree");
+  const queue = mergeTree.plan.changes.filter((change) => change.status === "new");
+  const step = queue.findIndex((change) => change.commit === merge);
+  assert.ok(step >= 0, "the merge commit should be queued for replay");
+  assert.deepEqual(mergeTree.fallbacks, [
+    { engine: "merge-tree", reason: "merge-commit", step, sourceCommit: merge },
+  ]);
+  assert.equal(
+    mergeTree.timings.git.byCommand.find(
+      (item) => item.command === "merge-tree-session",
+    ),
+    undefined,
+  );
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "main"));
+});
+test("merge-tree rebase forecasts match the worktree oracle and apply through --use-forecast", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "one\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature one");
+  write(repo, "feature.txt", "one\ntwo\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature two");
+
+  git(repo, "switch", "main");
+  const landing = JSON.parse(vlab(repo, "hard-squash", "feature", "--json"));
+  git(repo, "switch", "feature");
+  write(repo, "continuation.txt", "three\n");
+  git(repo, "add", ".");
+  const continuation = JSON.parse(vlab(repo, "commit", "-m", "feature continuation"));
+  write(repo, "more.txt", "four\n");
+  git(repo, "add", ".");
+  const more = JSON.parse(vlab(repo, "commit", "-m", "feature more"));
+  const originalTree = git(repo, "rev-parse", "HEAD^{tree}");
+
+  const worktree = forecastWithEngine(repo, "worktree", "rebase-forecast", "main");
+  const mergeTree = forecastWithEngine(repo, "merge-tree", "rebase-forecast", "main");
+  assert.equal(worktree.schema, "vcs-lab.rebase-forecast/v1");
+  assert.equal(worktree.status, "complete");
+  assert.equal(worktree.engine, "worktree");
+  assert.deepEqual(
+    worktree.steps.map((step) => step.changeId),
+    [continuation.changeId, more.changeId],
+  );
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.schema, "vcs-lab.rebase-forecast/v1");
+  assert.equal(mergeTree.engine, "merge-tree");
+  assert.deepEqual(mergeTree.fallbacks, []);
+  assert.equal(mergeTree.steps[0].relation, "causal-rebase");
+  assert.equal(mergeTree.predictedResultTree, originalTree);
+  assert.equal(mergeTree.exactStateEqualityAfter, true);
+  assert.equal(mergeTree.callerInvariants.preserved, true);
+  assert.deepEqual(mergeTree.timings.worktree, {
+    setupMs: 0,
+    applicationMs: 0,
+    cleanupMs: 0,
+    totalMs: 0,
+  });
+  assert.equal(
+    mergeTree.timings.git.byCommand.find(
+      (item) => item.command === "merge-tree-session",
+    ).count,
+    2,
+  );
+  assert.match(
+    vlabWithEngine(repo, "merge-tree", "rebase-forecast", "main"),
+    /engine {7}merge-tree/,
+  );
+  assert.equal(git(repo, "branch", "--show-current"), "feature");
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+
+  const result = JSON.parse(
+    vlab(repo, "rebase", "main", "--use-forecast", mergeTree.id, "--json"),
+  );
+  assert.equal(result.receipt.forecastId, mergeTree.id);
+  assert.equal(result.receipt.resultTree, mergeTree.predictedResultTree);
+  assert.equal(result.receipt.exactStateEqualityAfter, true);
+  assert.equal(result.receipt.applications.length, 2);
+  assert.equal(git(repo, "branch", "--show-current"), "feature");
+  assert.equal(git(repo, "show", "-s", "--format=%P", "HEAD~1"), landing.landingCommit);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("merge-tree rebase forecasts read merge attributes from the onto tree rather than the caller checkout", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "one\nbase\nthree\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  // Only the onto branch declares the union driver; the caller checkout
+  // (the source branch) never carries a .gitattributes file.
+  write(repo, ".gitattributes", "shared.txt merge=union\n");
+  write(repo, "shared.txt", "one\ntarget\nthree\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "onto declares union and edits shared");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "shared.txt", "one\nsource\nthree\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source edits shared"));
+  assert.equal(fs.existsSync(path.join(repo, ".gitattributes")), false);
+
+  const worktree = forecastWithEngine(repo, "worktree", "rebase-forecast", "main");
+  const mergeTree = forecastWithEngine(repo, "merge-tree", "rebase-forecast", "main");
+  assert.equal(worktree.status, "complete");
+  assert.equal(worktree.engine, "worktree");
+  assert.deepEqual(worktree.steps.map((step) => step.outcome), ["clean"]);
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.status, "complete");
+  assert.equal(mergeTree.engine, "merge-tree");
+  assert.deepEqual(mergeTree.fallbacks, []);
+  assert.equal(mergeTree.steps[0].sourceCommit, source.commit);
+  assert.equal(mergeTree.predictedResultTree, worktree.predictedResultTree);
+  const merged = git(repo, "show", `${mergeTree.predictedResultTree}:shared.txt`);
+  assert.match(merged, /target/);
+  assert.match(merged, /source/);
+  assert.doesNotMatch(merged, /<<<<<<<|>>>>>>>/);
+  assert.equal(fs.existsSync(path.join(repo, ".gitattributes")), false);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+
+  const result = JSON.parse(
+    vlab(repo, "rebase", "main", "--use-forecast", mergeTree.id, "--json"),
+  );
+  assert.equal(result.receipt.forecastId, mergeTree.id);
+  assert.equal(result.receipt.resultTree, mergeTree.predictedResultTree);
+  assert.equal(git(repo, "rev-parse", "HEAD^{tree}"), mergeTree.predictedResultTree);
+  assert.equal(readText(repo, "shared.txt"), `${merged.replace(/\r\n/g, "\n")}\n`);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("merge-tree workspace forecasts match the worktree oracle for committed heads", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  const { repo, parent } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+
+  const targetPath = path.join(parent, "target-agent");
+  const sourcePath = path.join(parent, "source-agent");
+  vlab(repo, "workspace", "create", "target-agent", "--path", targetPath, "--json");
+  vlab(repo, "workspace", "create", "source-agent", "--path", sourcePath, "--json");
+  write(targetPath, "target.txt", "target\n");
+  git(targetPath, "add", ".");
+  vlab(targetPath, "commit", "-m", "target edit");
+  write(sourcePath, "source.txt", "source\n");
+  git(sourcePath, "add", ".");
+  const source = JSON.parse(vlab(sourcePath, "commit", "-m", "source edit"));
+  write(sourcePath, "draft.txt", "uncommitted agent draft\n");
+
+  const targetHead = git(targetPath, "rev-parse", "HEAD");
+  const sourceStatus = git(sourcePath, "status", "--porcelain=v1");
+  const worktree = forecastWithEngine(
+    repo,
+    "worktree",
+    "workspace",
+    "forecast",
+    "target-agent",
+    "source-agent",
+  );
+  const mergeTree = forecastWithEngine(
+    repo,
+    "merge-tree",
+    "workspace",
+    "forecast",
+    "target-agent",
+    "source-agent",
+  );
+  assert.equal(worktree.status, "complete");
+  assert.equal(worktree.engine, "worktree");
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.status, "complete");
+  assert.equal(mergeTree.engine, "merge-tree");
+  assert.deepEqual(mergeTree.fallbacks, []);
+  assert.equal(mergeTree.steps[0].sourceCommit, source.commit);
+  assert.equal(mergeTree.workspaceComparison.scope, "committed-heads");
+  assert.equal(mergeTree.workspaceComparison.source.ignoredDirtyFiles, 1);
+  assert.equal(mergeTree.targetWorktree, targetPath);
+  assert.equal(mergeTree.predictedResultTree, worktree.predictedResultTree);
+  assert.equal(git(targetPath, "rev-parse", "HEAD"), targetHead);
+  assert.equal(git(sourcePath, "status", "--porcelain=v1"), sourceStatus);
+  assert.equal(readText(sourcePath, "draft.txt"), "uncommitted agent draft\n");
 });

@@ -42,7 +42,8 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 ## Requirements
 
 - Node.js 20 or newer
-- Git 2.40 or newer
+- Git 2.40 or newer (the opt-in merge-tree forecast engine needs Git 2.45 and
+  falls back to the worktree simulator below it)
 
 It has no npm dependencies and does not need a build step.
 
@@ -254,6 +255,16 @@ temporary worktree. It reports each predicted causal decision, the partial or
 complete result tree, blocking conflicts, and forecast duration. The caller's
 HEAD, index, and working files are checked before and after and must be
 unchanged.
+
+With `--forecast-engine merge-tree` (or `VLAB_FORECAST_ENGINE=merge-tree`)
+clean steps are simulated instead through one persistent `git merge-tree`
+process with no temporary worktree, pinning the same per-step and predicted
+trees. Any conflicted, empty, or otherwise unsupported step hands the whole
+forecast back to the worktree simulator, and the forecast reports which
+engine produced it and every fallback reason. The engine needs Git 2.45,
+which accepts bare tree operands to `git merge-tree`; older Git records a
+`git-too-old` fallback. The worktree simulator remains the default and the
+oracle.
 
 Each forecast is pinned to exact source and target heads and a fingerprint of
 the causal merge plan. After reviewing it, explicitly authorize its exact
@@ -655,9 +666,11 @@ vlab forecast feature --trace-git
 
 `--git-session` forces the persistent path and `--no-git-session` forces the
 ordinary compatibility path. If a session fails, the command continues through
-ordinary Git. Trace output contains command names, durations, and whether a
-query started a process, reused the session, or hit the immutable object cache;
-it never includes file content or commit messages.
+ordinary Git. `--forecast-engine merge-tree` selects the merge-tree forecast
+engine for one invocation, and `--forecast-engine worktree` selects the
+default simulator explicitly. Trace output contains command names, durations,
+and whether a query started a process, reused a persistent process, or hit the
+immutable object cache; it never includes file content or commit messages.
 
 Run an equality-checked comparison over a 12-change forecast with:
 
@@ -665,13 +678,17 @@ Run an equality-checked comparison over a 12-change forecast with:
 npm run demo:git-session
 ```
 
-On the latest correction host run, the persistent path produced the identical
-forecast with 25 Git processes instead of 64, a 60.9% reduction. Wall time
-remains a machine-specific measurement; process count and result-tree equality
-are the portable acceptance invariants.
+The demo runs the same 12-change forecast through ordinary Git, the persistent
+object session, and the merge-tree engine, and asserts identical plans,
+per-step trees, and predicted trees. On the 2026-08-29 Windows development
+host the three modes used 64, 25, and 10 Git processes, the last with no
+temporary worktree (ADR-0016). Wall time remains a machine-specific
+measurement; process count and result-tree equality are the portable
+acceptance invariants.
 
 Forecast output separately reports preflight, planning, simulation, invariant,
-temporary-worktree, logical-query, and actual-process totals. Completed
+temporary-worktree, merge-tree session, logical-query, and actual-process
+totals, plus the engine that produced the pinned trees and any fallback. Completed
 reconciliation receipts report active application time, excluding time spent
 waiting for a person between a conflict and `--continue`, plus total elapsed
 wall time.
@@ -717,7 +734,8 @@ npm test
 The integration suite creates disposable Git repositories and exercises
 hard-squash reconciliation, compact ancestry, resumable conflicts, mid-queue
 abort, contextual identity forks, exact resolution reuse and provenance,
-non-mutating and stale-safe forecasts, pinned batch application, committed-head
+non-mutating and stale-safe forecasts, merge-tree forecast-engine equality and
+fallback, pinned batch application, committed-head
 and immutable source-checkpoint workspace comparison, reversible workspace
 lifecycle, independent worktree operations, checkpoint history, annotated
 Markdown stability, sparse-manifest migration, zero-read incremental indexing,
@@ -733,5 +751,6 @@ stale rejection, exact-resolution batching, contextual forks, empty-step
 blocking, exact abort, linked-worktree isolation, completed-record validation,
 portable unreachable origins, plus a caller-isolated repository-scale fixture
 that verifies semantic scan results, process-amplification decisions, privacy,
-and cleanup. The complete suite is also run with
-`VLAB_GIT_SESSION=1` to exercise the Windows-default path.
+and cleanup. The complete suite is also run with `VLAB_GIT_SESSION=1` to
+exercise the Windows-default path and with `VLAB_FORECAST_ENGINE=merge-tree`
+to exercise the merge-tree forecast engine.

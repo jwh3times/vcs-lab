@@ -7,7 +7,8 @@ run history-changing manual experiments in a valuable repository.
 ## Requirements
 
 - Node.js 20 or newer
-- Git 2.40 or newer
+- Git 2.40 or newer (Git 2.45 or newer to exercise the merge-tree forecast
+  engine; the merge-tree scenarios skip on older Git)
 - a clean source checkout for release qualification
 - enough system temporary space for disposable repositories
 
@@ -35,6 +36,20 @@ On POSIX shells:
 VLAB_GIT_SESSION=1 npm test
 ```
 
+Run it a third time with the merge-tree forecast engine selected, so every
+forecast scenario simulates clean steps through `git merge-tree` and falls
+back to the worktree simulator where it must:
+
+```powershell
+$env:VLAB_FORECAST_ENGINE = "merge-tree"
+npm test
+Remove-Item Env:VLAB_FORECAST_ENGINE -ErrorAction SilentlyContinue
+```
+
+```bash
+VLAB_FORECAST_ENGINE=merge-tree npm test
+```
+
 Run the maintained demonstrations when changing their workflows:
 
 ```bash
@@ -46,9 +61,10 @@ npm run demo:spec
 npm run demo:git-session
 ```
 
-Use targeted Node test-name patterns during development, but complete both
-ordinary and forced-session runs before treating a cross-cutting change as
-qualified.
+Use targeted Node test-name patterns during development, but complete the
+ordinary, forced-session, and merge-tree engine runs before treating a
+cross-cutting or forecast change as qualified. `npm run demo:git-session`
+additionally compares the three forecast modes on one queue.
 
 ## Static checks
 
@@ -72,7 +88,8 @@ unique and every reference must resolve to a definition.
 A release candidate is eligible only when:
 
 1. the source checkout begins and ends clean at the same candidate commit;
-2. the integration suite passes in ordinary and forced-session modes;
+2. the integration suite passes in ordinary, forced-session, and merge-tree
+   forecast-engine modes;
 3. all maintained demos complete;
 4. metadata validation reports no unexpected errors;
 5. expected-failure cases leave protected refs and worktrees unchanged;

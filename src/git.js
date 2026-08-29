@@ -907,3 +907,192 @@ export function findCommitByChangeId(changeId, cwd = process.cwd()) {
   }
   return null;
 }
+
+export const FORECAST_ENGINES = ["worktree", "merge-tree"];
+
+/**
+ * Select the forecast simulation engine. `worktree` is the temporary-worktree
+ * simulator and the semantic oracle; `merge-tree` simulates clean steps with
+ * `git merge-tree --write-tree` and falls back to the worktree simulator for
+ * any step it cannot reproduce. The environment variable mirrors the
+ * `VLAB_GIT_SESSION` pattern; the CLI sets it from `--forecast-engine`.
+ */
+export function forecastEngine() {
+  const value = process.env.VLAB_FORECAST_ENGINE;
+  if (value === undefined || value === "") return "worktree";
+  if (FORECAST_ENGINES.includes(value)) return value;
+  throw new CliError(
+    `Unknown forecast engine '${value}'. Use one of: ${FORECAST_ENGINES.join(", ")}.`,
+  );
+}
+
+/**
+ * The oldest Git the merge-tree engine works on: `git merge-tree` accepts
+ * bare tree object IDs for its three operands from 2.45 (older versions
+ * resolve them as commits and die), and `GIT_ATTR_SOURCE` exists from 2.43.
+ * vlab's supported baseline stays 2.40; on older Git the engine falls back
+ * to the worktree simulator with the reason `git-too-old`.
+ */
+export const MERGE_TREE_ENGINE_MIN_GIT = "2.45";
+
+let cachedGitVersion = null;
+
+/** `git --version`, run at most once per process. */
+export function gitVersion(cwd = process.cwd()) {
+  if (!cachedGitVersion) {
+    const raw = runGit(["--version"], { cwd }).stdout.trim();
+    const match = raw.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+    cachedGitVersion = {
+      raw,
+      parts: match
+        ? [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)]
+        : null,
+    };
+  }
+  return cachedGitVersion;
+}
+
+/**
+ * Whether the host Git is at least `required` (`"major.minor"`). Output that
+ * cannot be parsed counts as new enough so that Git itself reports any
+ * failure.
+ */
+export function gitAtLeast(required, cwd = process.cwd()) {
+  const { parts } = gitVersion(cwd);
+  if (!parts) return true;
+  const wanted = required.split(".").map(Number);
+  for (const [index, value] of wanted.entries()) {
+    if (parts[index] !== value) return parts[index] > value;
+  }
+  return true;
+}
+
+const MERGE_TREE_RESPONSE_BYTES = 64 * 1024;
+const OBJECT_ID_PATTERN = /^[0-9a-f]{40,64}$/;
+
+/**
+ * One `git merge-tree --stdin` process reused for every clean step of a
+ * forecast. Requests are synchronous, like the object session, because the CLI
+ * is synchronous; the worker thread owns the process and answers through a
+ * shared buffer.
+ */
+export class MergeTreeSession {
+  constructor(cwd, options = {}) {
+    this.cwd = path.resolve(cwd);
+    this.attrSource = options.attrSource ?? null;
+    this.sessionId = `${process.pid}-merge-tree-${nextSessionId++}`;
+    this.worker = null;
+    this.closed = false;
+    this.processCounted = false;
+    this.gitCommand = process.env.VLAB_TEST_MERGE_TREE_SESSION_FAILURE === "1"
+      ? "vlab-intentionally-missing-git"
+      : "git";
+  }
+
+  startWorker() {
+    if (this.worker) return this.worker;
+    if (this.closed) {
+      throw new CliError("The merge-tree session is already closed.");
+    }
+    const worker = new Worker(
+      new URL("./merge-tree-session-worker.js", import.meta.url),
+      {
+        workerData: {
+          cwd: this.cwd,
+          gitCommand: this.gitCommand,
+          attrSource: this.attrSource,
+        },
+      },
+    );
+    this.worker = worker;
+    worker.on("error", (error) => {
+      sessionDiagnostic("merge-tree-worker-error", {
+        sessionId: this.sessionId,
+        message: error.message,
+      });
+    });
+    worker.unref();
+    sessionDiagnostic("merge-tree-worker-created", {
+      sessionId: this.sessionId,
+      cwd: this.cwd,
+    });
+    return worker;
+  }
+
+  /**
+   * Merge `theirs` onto `ours` relative to `base`, all tree or commit object
+   * IDs. Returns `{ clean, tree }`. A conflicted result ends the session.
+   */
+  merge(base, ours, theirs) {
+    if (this.closed) {
+      throw new CliError("The merge-tree session is already closed.");
+    }
+    for (const oid of [base, ours, theirs]) {
+      if (!OBJECT_ID_PATTERN.test(String(oid))) {
+        throw new CliError("Merge-tree session arguments must be full object IDs.");
+      }
+    }
+    const shared = new SharedArrayBuffer(16 + MERGE_TREE_RESPONSE_BYTES);
+    const header = new Int32Array(shared, 0, 4);
+    const started = performance.now();
+    const worker = this.startWorker();
+    worker.postMessage({ type: "merge", base, ours, theirs, shared });
+    const wait = Atomics.wait(header, 0, 0, SESSION_TIMEOUT_MS);
+    const durationMs = performance.now() - started;
+    const processStarted = !this.processCounted;
+    this.processCounted = true;
+    const record = (ok) => {
+      const item = {
+        command: "merge-tree-session",
+        durationMs,
+        ok,
+        transport: "session",
+        processStarted,
+        cacheHit: false,
+      };
+      recordGitMetric(item);
+      traceGitMetric(item);
+    };
+    if (wait === "timed-out") {
+      record(false);
+      throw new CliError("Timed out waiting for the Git merge-tree session.");
+    }
+    const length = Atomics.load(header, 1);
+    const payload = Buffer.from(new Uint8Array(shared, 16, length)).toString("utf8");
+    let response;
+    try {
+      response = JSON.parse(payload);
+    } catch {
+      record(false);
+      throw new CliError("The Git merge-tree session returned malformed data.");
+    }
+    record(Boolean(response.ok));
+    if (!response.ok) {
+      const failure = new CliError(`Git merge-tree session failed: ${response.error}`);
+      failure.sessionFailure = response.sessionFailure ?? null;
+      throw failure;
+    }
+    return response.result;
+  }
+
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    const worker = this.worker;
+    if (!worker) return;
+    const shared = new SharedArrayBuffer(16 + 1024);
+    const header = new Int32Array(shared, 0, 4);
+    try {
+      worker.postMessage({ type: "close", shared });
+      Atomics.wait(header, 0, 0, 5_000);
+    } catch (error) {
+      sessionDiagnostic("merge-tree-session-close-error", {
+        sessionId: this.sessionId,
+        message: error.message,
+      });
+    }
+    worker.terminate();
+    worker.unref();
+    sessionDiagnostic("merge-tree-session-closed", { sessionId: this.sessionId });
+  }
+}

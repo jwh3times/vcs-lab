@@ -8,7 +8,7 @@
 | Document version | 1.0 |
 | Product baseline | v0.9.0 release |
 | Status | Active product baseline |
-| Last updated | 2026-08-28 |
+| Last updated | 2026-08-29 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
 | Decision owner | Repository maintainers |
 
@@ -286,7 +286,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-GIT-04 | P1 | Ordinary branches and linked worktrees shall remain usable alongside `vlab`. | Implemented | Git can switch, fetch, and inspect branches without `vlab`. |
 | FR-GIT-05 | P1 | Repository initialization shall configure causal-note display and rewrite behavior without modifying tracked files. | Implemented | Integration test verifies clean status after initialization. |
 | FR-GIT-06 | P1 | Human-readable output shall have a JSON equivalent for state needed by automation. | Partial | Core plans, receipts, forecasts, workspaces, specs, and operations support JSON; a formal CLI schema catalog remains planned. |
-| FR-GIT-07 | P1 | The CLI shall accept explicit compatibility/performance controls without changing domain semantics. | Implemented | `--git-session` and `--no-git-session` produce equality-checked forecasts. |
+| FR-GIT-07 | P1 | The CLI shall accept explicit compatibility/performance controls without changing domain semantics. | Implemented | `--git-session`, `--no-git-session`, and `--forecast-engine` produce equality-checked forecasts. |
 | FR-GIT-08 | P2 | A supported metadata synchronization command shall move all required causal records between clones. | Implemented experimentally | Fresh-clone round-trip reproduces coverage, resolution catalog, and spec identity without manual ref knowledge. |
 
 ### 9.2 Logical change identity
@@ -437,7 +437,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 
 | ID | Requirement |
 | --- | --- |
-| NFR-PORT-01 | Supported baseline is Node.js 20+ and Git 2.40+ (raised from 2.38 on 2026-08-28 by ADR-0015 for `git merge-tree --merge-base`) until changed by a documented release decision. |
+| NFR-PORT-01 | Supported baseline is Node.js 20+ and Git 2.40+ (raised from 2.38 on 2026-08-28 by ADR-0015 for `git merge-tree --merge-base`) until changed by a documented release decision; the opt-in merge-tree forecast engine additionally needs Git 2.45 and falls back to the worktree simulator below it (ADR-0016). |
 | NFR-PORT-02 | Tests shall run on Windows and a POSIX platform; newline-sensitive behavior shall state whether LF normalization is semantic. |
 | NFR-PORT-03 | Paths stored for portable identity shall use repository-relative normalized form; local materialization paths may remain platform-specific. |
 | NFR-PORT-04 | Repositories using SHA-1 or SHA-256 object formats shall not be rejected by hard-coded OID length assumptions. |
@@ -488,7 +488,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | ID | Requirement |
 | --- | --- |
 | NFR-TEST-01 | Every invariant-changing feature shall add an integration test using a disposable repository. |
-| NFR-TEST-02 | The full suite shall pass with the persistent Git session enabled and disabled. |
+| NFR-TEST-02 | The full suite shall pass with the persistent Git session enabled and disabled and with each forecast engine selected. |
 | NFR-TEST-03 | Schemas and algorithms shall be versioned; incompatible changes require migration tests and an ADR. |
 | NFR-TEST-04 | Demos shall be executable experiments with printed follow-up commands, not unverified documentation snippets. |
 | NFR-TEST-05 | Release artifacts shall be tested independently of the source checkout. |
@@ -628,7 +628,11 @@ These are regression baselines, not universal performance guarantees.
 
 The Windows forced-session correction preserved the 12-change forecast while
 reducing process launches from 64 to 25. Regression coverage now asserts lazy
-worker startup, orderly shutdown, and no-worker preflight behavior. Historical
+worker startup, orderly shutdown, and no-worker preflight behavior. On
+2026-08-29 the opt-in merge-tree forecast engine (ADR-0016) reproduced the same
+12-change forecast with 10 Git process launches against 25 for the session path
+and 64 for ordinary Git on the Windows development host, with identical
+per-step and predicted trees and no temporary worktree. Historical
 execution details remain available in Git history; current qualification
 commands are defined in [testing.md](testing.md).
 
@@ -650,13 +654,14 @@ A release is eligible when:
 
 1. `npm test` passes in ordinary mode.
 2. `VLAB_GIT_SESSION=1 npm test` passes.
-3. All maintained demos complete.
-4. Version constants, package metadata, changelog, and release tag agree.
-5. Bundle and source archive install/test smoke checks pass outside the source
+3. `VLAB_FORECAST_ENGINE=merge-tree npm test` passes.
+4. All maintained demos complete.
+5. Version constants, package metadata, changelog, and release tag agree.
+6. Bundle and source archive install/test smoke checks pass outside the source
    checkout.
-6. New schemas or algorithms include migration/compatibility tests.
-7. New automated decisions identify their proof/confidence and approval model.
-8. Documentation links resolve and the session handoff reflects the release.
+7. New schemas or algorithms include migration/compatibility tests.
+8. New automated decisions identify their proof/confidence and approval model.
+9. Documentation links resolve and the session handoff reflects the release.
 
 Production-readiness requires additional threat modeling, fuzzing, crash/fault
 injection, remote interoperability, performance targets, and a support policy.
@@ -722,9 +727,10 @@ manifest. It is not a signing or authorization layer.
 - Protocol capability negotiation and optional remote gateway.
 - Signed receipt envelopes and trusted landing policy.
 - Additional deterministic structured-document adapters.
-- Git-native wins before native code: `git merge-tree` forecast simulation,
-  sparse cones from workspace focus, and commit-graph, multi-pack-index, and
-  fsmonitor enablement.
+- Git-native wins before native code: `git merge-tree` forecast simulation
+  (delivered behind a flag by ADR-0016; POSIX evidence pending), sparse cones
+  from workspace focus, and commit-graph, multi-pack-index, and fsmonitor
+  enablement.
 - A phased native core in Rust behind the existing contracts (ADR-0015),
   entering under Gate A of the native implementation gate.
 - Native content-addressed metadata/store experiments after Gate B is
