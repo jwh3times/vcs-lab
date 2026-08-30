@@ -352,7 +352,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | --- | --- | --- | --- | --- |
 | FR-RES-01 | P0 | Exact textual conflicts shall be keyed by ordered base, target, and source blob identities. | Implemented | Signature algorithm is `ordered-three-way-blobs/v1`. |
 | FR-RES-02 | P0 | The exact signature shall be path-independent so a rename does not prevent reuse. | Implemented | Cross-path/worktree reuse test passes. |
-| FR-RES-03 | P0 | A prior result shall not be applied automatically without an explicit action or pinned forecast approval. | Implemented | `resolve apply` or `--use-forecast` is required. |
+| FR-RES-03 | P0 | A prior result shall not be applied automatically without an explicit action or pinned forecast approval. | Implemented | `resolve apply` or `--use-forecast` is required; Git rerere is disabled inside vlab's cherry-picks and landing merges (ADR-0018). |
 | FR-RES-04 | P0 | Ambiguous result variants shall require an explicit resolution ID. | Implemented | Multiple candidates cannot be silently selected. |
 | FR-RES-05 | P1 | A result blob shall be retained against normal garbage collection. | Implemented | Hidden resolution ref points to a commit containing the blob. |
 | FR-RES-06 | P1 | Receipts shall distinguish created, accepted, modified, and rejected decisions. | Implemented | Application and resolution records preserve outcome. |

@@ -35,6 +35,7 @@ survive refactoring and session boundaries. They complement the
 | [0015](0015-adopt-a-phased-native-core-program-with-rust.md) | Accepted | Adopt a phased native-core program with Rust as the core language |
 | [0016](0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md) | Accepted | Simulate clean forecast steps with a merge-tree session behind a flag |
 | [0017](0017-commit-a-per-host-benchmark-baseline-with-an-automated-regression-check.md) | Accepted | Commit a per-host benchmark baseline with an automated regression check |
+| [0018](0018-disable-git-rerere-inside-vlab-picks-and-landing-merges.md) | Accepted | Disable Git rerere inside vlab's cherry-picks and landing merges |
 
 ## Creating or changing an ADR
 

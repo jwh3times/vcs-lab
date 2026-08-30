@@ -145,8 +145,9 @@ current `vlab` path:
    a step conflicts, is empty, or a resolution or Markdown driver must run;
    pin per-step and predicted trees exactly as `vcs-lab.forecast/v2` and
    `vcs-lab.rebase-forecast/v1` do today; `git replay` evaluated and not
-   adopted; `rerere` interaction documented and its hardening tracked by
-   [GitHub issue #6](https://github.com/jwh3times/vcs-lab/issues/6).
+   adopted; `rerere` interaction documented and closed by
+   [ADR-0018](adr/0018-disable-git-rerere-inside-vlab-picks-and-landing-merges.md), which disables rerere inside vlab's picks and
+   landing merges.
 2. **Done 2026-08-29:** the Windows post-batching rerun of
    `vcs-lab.repository-scale-benchmark/v1` is recorded in ADR-0013's Windows
    post-batching evidence section.

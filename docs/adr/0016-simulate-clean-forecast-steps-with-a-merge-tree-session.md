@@ -162,14 +162,13 @@ or the documentation records them:
   differential tests, the demo's merge-tree assertions, and the benchmark's
   merge-tree mode skip there. The engine is verified on 2.55.
 - External merge drivers named in attributes run under both engines.
-- `rerere` is applied by the worktree simulator's cherry-pick and by real
-  application, never by merge-tree. Because the merge-tree engine falls back
-  on the first conflict, both engines produce the same forecast, but a user
-  with `rerere.autoUpdate` sees a recorded resolution staged by Git and the
-  step reported as `blocked-git-error` rather than as a conflict vlab can
-  resolve from its own memory. Disabling rerere inside vlab's cherry-pick
-  invocations is a separate decision (ADR-0007 already rejects automatic
-  rerere as a resolution source); it is tracked as a follow-up issue.
+- `rerere` was applied by the worktree simulator's cherry-pick and by real
+  application, never by merge-tree, so a user with `rerere.autoUpdate` saw a
+  recorded resolution staged by Git and the step reported as
+  `blocked-git-error` rather than as a conflict vlab can resolve from its
+  own memory. [ADR-0018](0018-disable-git-rerere-inside-vlab-picks-and-landing-merges.md) closes this: every vlab cherry-pick and
+  landing merge now runs with rerere disabled, so both engines report the
+  conflict itself.
 - Result trees written by merge-tree remain as unreferenced objects until
   Git garbage-collects them, as the worktree simulator's commits already do.
 
@@ -251,7 +250,7 @@ invariants. The POSIX host measurement is recorded on issue #3.
   suite has run on both hosts.
 - **Disable rerere inside vlab's cherry-pick calls in this change:** a
   behavior change to the application path outside this brief; deferred to
-  its own issue.
+  its own issue and decided by [ADR-0018](0018-disable-git-rerere-inside-vlab-picks-and-landing-merges.md).
 
 ## Implementation map
 

@@ -51,6 +51,10 @@ deterministic.
 
 - **Always apply Git rerere automatically:** rejected because selection and
   provenance are insufficiently explicit for the product's trust model.
+  Amended by [ADR-0018](0018-disable-git-rerere-inside-vlab-picks-and-landing-merges.md) on 2026-08-30: Git's own rerere is
+  disabled inside every vlab cherry-pick and landing merge, so a resolution
+  recorded in `.git/rr-cache` can neither enter a forecast, an application,
+  or a landing nor be recorded by vlab's picks.
 - **Use an LLM for every conflict:** rejected because nondeterminism and hidden
   judgment undermine reproducibility and safety.
 - **Treat all Markdown lines independently:** rejected because semantic section

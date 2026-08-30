@@ -1982,6 +1982,158 @@ test("exact conflict resolutions are suggested and reused across worktrees", (t)
   assert.doesNotMatch(graph, /reconcile; 1 covered/);
 });
 
+test("Git rerere never resolves or records a conflict inside vlab operations", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "one\ntwo\nthree\n");
+  git(repo, "add", "shared.txt");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  write(repo, "shared.txt", "one\nmain\nthree\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "commit", "-m", "target edits line two");
+  const mainHead = git(repo, "rev-parse", "HEAD");
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "shared.txt", "one\nfeature\nthree\n");
+  git(repo, "add", "shared.txt");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "source edits line two"));
+  git(repo, "switch", "main");
+
+  // Seed Git's own rerere cache with a resolution vlab never approved, then
+  // put the target back so the same conflict replays.
+  git(repo, "config", "rerere.enabled", "true");
+  const seeded = spawnSync("git", ["cherry-pick", "-x", source.commit], {
+    cwd: repo,
+    encoding: "utf8",
+  });
+  assert.notEqual(seeded.status, 0);
+  write(repo, "shared.txt", "one\nrerere\nthree\n");
+  git(repo, "add", "shared.txt");
+  git(repo, "-c", "core.editor=true", "cherry-pick", "--continue");
+  git(repo, "reset", "--hard", mainHead);
+  git(repo, "config", "--unset", "rerere.enabled");
+  git(repo, "config", "rerere.autoUpdate", "true");
+  const rrCache = path.join(repo, ".git", "rr-cache");
+  const rrEntries = () => fs.readdirSync(rrCache);
+  assert.equal(rrEntries().length, 1);
+  const postimage = path.join(rrCache, rrEntries()[0], "postimage");
+  assert.equal(fs.readFileSync(postimage, "utf8"), "one\nrerere\nthree\n");
+  const rrState = () => ({
+    entries: rrEntries().length,
+    postimage: fs.readFileSync(postimage, "utf8"),
+    mergeRr: fs.existsSync(path.join(repo, ".git", "MERGE_RR")),
+    status: git(repo, "rerere", "status"),
+  });
+  const untouched = { entries: 1, postimage: "one\nrerere\nthree\n", mergeRr: false, status: "" };
+
+  // Forecasts see the conflict itself, not Git's staged resolution, under
+  // both engines.
+  for (const engine of ["worktree", "merge-tree"]) {
+    const forecast = forecastWithEngine(repo, engine, "forecast", "feature");
+    assert.equal(forecast.status, "blocked", engine);
+    assert.equal(forecast.blockedReason, "missing-exact-resolution", engine);
+    assert.equal(forecast.steps[0].outcome, "blocked-conflict", engine);
+    assert.equal(forecast.steps[0].conflicts[0].path, "shared.txt");
+    assert.deepEqual(forecast.steps[0].conflicts[0].candidates, []);
+    assert.equal(git(repo, "status", "--porcelain=v1"), "");
+    assert.deepEqual(rrState(), untouched);
+  }
+  git(repo, "switch", "feature");
+  const rebaseForecast = forecastWithEngine(repo, "worktree", "rebase-forecast", "main");
+  assert.equal(rebaseForecast.status, "blocked");
+  assert.equal(rebaseForecast.steps[0].outcome, "blocked-conflict");
+  git(repo, "switch", "main");
+
+  // A landing merge conflicts instead of committing Git's resolution.
+  const landing = vlabResult(repo, "compact-merge", "feature");
+  assert.notEqual(landing.status, 0);
+  assert.match(landing.stderr, /produced conflicts/);
+  assert.match(readText(repo, "shared.txt"), /<<<<<<< HEAD/);
+  assert.doesNotMatch(readText(repo, "shared.txt"), /rerere/);
+  git(repo, "merge", "--abort");
+  assert.equal(git(repo, "rev-parse", "HEAD"), mainHead);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.deepEqual(rrState(), untouched);
+  const squash = vlabResult(repo, "hard-squash", "feature");
+  assert.notEqual(squash.status, 0);
+  assert.match(squash.stderr, /produced conflicts/);
+  assert.match(readText(repo, "shared.txt"), /<<<<<<< HEAD/);
+  assert.doesNotMatch(readText(repo, "shared.txt"), /rerere/);
+  git(repo, "reset", "--hard", mainHead);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.deepEqual(rrState(), untouched);
+
+  // Direct cherry-picks, plain and forked, stop on the conflict too.
+  for (const flags of [[], ["--fork"]]) {
+    const picked = vlabResult(repo, "cherry-pick", source.commit, ...flags);
+    assert.notEqual(picked.status, 0, flags.join(" "));
+    assert.match(picked.stderr, /produced conflicts/);
+    assert.match(git(repo, "status", "--porcelain=v1"), /^UU shared.txt/m);
+    assert.match(readText(repo, "shared.txt"), /<<<<<<< HEAD/);
+    assert.doesNotMatch(readText(repo, "shared.txt"), /rerere/);
+    assert.deepEqual(rrState(), untouched);
+    // A forked pick runs with --no-commit and leaves no pick in progress.
+    if (fs.existsSync(path.join(repo, ".git", "CHERRY_PICK_HEAD"))) {
+      git(repo, "cherry-pick", "--abort");
+    } else {
+      git(repo, "reset", "--hard", mainHead);
+    }
+    assert.equal(git(repo, "rev-parse", "HEAD"), mainHead);
+    assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  }
+
+  // The supervised rebase pauses on the conflict as well.
+  git(repo, "switch", "feature");
+  assert.notEqual(vlabResult(repo, "rebase", "main").status, 0);
+  const pausedRebase = JSON.parse(vlab(repo, "rebase", "--status", "--json"));
+  assert.equal(pausedRebase.state, "conflicted");
+  assert.match(git(repo, "status", "--porcelain=v1"), /^UU shared.txt/m);
+  assert.match(readText(repo, "shared.txt"), /<<<<<<< HEAD/);
+  assert.doesNotMatch(readText(repo, "shared.txt"), /rerere/);
+  assert.deepEqual(rrState(), untouched);
+  vlab(repo, "rebase", "--abort", "--json");
+  assert.equal(git(repo, "rev-parse", "HEAD"), source.commit);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  git(repo, "switch", "main");
+
+  // Reconciliation pauses on a real conflict with markers, not on a
+  // pre-filled file, and leaves no rerere bookkeeping behind.
+  assert.notEqual(vlabResult(repo, "reconcile", "feature").status, 0);
+  const status = JSON.parse(vlab(repo, "resolve", "status", "--json"));
+  assert.equal(status.conflicts.length, 1);
+  assert.equal(status.conflicts[0].path, "shared.txt");
+  assert.equal(status.conflicts[0].candidates.length, 0);
+  assert.match(git(repo, "status", "--porcelain=v1"), /^UU shared.txt/m);
+  assert.match(readText(repo, "shared.txt"), /<<<<<<< HEAD/);
+  assert.doesNotMatch(readText(repo, "shared.txt"), /rerere/);
+  assert.deepEqual(rrState(), untouched);
+
+  // The user's resolution is recorded by vlab only; rr-cache is unchanged.
+  write(repo, "shared.txt", "one\nvlab\nthree\n");
+  git(repo, "add", "shared.txt");
+  const result = JSON.parse(vlab(repo, "reconcile", "--continue", "--json"));
+  assert.equal(result.receipt.applied[0].resolutions[0].decision, "created");
+  assert.equal(readText(repo, "shared.txt"), "one\nvlab\nthree\n");
+  assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 1);
+  assert.deepEqual(rrState(), untouched);
+
+  // Replaying the conflict, vlab's own memory is the candidate and its
+  // result, not Git's, is the forecast.
+  git(repo, "reset", "--hard", mainHead);
+  for (const engine of ["worktree", "merge-tree"]) {
+    const forecast = forecastWithEngine(repo, engine, "forecast", "feature");
+    assert.equal(forecast.status, "complete", engine);
+    assert.equal(forecast.counts.exactResolution, 1, engine);
+    assert.equal(
+      git(repo, "show", `${forecast.predictedResultTree}:shared.txt`),
+      "one\nvlab\nthree",
+      engine,
+    );
+    assert.deepEqual(rrState(), untouched);
+  }
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
 test("modified and rejected suggestions create auditable resolution variants", (t) => {
   const { repo } = makeRepo(t);
   write(repo, "shared.txt", "base\n");

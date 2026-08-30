@@ -380,7 +380,10 @@ source-head ---------
 
 1. Require a clean target worktree.
 2. Resolve target, source, base, source range, and Change IDs.
-3. Run `git merge --no-ff --no-commit <source-head>`.
+3. Run `git merge --no-ff --no-commit <source-head>` with Git's rerere
+   disabled (`-c rerere.enabled=false`), so a recorded Git resolution cannot
+   be staged into the landing; a conflict fails the landing without a receipt
+   (ADR-0018).
 4. Commit with landing trailers.
 5. Attach a landing receipt.
 
@@ -395,8 +398,9 @@ target-before ----- squash-commit       source-head
                          +------------------+
 ```
 
-The flow uses `git merge --squash`, commits one parent, and attaches the exact
-absorbed range as a receipt. If the merge conflicts before commit, the command
+The flow uses `git merge --squash` (with rerere disabled, as in the compact
+landing), commits one parent, and attaches the exact absorbed range as a
+receipt. If the merge conflicts before commit, the command
 publishes no receipt. Stock Git cannot infer the sideband edge; `vlab` can.
 
 ## 9. Forecast architecture
@@ -452,8 +456,9 @@ records the algorithm, the fallback rule, and the Git constraints.
 ### 9.2 Isolation mechanics
 
 The worktree simulator creates a temporary detached Git worktree, performs
-the simulation there, aborts any in-progress cherry-pick, and removes/prunes
-the temporary worktree in cleanup. The caller's head, tree, and porcelain
+the simulation there with Git's rerere disabled on every cherry-pick (the
+temporary worktree shares the repository's `rr-cache`; ADR-0018), aborts any
+in-progress cherry-pick, and removes/prunes the temporary worktree in cleanup. The caller's head, tree, and porcelain
 status are captured before and after. A difference is an invariant violation.
 
 The merge-tree engine never creates a worktree. It runs one
@@ -498,7 +503,10 @@ paused/running/forecast-mismatch --abort--> starting commit restored
 3. Reject unaccepted candidates or stale forecast inputs before mutation.
 4. Create a private journal containing the complete queue, starting commit,
    exact plan, approvals, timing accumulator, and current index.
-5. Cherry-pick queue entries one at a time.
+5. Cherry-pick queue entries one at a time with Git's rerere disabled
+   (`-c rerere.enabled=false`): a conflict is resolved only by vlab's approved
+   memory, a deterministic spec merge, or the user, never by `.git/rr-cache`
+   (ADR-0018).
 
 ### 10.2 Clean application
 
@@ -522,9 +530,10 @@ It leaves Git's cherry-pick state intact and exits with recovery instructions.
 ### 10.4 Continue
 
 The user or forecast stages a resolution. Continue verifies the operation and
-staged semantic manifests, invokes `git cherry-pick --continue`, classifies the
-relation as contextual application or contextual fork, records exact outcomes,
-and resumes the remaining queue.
+staged semantic manifests, invokes `git cherry-pick --continue` (again with
+rerere disabled, so the resolution is recorded in vlab's catalog and never in
+`.git/rr-cache`), classifies the relation as contextual application or
+contextual fork, records exact outcomes, and resumes the remaining queue.
 
 ### 10.5 Finalize
 

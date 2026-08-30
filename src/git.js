@@ -911,6 +911,17 @@ export function findCommitByChangeId(changeId, cwd = process.cwd()) {
 export const FORECAST_ENGINES = ["worktree", "merge-tree"];
 
 /**
+ * Configuration prepended to every `cherry-pick` and landing `merge` vlab
+ * runs. Git applies a recorded `rerere` resolution during a conflicted pick
+ * or merge whenever `.git/rr-cache` exists (with `rerere.autoUpdate` the
+ * index is left fully resolved and no unmerged path remains), and records
+ * the resolution of a continued pick. Neither may happen inside vlab: a
+ * conflict is resolved only by vlab's own approved memory or by the user,
+ * and only vlab's catalog records it (ADR-0018).
+ */
+export const GIT_NO_RERERE = ["-c", "rerere.enabled=false"];
+
+/**
  * Select the forecast simulation engine. `worktree` is the temporary-worktree
  * simulator and the semantic oracle; `merge-tree` simulates clean steps with
  * `git merge-tree --write-tree` and falls back to the worktree simulator for

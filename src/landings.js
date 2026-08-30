@@ -3,6 +3,7 @@ import {
   changeIdForCommit,
   commitSubject,
   currentHead,
+  GIT_NO_RERERE,
   listCommits,
   mergeBase,
   resolveRevision,
@@ -54,8 +55,8 @@ export function land(sourceRef, mode, options = {}) {
 
   const mergeArgs =
     mode === "compact"
-      ? ["merge", "--no-ff", "--no-commit", inputs.sourceHead]
-      : ["merge", "--squash", inputs.sourceHead];
+      ? [...GIT_NO_RERERE, "merge", "--no-ff", "--no-commit", inputs.sourceHead]
+      : [...GIT_NO_RERERE, "merge", "--squash", inputs.sourceHead];
   const merged = runGit(mergeArgs, { cwd, allowFailure: true });
   if (!merged.ok) {
     throw Object.assign(

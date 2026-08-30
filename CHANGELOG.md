@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Disable Git `rerere` inside every vlab `cherry-pick` (forecast simulation,
+  `reconcile`, `rebase`, `vlab cherry-pick`, and their `--continue` paths)
+  and every landing merge with `-c rerere.enabled=false`, so a resolution
+  recorded in `.git/rr-cache` can no longer be replayed into a forecast, an
+  application, or a landing unapproved, nor recorded from vlab's picks. A
+  conflict that Git used to auto-stage is now reported as the conflict it is,
+  with its signature and candidates, under both forecast engines and both Git
+  session modes (ADR-0018, issue #6).
 - Make `vlab metadata validate` and `vlab resolve list` agree on retention
   state (issue #4): validation now peels each `refs/vcs-lab/resolutions/*`
   target exactly as the catalog does, so a ref that names an annotated tag of

@@ -9,6 +9,7 @@ import {
   endGitMetrics,
   extractTrailer,
   findCommitByChangeId,
+  GIT_NO_RERERE,
   repoContext,
   resolveObjectIds,
   resolveRevision,
@@ -82,10 +83,10 @@ export function cherryPick(value, options = {}) {
   let appliedCommit;
   let appliedChangeId = originChangeId;
   if (options.fork) {
-    const picked = runGit(["cherry-pick", "--no-commit", originCommit], {
-      cwd,
-      allowFailure: true,
-    });
+    const picked = runGit(
+      [...GIT_NO_RERERE, "cherry-pick", "--no-commit", originCommit],
+      { cwd, allowFailure: true },
+    );
     if (!picked.ok) {
       throw new CliError("Cherry-pick produced conflicts.", { details: picked.output });
     }
@@ -104,7 +105,7 @@ export function cherryPick(value, options = {}) {
     runGit(["commit", "-m", message], { cwd });
     appliedCommit = currentHead(cwd);
   } else {
-    const picked = runGit(["cherry-pick", "-x", originCommit], {
+    const picked = runGit([...GIT_NO_RERERE, "cherry-pick", "-x", originCommit], {
       cwd,
       allowFailure: true,
     });
@@ -488,7 +489,7 @@ function applyForecastResolutions(operation, change, cwd) {
   );
   writeReconciliationState(operation, cwd);
   const continued = runGit(
-    ["-c", "core.editor=true", "cherry-pick", "--continue"],
+    [...GIT_NO_RERERE, "-c", "core.editor=true", "cherry-pick", "--continue"],
     { cwd, allowFailure: true },
   );
   if (!continued.ok) {
@@ -523,7 +524,7 @@ function runReconciliationQueue(operation, cwd, phaseStarted = performance.now()
       };
       writeReconciliationState(operation, cwd);
 
-      const result = runGit(["cherry-pick", "-x", change.commit], {
+      const result = runGit([...GIT_NO_RERERE, "cherry-pick", "-x", change.commit], {
         cwd,
         allowFailure: true,
       });
@@ -744,7 +745,7 @@ function continueReconciliationInSession(options, cwd) {
     forkMergeMessage(operation, cwd);
   }
   const result = runGit(
-    ["-c", "core.editor=true", "cherry-pick", "--continue"],
+    [...GIT_NO_RERERE, "-c", "core.editor=true", "cherry-pick", "--continue"],
     { cwd, allowFailure: true },
   );
   if (!result.ok) {

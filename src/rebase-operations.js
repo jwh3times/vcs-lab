@@ -8,6 +8,7 @@ import {
   changeIdForCommit,
   currentHead,
   endGitMetrics,
+  GIT_NO_RERERE,
   repoContext,
   resolveObjectIds,
   runGit,
@@ -379,7 +380,7 @@ function applyForecastResolutions(operation, change, cwd) {
   );
   writeRebaseState(operation, cwd);
   const continued = runGit(
-    ["-c", "core.editor=true", "cherry-pick", "--continue"],
+    [...GIT_NO_RERERE, "-c", "core.editor=true", "cherry-pick", "--continue"],
     { cwd, allowFailure: true },
   );
   if (!continued.ok) {
@@ -563,7 +564,7 @@ function runRebaseQueue(operation, cwd, phaseStarted = performance.now()) {
         cwd,
       );
 
-      const result = runGit(["cherry-pick", "-x", change.commit], {
+      const result = runGit([...GIT_NO_RERERE, "cherry-pick", "-x", change.commit], {
         cwd,
         allowFailure: true,
       });
@@ -840,7 +841,7 @@ function continueRebaseInSession(options, cwd) {
     forkMergeMessage(operation, cwd);
   }
   const result = runGit(
-    ["-c", "core.editor=true", "cherry-pick", "--continue"],
+    [...GIT_NO_RERERE, "-c", "core.editor=true", "cherry-pick", "--continue"],
     { cwd, allowFailure: true },
   );
   if (!result.ok) {

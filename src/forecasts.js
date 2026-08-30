@@ -3,14 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
-  gitAtLeast,
-  gitVersion,
-  MERGE_TREE_ENGINE_MIN_GIT,
   beginGitMetrics,
   currentHead,
   endGitMetrics,
   forecastEngine,
+  GIT_NO_RERERE,
+  gitAtLeast,
+  gitVersion,
   inspectGitObjects,
+  MERGE_TREE_ENGINE_MIN_GIT,
   MergeTreeSession,
   repoContext,
   resolveObjectIds,
@@ -417,7 +418,7 @@ function simulatePlan(plan, cwd, options = {}) {
     for (const change of queue) {
       const targetBefore = currentHead(temporaryWorktree);
       const targetBeforeTree = treeId(targetBefore, temporaryWorktree);
-      const picked = runGit(["cherry-pick", "-x", change.commit], {
+      const picked = runGit([...GIT_NO_RERERE, "cherry-pick", "-x", change.commit], {
         cwd: temporaryWorktree,
         allowFailure: true,
       });
@@ -517,7 +518,7 @@ function simulatePlan(plan, cwd, options = {}) {
         temporaryWorktree,
       );
       const continued = runGit(
-        ["-c", "core.editor=true", "cherry-pick", "--continue"],
+        [...GIT_NO_RERERE, "-c", "core.editor=true", "cherry-pick", "--continue"],
         { cwd: temporaryWorktree, allowFailure: true },
       );
       if (!continued.ok) {
