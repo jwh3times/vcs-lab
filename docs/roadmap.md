@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Baseline | v0.9.0 released |
+| Baseline | v0.10.0 released |
 | Status | Maintained execution guide |
 | Last reviewed | 2026-08-30 |
 | Planning horizon | Next bounded increment through the phased native-core program |
@@ -30,8 +30,12 @@ Roadmap states mean:
 ## Current position
 
 The laboratory has already tested the core causal model over ordinary Git.
-v0.9.0 releases the causal-rebase, workspace-lifecycle, checkpoint-forecast,
-scale-benchmark, and scan-batching work accumulated since v0.8.0. On 2026-08-28
+v0.9.0 released the causal-rebase, workspace-lifecycle, checkpoint-forecast,
+scale-benchmark, and scan-batching work accumulated since v0.8.0; v0.10.0
+releases the merge-tree forecast engine (the default on Windows, with Windows
+and Linux evidence), the per-host benchmark baseline with its regression
+check, the rerere guard, and the metadata validate/resolve agreement fix
+accumulated since v0.9.0. On 2026-08-28
 [ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
 split the native implementation gate and
 [ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) adopted a

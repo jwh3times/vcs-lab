@@ -67,7 +67,7 @@ On Windows, use PowerShell, Git Bash, or a terminal where `git` and `node` are o
 This project now has its own Git history and should live in a normal development repository. The portable repository bundle retains the release commits and tags:
 
 ```bash
-git clone /path/to/causal-vcs-lab-0.9.0.bundle vcs-lab
+git clone /path/to/causal-vcs-lab-0.10.0.bundle vcs-lab
 cd vcs-lab
 git remote remove origin
 npm link
@@ -79,7 +79,7 @@ If you instead use the source ZIP, initialize its extracted directory with:
 ```bash
 git init -b main
 git add .
-git commit -m "Bootstrap causal-vcs-lab 0.9.0"
+git commit -m "Bootstrap causal-vcs-lab 0.10.0"
 npm link
 npm test
 ```

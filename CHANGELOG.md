@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 - Make `merge-tree` the default forecast engine on Windows and keep
   `worktree` the default on other platforms, mirroring the object session's
