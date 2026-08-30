@@ -6,7 +6,7 @@
 | --- | --- |
 | Architecture baseline | v0.9.0 release |
 | Status | Current implementation reference |
-| Last updated | 2026-08-29 |
+| Last updated | 2026-08-30 |
 | Runtime | Node.js 20+ (ES modules), Git 2.40+ (merge-tree forecast engine: Git 2.49+) |
 | External runtime dependencies | None beyond Node.js and Git |
 
@@ -86,8 +86,8 @@ but a receipt does not rewrite a commit or tree ID.
 - CLI parsing and human/JSON formatting.
 - Git command orchestration and metrics.
 - Causal plan construction.
-- Temporary-worktree simulation, with an opt-in merge-tree session for clean
-  forecast steps.
+- Temporary-worktree simulation, with a merge-tree session for clean
+  forecast steps (the default on Windows, opt-in elsewhere).
 - Worktree-local operation journals and forecasts.
 - Receipt creation and storage through Git notes.
 - Resolution signature/catalog management.
@@ -412,7 +412,7 @@ caller worktree (captured invariants)
         |
         +--> build exact causal plan
         |
-        +--> merge-tree engine (opt-in): one batched object inspection, then
+        +--> merge-tree engine (default on Windows): one batched object inspection, then
         |    one persistent git merge-tree --stdin process merges each queued
         |    change onto the accumulated tree
         |           |
@@ -420,7 +420,7 @@ caller worktree (captured invariants)
         |           +--> any step conflicted, empty, or unsupported:
         |                discard the attempt, record the reason, fall back
         |
-        +--> worktree simulator (default, and the oracle):
+        +--> worktree simulator (the oracle; default on POSIX):
              create detached temporary worktree at target OID
                     |
                     +--> apply each reviewed-new change
@@ -434,8 +434,10 @@ caller worktree (captured invariants)
         +--> save pinned forecast in caller's private Git dir
 ```
 
-The engine is selected by `VLAB_FORECAST_ENGINE` or `--forecast-engine`
-(`worktree` by default). Both engines pin the same per-step and predicted
+The engine is selected by `VLAB_FORECAST_ENGINE` or `--forecast-engine`;
+without either, Windows uses `merge-tree` and other platforms `worktree`,
+mirroring the object session's platform default (ADR-0016, amendment of
+2026-08-30). Both engines pin the same per-step and predicted
 tree IDs; [ADR-0016](adr/0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md)
 records the algorithm, the fallback rule, and the Git constraints.
 
@@ -1055,10 +1057,12 @@ and [ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) set
 the next increments: first Git-native wins with no new language, then a schema
 catalog and a read-side engine seam, then a Rust `vlab-core` behind that seam
 under Gate A with a kill switch and sunset. The first increment is delivered
-on the Windows host: [ADR-0016](adr/0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md)
-simulates clean forecast steps through one `git merge-tree` session behind a
-flag, and the Windows post-batching rerun is recorded in ADR-0013; sparse cones
-remain optional, and the POSIX differential run is the next evidence. A canonical fact log with
+on both platforms: [ADR-0016](adr/0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md)
+simulates clean forecast steps through one `git merge-tree` session (the
+default on Windows since 2026-08-30, opt-in elsewhere) with Windows and Linux
+differential evidence, the Windows post-batching rerun is recorded in
+ADR-0013, and the Linux benchmark baseline is committed; sparse cones remain
+optional, and the contract catalog and engine seam are next. A canonical fact log with
 Git notes and refs as projections, private draft stacks, and any gateway
 remain behind Gate B. Git stays the exact-state store and escape hatch in
 every phase; a server or resident service still requires ADR-0013's row to

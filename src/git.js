@@ -922,6 +922,18 @@ export const FORECAST_ENGINES = ["worktree", "merge-tree"];
 export const GIT_NO_RERERE = ["-c", "rerere.enabled=false"];
 
 /**
+ * The forecast engine used when neither `VLAB_FORECAST_ENGINE` nor
+ * `--forecast-engine` selects one. Like the object session, the merge-tree
+ * engine is the default on Windows, where a process launch costs tens of
+ * milliseconds and Git for Windows is current, and opt-in elsewhere, where
+ * distribution Git is often older than the engine needs (ADR-0016, amendment
+ * of 2026-08-30).
+ */
+export function defaultForecastEngine() {
+  return process.platform === "win32" ? "merge-tree" : "worktree";
+}
+
+/**
  * Select the forecast simulation engine. `worktree` is the temporary-worktree
  * simulator and the semantic oracle; `merge-tree` simulates clean steps with
  * `git merge-tree --write-tree` and falls back to the worktree simulator for
@@ -930,7 +942,7 @@ export const GIT_NO_RERERE = ["-c", "rerere.enabled=false"];
  */
 export function forecastEngine() {
   const value = process.env.VLAB_FORECAST_ENGINE;
-  if (value === undefined || value === "") return "worktree";
+  if (value === undefined || value === "") return defaultForecastEngine();
   if (FORECAST_ENGINES.includes(value)) return value;
   throw new CliError(
     `Unknown forecast engine '${value}'. Use one of: ${FORECAST_ENGINES.join(", ")}.`,

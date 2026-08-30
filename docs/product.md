@@ -8,7 +8,7 @@
 | Document version | 1.0 |
 | Product baseline | v0.9.0 release |
 | Status | Active product baseline |
-| Last updated | 2026-08-29 |
+| Last updated | 2026-08-30 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
 | Decision owner | Repository maintainers |
 
@@ -437,7 +437,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 
 | ID | Requirement |
 | --- | --- |
-| NFR-PORT-01 | Supported baseline is Node.js 20+ and Git 2.40+ (raised from 2.38 on 2026-08-28 by ADR-0015 for `git merge-tree --merge-base`) until changed by a documented release decision; the opt-in merge-tree forecast engine additionally needs Git 2.49 (`merge-tree --stdin` flushes each record only from there) and falls back to the worktree simulator below it (ADR-0016). |
+| NFR-PORT-01 | Supported baseline is Node.js 20+ and Git 2.40+ (raised from 2.38 on 2026-08-28 by ADR-0015 for `git merge-tree --merge-base`) until changed by a documented release decision; the merge-tree forecast engine (the default on Windows since the 2026-08-30 ADR-0016 amendment, opt-in elsewhere) additionally needs Git 2.49 (`merge-tree --stdin` flushes each record only from there) and falls back to the worktree simulator below it (ADR-0016). |
 | NFR-PORT-02 | Tests shall run on Windows and a POSIX platform; newline-sensitive behavior shall state whether LF normalization is semantic. |
 | NFR-PORT-03 | Paths stored for portable identity shall use repository-relative normalized form; local materialization paths may remain platform-specific. |
 | NFR-PORT-04 | Repositories using SHA-1 or SHA-256 object formats shall not be rejected by hard-coded OID length assumptions. |
@@ -629,10 +629,13 @@ These are regression baselines, not universal performance guarantees.
 The Windows forced-session correction preserved the 12-change forecast while
 reducing process launches from 64 to 25. Regression coverage now asserts lazy
 worker startup, orderly shutdown, and no-worker preflight behavior. On
-2026-08-29 the opt-in merge-tree forecast engine (ADR-0016) reproduced the same
+2026-08-29 the merge-tree forecast engine (ADR-0016) reproduced the same
 12-change forecast with 10 Git process launches against 25 for the session path
 and 64 for ordinary Git on the Windows development host, with identical
-per-step and predicted trees and no temporary worktree. Historical
+per-step and predicted trees and no temporary worktree; on 2026-08-30 a Linux
+host (Ubuntu 24.04, Git 2.55.0) reproduced the same process counts and trees
+at 160 ms against 243 ms and 236 ms, and the engine became the default on
+Windows. Historical
 execution details remain available in Git history; current qualification
 commands are defined in [testing.md](testing.md).
 
@@ -654,7 +657,7 @@ A release is eligible when:
 
 1. `npm test` passes in ordinary mode.
 2. `VLAB_GIT_SESSION=1 npm test` passes.
-3. `VLAB_FORECAST_ENGINE=merge-tree npm test` passes.
+3. `VLAB_FORECAST_ENGINE=worktree npm test` and `VLAB_FORECAST_ENGINE=merge-tree npm test` pass (the default engine differs by platform).
 4. All maintained demos complete.
 5. Version constants, package metadata, changelog, and release tag agree.
 6. Bundle and source archive install/test smoke checks pass outside the source
@@ -730,7 +733,8 @@ manifest. It is not a signing or authorization layer.
 - Signed receipt envelopes and trusted landing policy.
 - Additional deterministic structured-document adapters.
 - Git-native wins before native code: `git merge-tree` forecast simulation
-  (delivered behind a flag by ADR-0016; POSIX evidence pending), sparse cones
+  (delivered by ADR-0016 with Windows and Linux evidence; the default on
+  Windows since 2026-08-30), sparse cones
   from workspace focus, and commit-graph, multi-pack-index, and fsmonitor
   enablement.
 - A phased native core in Rust behind the existing contracts (ADR-0015),

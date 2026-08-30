@@ -137,16 +137,17 @@ console.log(
 console.log(
   `session I/O  ${session.sessionQueries} persistent queries; ${session.cacheHits} immutable cache hits`,
 );
-console.log(
-  `merge-tree   ${merges} merges through one persistent process; ${mergeTree.forecast.timings.git.processes} processes inside the forecast itself; no temporary worktree`,
-);
-if (!mergeTreeSupported) {
+if (mergeTree.forecast.engine === "merge-tree") {
   console.log(
-    `merge-tree   engine unavailable (${git("--version")}; it needs Git ${MERGE_TREE_ENGINE_MIN_GIT}): the mode above fell back to the worktree simulator`,
+    `merge-tree   ${merges} merges through one persistent process; ${mergeTree.forecast.timings.git.processes} processes inside the forecast itself; no temporary worktree`,
+  );
+} else {
+  console.log(
+    `merge-tree   engine unavailable (${mergeTree.forecast.fallbacks.map((item) => item.reason).join(", ")}; ${git("--version")}; the engine needs Git ${MERGE_TREE_ENGINE_MIN_GIT}): the mode above fell back to the worktree simulator`,
   );
 }
 console.log(
-  "Windows enables the session automatically; the merge-tree engine is opt-in. Wall time is machine-specific; plan, per-step tree, and predicted-tree equality plus process reduction are the acceptance invariants.",
+  "Windows enables the session and the merge-tree engine automatically (Git 2.49 or newer); POSIX hosts opt in with --forecast-engine merge-tree. Wall time is machine-specific; plan, per-step tree, and predicted-tree equality plus process reduction are the acceptance invariants.",
 );
 console.log(
   `\nInspect the repository with:\n  cd ${repo}\n  vlab forecast feature --trace-git\n  vlab forecast feature --trace-git --forecast-engine merge-tree`,

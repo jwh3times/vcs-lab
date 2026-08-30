@@ -48,8 +48,9 @@ Tests use `node:test` and descriptive behavior names such as
 `test("stale forecasts fail before starting a reconciliation", ...)`. Add
 regression coverage for observable changes and use temporary repositories for
 history-changing cases. For Git-session, forecast, or cross-cutting changes, run
-`npm test`, `VLAB_GIT_SESSION=1 npm test`, and
-`VLAB_FORECAST_ENGINE=merge-tree npm test`. No numeric coverage threshold is
+`npm test`, `VLAB_GIT_SESSION=1 npm test`, `VLAB_FORECAST_ENGINE=worktree npm test`,
+and `VLAB_FORECAST_ENGINE=merge-tree npm test` (the default engine differs by
+platform). No numeric coverage threshold is
 defined; preserve the behavioral and failure-safety guarantees in
 `docs/testing.md`.
 

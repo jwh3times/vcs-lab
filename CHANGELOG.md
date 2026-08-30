@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Make `merge-tree` the default forecast engine on Windows and keep
+  `worktree` the default on other platforms, mirroring the object session's
+  platform default; `VLAB_FORECAST_ENGINE` and `--forecast-engine` override
+  either, and the suite is now qualified with each engine forced on every
+  host. The decision follows the POSIX evidence below: on Linux the engine
+  saves about a third of a quarter-second forecast while distribution Git is
+  often below 2.49, on Windows it saves 2.5× over the session path and Git
+  for Windows is current (ADR-0016 amendment, issue #7).
 - Commit the `linux` entry of `benchmarks/baseline.json` (Ubuntu 24.04,
   Git 2.55.0, Node 22.23.2: 63, 24, and 9 forecast processes in the
   worktree-ordinary, worktree-session, and merge-tree-session modes, as on

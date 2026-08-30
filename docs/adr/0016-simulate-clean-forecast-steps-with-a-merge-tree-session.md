@@ -76,7 +76,9 @@ accepts `--forecast-engine <worktree|merge-tree>` on every command and sets the
 variable for that invocation. Any other value is an error, never a silent
 default. The default stays `worktree` for this release; flipping it is a
 release decision that needs the differential evidence below from a Windows
-host and a POSIX host.
+host and a POSIX host. (Amended 2026-08-30 once both hosts had reported:
+`merge-tree` is the default on Windows and `worktree` elsewhere; see the
+amendment below.)
 
 ### Algorithm
 
@@ -294,6 +296,40 @@ forecast processes in the three benchmark modes, matching `win32`, at 189,
 the too-old-host figures are attached to
 [GitHub issue #7](https://github.com/jwh3times/vcs-lab/issues/7) and are not
 committed.
+
+### Default engine
+
+With both hosts reported, the default forecast engine becomes `merge-tree`
+on Windows (`process.platform === "win32"`) and stays `worktree` on every
+other platform; `VLAB_FORECAST_ENGINE` and `--forecast-engine` override
+either, and `--forecast-engine worktree` selects the oracle anywhere.
+
+- Windows is where ADR-0015 named the material cost (about 35 ms per process
+  launch, OneDrive-hosted checkouts) and where the engine cuts the 12-change
+  forecast from 25 to 10 processes and from 1,234 ms to 496 ms. Git for
+  Windows has shipped 2.49 or newer since March 2025, and a host below the
+  floor pays one short-lived process per forecast with the object session
+  (two without it, as measured on the Debian host above) and reports
+  `git-too-old`.
+- On POSIX hosts the engine saves about a third of a forecast that already
+  completes in a quarter of a second, while distribution Git is frequently
+  below 2.49 (Debian 13 ships 2.47, Ubuntu 24.04 LTS 2.43, RHEL 9 and 10
+  2.43 and 2.47): a merge-tree default there would report a fallback on every
+  forecast for many users for little gain. Hosts with a newer Git opt in.
+- The rule mirrors `VLAB_GIT_SESSION`, whose default is also Windows-only,
+  so one sentence describes both performance controls: Windows enables the
+  object session and the merge-tree engine automatically; POSIX hosts opt
+  in.
+- Both engines stay qualified everywhere: the suite must pass with each
+  engine forced on every host (`docs/testing.md`, NFR-TEST-02), and the
+  benchmark modes select their engine explicitly, so no baseline entry moves.
+
+The default becomes `merge-tree` on every platform when vlab's supported Git
+baseline rises to 2.49 or the common POSIX distributions ship it; that is a
+release decision to record here or in a superseding ADR. Rejected now:
+`merge-tree` everywhere (fallback noise on distribution Git) and `worktree`
+everywhere until the baseline rises (forgoes the measured Windows win for
+years).
 
 ## Constraints
 

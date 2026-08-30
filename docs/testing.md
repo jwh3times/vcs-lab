@@ -37,18 +37,23 @@ On POSIX shells:
 VLAB_GIT_SESSION=1 npm test
 ```
 
-Run it a third time with the merge-tree forecast engine selected, so every
-forecast scenario simulates clean steps through `git merge-tree` and falls
-back to the worktree simulator where it must:
+Run it with each forecast engine forced. The default engine differs by
+platform (`merge-tree` on Windows, `worktree` elsewhere), so both runs are
+needed on every host: the merge-tree run simulates every clean forecast step
+through `git merge-tree` and falls back to the worktree simulator where it
+must, and the worktree run exercises the oracle throughout:
 
 ```powershell
 $env:VLAB_FORECAST_ENGINE = "merge-tree"
+npm test
+$env:VLAB_FORECAST_ENGINE = "worktree"
 npm test
 Remove-Item Env:VLAB_FORECAST_ENGINE -ErrorAction SilentlyContinue
 ```
 
 ```bash
 VLAB_FORECAST_ENGINE=merge-tree npm test
+VLAB_FORECAST_ENGINE=worktree npm test
 ```
 
 Run the maintained demonstrations when changing their workflows:
@@ -63,7 +68,7 @@ npm run demo:git-session
 ```
 
 Use targeted Node test-name patterns during development, but complete the
-ordinary, forced-session, and merge-tree engine runs before treating a
+ordinary, forced-session, and both forced-engine runs before treating a
 cross-cutting or forecast change as qualified. `npm run demo:git-session`
 additionally compares the three forecast modes on one queue.
 
@@ -110,7 +115,7 @@ unique and every reference must resolve to a definition.
 A release candidate is eligible only when:
 
 1. the source checkout begins and ends clean at the same candidate commit;
-2. the integration suite passes in ordinary, forced-session, and merge-tree
+2. the integration suite passes in ordinary, forced-session, and both forced
    forecast-engine modes;
 3. all maintained demos complete;
 4. metadata validation reports no unexpected errors;

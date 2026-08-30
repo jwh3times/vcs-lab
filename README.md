@@ -42,8 +42,8 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 ## Requirements
 
 - Node.js 20 or newer
-- Git 2.40 or newer (the opt-in merge-tree forecast engine needs Git 2.49 and
-  falls back to the worktree simulator below it)
+- Git 2.40 or newer (the merge-tree forecast engine, the default on Windows,
+  needs Git 2.49 and falls back to the worktree simulator below it)
 
 It has no npm dependencies and does not need a build step.
 
@@ -256,8 +256,9 @@ complete result tree, blocking conflicts, and forecast duration. The caller's
 HEAD, index, and working files are checked before and after and must be
 unchanged.
 
-With `--forecast-engine merge-tree` (or `VLAB_FORECAST_ENGINE=merge-tree`)
-clean steps are simulated instead through one persistent `git merge-tree`
+With the merge-tree engine (`--forecast-engine merge-tree` or
+`VLAB_FORECAST_ENGINE=merge-tree`; the default on Windows) clean steps are
+simulated instead through one persistent `git merge-tree`
 process with no temporary worktree, pinning the same per-step and predicted
 trees. Any conflicted, empty, or otherwise unsupported step hands the whole
 forecast back to the worktree simulator, and the forecast reports which
@@ -266,7 +267,8 @@ the first version whose `git merge-tree --stdin` flushes each answer before
 reading the next request; on older Git the session process reports its
 version as it starts and the forecast records a `git-too-old` fallback
 without waiting or spawning another process. The worktree simulator remains
-the default and the oracle.
+the oracle and the default on POSIX hosts, where distribution Git is often
+older than 2.49; `--forecast-engine worktree` selects it anywhere.
 
 Each forecast is pinned to exact source and target heads and a fingerprint of
 the causal merge plan. After reviewing it, explicitly authorize its exact
@@ -669,8 +671,9 @@ vlab forecast feature --trace-git
 `--git-session` forces the persistent path and `--no-git-session` forces the
 ordinary compatibility path. If a session fails, the command continues through
 ordinary Git. `--forecast-engine merge-tree` selects the merge-tree forecast
-engine for one invocation, and `--forecast-engine worktree` selects the
-default simulator explicitly. Trace output contains command names, durations,
+engine for one invocation and `--forecast-engine worktree` the worktree
+simulator; without either, Windows uses the merge-tree engine and POSIX hosts
+the worktree simulator. Trace output contains command names, durations,
 and whether a query started a process, reused a persistent process, or hit the
 immutable object cache; it never includes file content or commit messages.
 
@@ -761,5 +764,6 @@ blocking, exact abort, linked-worktree isolation, completed-record validation,
 portable unreachable origins, plus a caller-isolated repository-scale fixture
 that verifies semantic scan results, process-amplification decisions, privacy,
 and cleanup. The complete suite is also run with `VLAB_GIT_SESSION=1` to
-exercise the Windows-default path and with `VLAB_FORECAST_ENGINE=merge-tree`
-to exercise the merge-tree forecast engine.
+exercise the Windows-default session path and with each forecast engine
+forced (`VLAB_FORECAST_ENGINE=worktree` and `VLAB_FORECAST_ENGINE=merge-tree`),
+because the default engine differs by platform.

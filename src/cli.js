@@ -132,7 +132,8 @@ Global diagnostics:
   --no-git-session  use ordinary one-process-per-command Git plumbing
   --forecast-engine <worktree|merge-tree>
                      simulate clean forecast steps in a temporary worktree
-                     (default, the oracle) or with one git merge-tree process
+                     (the oracle; default on POSIX) or with one git merge-tree
+                     process (default on Windows; needs Git 2.49, else falls back)
 `;
 
 function parseArgs(args) {
