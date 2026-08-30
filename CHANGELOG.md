@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Commit the `linux` entry of `benchmarks/baseline.json` (Ubuntu 24.04,
+  Git 2.55.0, Node 22.23.2: 63, 24, and 9 forecast processes in the
+  worktree-ordinary, worktree-session, and merge-tree-session modes, as on
+  `win32`), so `npm run test:benchmark` is active on Linux hosts, and record
+  the POSIX evidence for ADR-0016 in its 2026-08-30 amendment: byte-identical
+  trees in every suite mode on Ubuntu 24.04 (Git 2.55.0), Alpine 3.22
+  (Git 2.49.1, the floor), and Debian 13 (Git 2.47.3, exercising the
+  fallback), and 64, 25, and 10 Git processes for the 12-change demo forecast
+  in ordinary, session, and merge-tree modes on Linux, as on Windows
+  (issue #7).
 - Raise the merge-tree forecast engine's Git floor from 2.45 to 2.49 and
   detect an older Git before the first merge instead of after the session
   timeout. The first POSIX run (Debian 13, Git 2.47.3) showed that

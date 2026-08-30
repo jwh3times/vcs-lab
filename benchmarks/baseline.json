@@ -16,6 +16,71 @@
     "processes": 0
   },
   "hosts": {
+    "linux": {
+      "recordedAt": "2026-08-30",
+      "git": "git version 2.55.0",
+      "node": "v22.23.2",
+      "phases": {
+        "history": {
+          "medianMs": 3.92,
+          "p95Ms": 4.04,
+          "medianProcesses": 1
+        },
+        "gitWorktrees": {
+          "medianMs": 2.4,
+          "p95Ms": 2.63,
+          "medianProcesses": 1
+        },
+        "workspaceRegistry": {
+          "medianMs": 0.04,
+          "p95Ms": 0.13,
+          "medianProcesses": 0
+        },
+        "workspaceStatus": {
+          "medianMs": 11.13,
+          "p95Ms": 11.58,
+          "medianProcesses": 4
+        },
+        "noteCatalog": {
+          "medianMs": 13.44,
+          "p95Ms": 21.25,
+          "medianProcesses": 2
+        },
+        "resolutionCatalog": {
+          "medianMs": 20.62,
+          "p95Ms": 22.76,
+          "medianProcesses": 6
+        },
+        "metadataStatus": {
+          "medianMs": 59.55,
+          "p95Ms": 67.78,
+          "medianProcesses": 12
+        }
+      },
+      "forecast": {
+        "worktree-ordinary": {
+          "engine": "worktree",
+          "fallbacks": 0,
+          "processes": 63,
+          "queries": 63,
+          "forecastMs": 189.11
+        },
+        "worktree-session": {
+          "engine": "worktree",
+          "fallbacks": 0,
+          "processes": 24,
+          "queries": 63,
+          "forecastMs": 175.49
+        },
+        "merge-tree-session": {
+          "engine": "merge-tree",
+          "fallbacks": 0,
+          "processes": 9,
+          "queries": 24,
+          "forecastMs": 99.52
+        }
+      }
+    },
     "win32": {
       "recordedAt": "2026-08-29",
       "git": "git version 2.55.0.windows.3",

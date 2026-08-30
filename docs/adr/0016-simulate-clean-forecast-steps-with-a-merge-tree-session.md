@@ -205,7 +205,8 @@ in all three modes. A forecast that falls back pays for the failed attempt:
 the one-change exact-resolution forecast of `demo:forecast` uses 21 processes
 with the merge-tree engine against 20 with the worktree engine. Wall time is
 machine-specific; process count and tree equality are the acceptance
-invariants. The POSIX host measurement is recorded on issue #3.
+invariants. The POSIX host measurements are in the 2026-08-30 amendment
+below.
 
 ## Amendment 2026-08-30
 
@@ -247,6 +248,52 @@ before checking the version (timing-dependent process counts); `stdbuf` or
 pseudo-terminal tricks (POSIX-only, and a clean record carries no newline to
 line-buffer on); and raising vlab's supported Git baseline to 2.49 (Debian 13
 ships 2.47 and Ubuntu 24.04 LTS ships 2.43).
+
+### POSIX evidence
+
+With the floor corrected, the differential suite and the demonstrations were
+run on 2026-08-30 on three Linux hosts, each a Docker container on the
+Windows workstation (WSL2 kernel, 16 vCPUs) holding a fresh clone of
+`a624534` plus the correction, as an unprivileged user:
+
+- Ubuntu 24.04.4 LTS, Git 2.55.0 from the git-core PPA, Node 22.23.2: the
+  suite passes in all four modes (`VLAB_FORECAST_ENGINE=merge-tree` with
+  `VLAB_GIT_SESSION=0` and with `VLAB_GIT_SESSION=1`, the default mode, and
+  `VLAB_GIT_SESSION=1`; 62 tests, 61 passed, 1 skipped in each), every demo
+  completes, `npm run benchmark:record` produced the committed `linux`
+  baseline entry, and `npm run test:benchmark` passes against it.
+- Alpine 3.22, Git 2.49.1 (the floor), Node 22.22.3: the same four suite
+  modes pass with the same counts and every demo completes.
+- Debian 13, Git 2.47.3 (below the floor), Node 22.23.2: the suite passes in
+  all four modes with the differential scenarios skipped and the real
+  `git-too-old` scenario exercised; the demo's merge-tree mode falls back
+  immediately with `git-too-old` naming 2.47.3 at 26 processes and 66
+  queries against 25 and 64 for the session path (66 against 64 without the
+  object session), and the benchmark's merge-tree mode is reported as
+  skipped.
+
+The `demo:git-session` forecast on the Ubuntu host (the median of three
+consecutive runs):
+
+| Mode | Git processes | Logical queries | Wall time |
+| --- | ---: | ---: | ---: |
+| Worktree simulator, ordinary Git | 64 | 64 | 236 ms |
+| Worktree simulator, object session | 25 | 64 | 243 ms |
+| Merge-tree engine, object session | 10 | 25 | 160 ms |
+
+Process counts and logical queries equal the Windows figures above,
+predicted and per-step trees are identical in all three modes, and the
+merge-tree engine without the object session uses 25 processes for its 25
+queries. The wall-time deltas are platform-specific: a Linux process launch
+costs a few milliseconds, so the object session saves no time there and the
+merge-tree engine saves about a third of a quarter-second forecast, against
+the 738 ms (2.5×) it saves over the session path on Windows. The `linux`
+entry of `benchmarks/baseline.json` (ADR-0017) records 63, 24, and 9
+forecast processes in the three benchmark modes, matching `win32`, at 189,
+175, and 100 ms, with every scale phase under 60 ms. The raw JSON, logs, and
+the too-old-host figures are attached to
+[GitHub issue #7](https://github.com/jwh3times/vcs-lab/issues/7) and are not
+committed.
 
 ## Constraints
 
