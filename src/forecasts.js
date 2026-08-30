@@ -225,9 +225,12 @@ function roundTimings(timings) {
  * any session failure hands the whole forecast to the worktree simulator,
  * which remains the oracle. Attributes are read from the target tree through
  * `GIT_ATTR_SOURCE`, matching the worktree simulator's checkout. The engine
- * needs Git 2.45 (bare tree operands to merge-tree); a session that fails on
- * its first step on older Git is reported as `git-too-old`, so the version
- * check costs no process on the happy path.
+ * needs Git 2.49 (`merge-tree --stdin` flushes each record only from there);
+ * the session reads the version from its own process's trace2 event and
+ * refuses the first step on older Git, which is reported as `git-too-old`,
+ * so the version check costs no process on any path. A session that exits on
+ * its first step on a Git the event did not identify is checked once more
+ * with `git --version` before it is reported as unavailable.
  */
 function simulatePlanWithMergeTree(cwd, options) {
   const { targetHead, expectedResultTree, cleanRelation, queue } = options;
@@ -308,6 +311,15 @@ function simulatePlanWithMergeTree(cwd, options) {
       try {
         merged = session.merge(input.parentTree, accumulated, input.changeTree);
       } catch (error) {
+        if (error.sessionFailure === "too-old") {
+          return fallback("git-too-old", {
+            step: index,
+            sourceCommit: input.change.commit,
+            requiredGit: MERGE_TREE_ENGINE_MIN_GIT,
+            git: error.gitVersion,
+            detail: error.message,
+          });
+        }
         if (
           index === 0 &&
           error.sessionFailure === "exited" &&

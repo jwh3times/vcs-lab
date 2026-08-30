@@ -168,7 +168,7 @@ Status on 2026-08-29: the suite and the 12-change demo pin byte-identical
 trees across engines in both session modes on the Windows host; the demo
 forecast uses nine Git processes inside the forecast (ten for the command)
 with no temporary worktree; the divergences found are recorded as Git
-constraints in ADR-0016 (the engine needs Git 2.45 and falls back below it);
+constraints in ADR-0016 (the engine needs Git 2.49 and falls back below it);
 the Windows rerun is recorded. The POSIX differential
 run and the POSIX process/time deltas are the remaining evidence, tracked on
 [GitHub issue #3](https://github.com/jwh3times/vcs-lab/issues/3); the default

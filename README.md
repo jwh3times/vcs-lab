@@ -42,7 +42,7 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 ## Requirements
 
 - Node.js 20 or newer
-- Git 2.40 or newer (the opt-in merge-tree forecast engine needs Git 2.45 and
+- Git 2.40 or newer (the opt-in merge-tree forecast engine needs Git 2.49 and
   falls back to the worktree simulator below it)
 
 It has no npm dependencies and does not need a build step.
@@ -261,10 +261,12 @@ clean steps are simulated instead through one persistent `git merge-tree`
 process with no temporary worktree, pinning the same per-step and predicted
 trees. Any conflicted, empty, or otherwise unsupported step hands the whole
 forecast back to the worktree simulator, and the forecast reports which
-engine produced it and every fallback reason. The engine needs Git 2.45,
-which accepts bare tree operands to `git merge-tree`; older Git records a
-`git-too-old` fallback. The worktree simulator remains the default and the
-oracle.
+engine produced it and every fallback reason. The engine needs Git 2.49,
+the first version whose `git merge-tree --stdin` flushes each answer before
+reading the next request; on older Git the session process reports its
+version as it starts and the forecast records a `git-too-old` fallback
+without waiting or spawning another process. The worktree simulator remains
+the default and the oracle.
 
 Each forecast is pinned to exact source and target heads and a fingerprint of
 the causal merge plan. After reviewing it, explicitly authorize its exact

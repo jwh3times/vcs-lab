@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Raise the merge-tree forecast engine's Git floor from 2.45 to 2.49 and
+  detect an older Git before the first merge instead of after the session
+  timeout. The first POSIX run (Debian 13, Git 2.47.3) showed that
+  `git merge-tree --stdin` flushes each record only from Git 2.49 (commit
+  `344a107b`, "merge-tree --stdin: flush stdout to avoid deadlock"); on
+  2.45–2.48 every merge-tree forecast waited out the 60 s session timeout
+  before falling back. The session process now runs with `GIT_TRACE2_EVENT=2`
+  and the worker reads its trace2 `version` event from stderr before writing
+  any request, so an older Git yields an immediate `git-too-old` fallback
+  that names the version, with no extra process on any path; Git's own
+  stderr messages stay separate from the trace2 lines. The differential
+  tests, the demo, and the benchmark's merge-tree mode skip below 2.49, and a
+  new scenario verifies the immediate fallback with a spoofed version
+  (`VLAB_TEST_MERGE_TREE_GIT_VERSION`) and, on hosts below the floor, with
+  the real one (ADR-0016 amendment, issue #7).
 - Disable Git `rerere` inside every vlab `cherry-pick` (forecast simulation,
   `reconcile`, `rebase`, `vlab cherry-pick`, and their `--continue` paths)
   and every landing merge with `-c rerere.enabled=false`, so a resolution
@@ -35,8 +50,8 @@
   recorded reason for any conflicted, empty, merge-commit, root-commit, or
   attribute-changing step or session failure, and reports `engine`,
   `fallbacks`, and `timings.mergeTree` in both forecast schemas without a
-  version change. The engine needs Git 2.45 (bare tree operands to
-  `merge-tree`) and records a `git-too-old` fallback on older Git, where the
+  version change. The engine needs Git 2.49 (see the next entry) and records
+  a `git-too-old` fallback on older Git, where the
   merge-tree suite scenarios skip. Extend `demo:git-session` to compare
   ordinary, session, and merge-tree modes (64, 25, and 10 Git processes for
   the 12-change forecast on

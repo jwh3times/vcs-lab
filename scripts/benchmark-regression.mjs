@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { MERGE_TREE_ENGINE_MIN_GIT } from "../src/git.js";
 
 /**
  * Compare the bounded benchmarks against the committed per-host baseline
@@ -31,8 +32,8 @@ export const PROFILE = {
   forecastChanges: 12,
 };
 export const TOLERANCE = { latencyRatio: 2, latencyFloorMs: 5, processes: 0 };
-/** The merge-tree forecast engine needs bare tree operands to `git merge-tree` (Git 2.45+). */
-export const MERGE_TREE_ENGINE_MIN_GIT = "2.45";
+/** The merge-tree engine floor is the CLI's (`src/git.js`): `merge-tree --stdin` flushes records only from Git 2.49. */
+export { MERGE_TREE_ENGINE_MIN_GIT };
 export const FORECAST_MODES = {
   "worktree-ordinary": ["--no-git-session", "--forecast-engine", "worktree"],
   "worktree-session": ["--git-session", "--forecast-engine", "worktree"],

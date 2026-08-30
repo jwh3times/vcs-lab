@@ -9,13 +9,32 @@ import { parentPort, workerData } from "node:worker_threads";
  * `1\0<tree>\0\0`. The engine abandons the session on the first conflicted
  * step, so a conflicted record is resolved as soon as its status and tree are
  * known and the session accepts no further requests.
+ *
+ * Git flushes each record before reading the next line only from 2.49; older
+ * versions keep the records in the process's stdio buffer until it exits, so a
+ * session would wait out its timeout without ever seeing an answer. The
+ * worker therefore learns the exact Git version from the trace2 `version`
+ * event the process writes to stderr as it starts (Git 2.22+, before it reads
+ * any input) and refuses the first request on a Git older than the engine
+ * needs, at the cost of no extra process. Requests queue until the version is
+ * known.
  */
 const gitCommand = workerData.gitCommand ?? "git";
+const requiredGit = workerData.requiredGit ?? null;
+const spoofedGitVersion = workerData.spoofGitVersion ?? null;
+const VERSION_WAIT_MS = 10_000;
+const STDERR_LIMIT = 64 * 1024;
+
 const git = spawn(gitCommand, ["merge-tree", "--stdin"], {
   cwd: workerData.cwd,
   env: {
     ...process.env,
     GIT_TERMINAL_PROMPT: "0",
+    // The trace2 event stream on stderr carries the version event; brief mode
+    // drops per-event timestamps and source locations. Git's own messages
+    // stay on stderr as plain lines and are separated below.
+    GIT_TRACE2_EVENT: "2",
+    GIT_TRACE2_EVENT_BRIEF: "1",
     // Read .gitattributes from the simulated target tree, as the worktree
     // simulator's checkout does, rather than from the caller's checkout
     // (Git 2.43+; older Git ignores the variable and uses the checkout).
@@ -27,23 +46,117 @@ const git = spawn(gitCommand, ["merge-tree", "--stdin"], {
 
 let stdout = Buffer.alloc(0);
 let stderr = "";
+let stderrRemainder = "";
 let startupError = null;
 let gitExited = false;
 let gitClosed = false;
 let sessionUnusable = null;
+let gitVersionText = null;
+/** `pending` | `ok` | `too-old` | `unknown` (no version event in time). */
+let versionState = "pending";
 const pending = [];
+
+function parseVersion(text) {
+  const match = String(text ?? "").match(/(\d+)\.(\d+)/);
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+/**
+ * Whether `text` names a Git at least `required` (`"major.minor"`). A
+ * version that cannot be parsed counts as new enough so that Git itself
+ * reports any failure, as `gitAtLeast` in git.js does.
+ */
+function versionAtLeast(required, text) {
+  const parts = parseVersion(text);
+  if (!parts || !required) return true;
+  const [wantMajor, wantMinor] = required.split(".").map(Number);
+  return parts[0] > wantMajor || (parts[0] === wantMajor && parts[1] >= wantMinor);
+}
+
+function tooOldError() {
+  const error = new Error(
+    `Git ${gitVersionText} is older than the ${requiredGit} the merge-tree engine needs (git merge-tree --stdin flushes each record only from ${requiredGit}).`,
+  );
+  error.sessionFailure = "too-old";
+  error.gitVersion = gitVersionText;
+  return error;
+}
+
+function writeRequest(request) {
+  if (request.written) return;
+  request.written = true;
+  git.stdin.write(request.line, "utf8", (error) => {
+    if (!error) return;
+    const index = pending.indexOf(request);
+    if (index >= 0) pending.splice(index, 1);
+    request.reject(error);
+  });
+}
+
+function settleVersion(state) {
+  if (versionState !== "pending") return;
+  versionState = state;
+  clearTimeout(versionTimer);
+  if (startupError || gitExited) return;
+  if (state === "too-old") {
+    const error = tooOldError();
+    sessionUnusable = error.message;
+    while (pending.length) pending.shift().reject(error);
+    // No request was written; end the input so the process exits cleanly.
+    git.stdin.end();
+    return;
+  }
+  for (const request of pending) writeRequest(request);
+}
+
+const versionTimer = setTimeout(() => settleVersion("unknown"), VERSION_WAIT_MS);
+versionTimer.unref();
+
+function observeVersion(text) {
+  if (gitVersionText !== null) return;
+  gitVersionText = String(text);
+  settleVersion(versionAtLeast(requiredGit, gitVersionText) ? "ok" : "too-old");
+}
+
+function consumeStderrLine(line) {
+  if (line.startsWith("{")) {
+    let event = null;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      event = null;
+    }
+    if (event && typeof event.event === "string") {
+      if (event.event === "version" && !spoofedGitVersion) observeVersion(event.exe);
+      return;
+    }
+  }
+  stderr += `${line}\n`;
+  if (stderr.length > STDERR_LIMIT) stderr = stderr.slice(-STDERR_LIMIT);
+}
 
 git.stderr.setEncoding("utf8");
 git.stderr.on("data", (chunk) => {
-  stderr += chunk;
-  if (stderr.length > 64 * 1024) stderr = stderr.slice(-64 * 1024);
+  stderrRemainder += chunk;
+  let newline = stderrRemainder.indexOf("\n");
+  while (newline >= 0) {
+    consumeStderrLine(stderrRemainder.slice(0, newline).replace(/\r$/, ""));
+    stderrRemainder = stderrRemainder.slice(newline + 1);
+    newline = stderrRemainder.indexOf("\n");
+  }
 });
 git.on("error", (error) => {
   startupError = error;
+  clearTimeout(versionTimer);
   while (pending.length) pending.shift().reject(error);
 });
 git.on("exit", (code, signal) => {
   gitExited = true;
+  clearTimeout(versionTimer);
+  if (stderrRemainder) {
+    consumeStderrLine(stderrRemainder.replace(/\r$/, ""));
+    stderrRemainder = "";
+  }
   if (pending.length === 0) return;
   const error = new Error(
     `git merge-tree session exited with status ${code ?? signal}.${stderr.trim() ? ` ${stderr.trim()}` : ""}`,
@@ -60,6 +173,7 @@ git.on("close", () => {
 git.stdin.on("error", (error) => {
   while (pending.length) pending.shift().reject(error);
 });
+if (spoofedGitVersion) observeVersion(spoofedGitVersion);
 
 function readToken(offset) {
   const end = stdout.indexOf(0x00, offset);
@@ -119,18 +233,22 @@ git.stdout.on("data", (chunk) => {
 
 function merge(base, ours, theirs) {
   if (startupError) return Promise.reject(startupError);
+  if (versionState === "too-old") return Promise.reject(tooOldError());
   if (sessionUnusable) return Promise.reject(new Error(sessionUnusable));
   if (gitExited) {
     return Promise.reject(new Error("The git merge-tree session process has exited."));
   }
   return new Promise((resolve, reject) => {
-    pending.push({ resolve, reject });
-    git.stdin.write(`${base} -- ${ours} ${theirs}\n`, "utf8", (error) => {
-      if (!error) return;
-      const index = pending.findIndex((item) => item.resolve === resolve);
-      if (index >= 0) pending.splice(index, 1);
-      reject(error);
-    });
+    const request = {
+      resolve,
+      reject,
+      line: `${base} -- ${ours} ${theirs}\n`,
+      written: false,
+    };
+    pending.push(request);
+    // Until the version is known the request waits; a too-old Git rejects it
+    // before anything is written.
+    if (versionState !== "pending") writeRequest(request);
   });
 }
 
@@ -166,7 +284,7 @@ function closeSession(shared) {
     return;
   }
   git.once("close", () => finish());
-  git.stdin.end();
+  if (!git.stdin.destroyed && !git.stdin.writableEnded) git.stdin.end();
   const terminate = setTimeout(() => {
     if (finished) return;
     if (process.platform === "win32" && Number.isInteger(git.pid)) {
@@ -205,12 +323,13 @@ parentPort.on("message", async (message) => {
       String(message.ours),
       String(message.theirs),
     );
-    respond(message.shared, { ok: true, result });
+    respond(message.shared, { ok: true, result, gitVersion: gitVersionText });
   } catch (error) {
     respond(message.shared, {
       ok: false,
       error: error?.message ?? String(error),
       sessionFailure: error?.sessionFailure ?? null,
+      gitVersion: error?.gitVersion ?? gitVersionText,
     });
   }
 });

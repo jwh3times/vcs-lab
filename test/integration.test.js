@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { MERGE_TREE_ENGINE_MIN_GIT } from "../src/git.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
@@ -31,21 +32,27 @@ function git(cwd, ...args) {
 }
 
 /**
- * The merge-tree forecast engine needs Git 2.45 (bare tree operands to
- * `git merge-tree`; `GIT_ATTR_SOURCE` from 2.43). The supported baseline is
- * 2.40, so the differential tests skip rather than fail on older Git, where
- * the engine falls back to the worktree simulator with `git-too-old`.
+ * The merge-tree forecast engine needs Git 2.49 (`git merge-tree --stdin`
+ * flushes each record only from there; bare tree operands from 2.45 and
+ * `GIT_ATTR_SOURCE` from 2.43 are older). The supported baseline is 2.40, so
+ * the differential tests skip rather than fail on older Git, where the engine
+ * falls back to the worktree simulator with `git-too-old`.
  */
+function hostGitVersion() {
+  return exec("git", ["--version"], projectRoot);
+}
+
 function mergeTreeEngineSupported() {
-  const match = exec("git", ["--version"], projectRoot).match(/(\d+)\.(\d+)/);
+  const match = hostGitVersion().match(/(\d+)\.(\d+)/);
   if (!match) return true;
   const [major, minor] = [Number(match[1]), Number(match[2])];
-  return major > 2 || (major === 2 && minor >= 45);
+  const [wantMajor, wantMinor] = MERGE_TREE_ENGINE_MIN_GIT.split(".").map(Number);
+  return major > wantMajor || (major === wantMajor && minor >= wantMinor);
 }
 
 function skipWithoutMergeTreeEngine(t) {
   if (mergeTreeEngineSupported()) return false;
-  t.skip("the merge-tree forecast engine needs Git 2.45 or newer; older Git falls back to the worktree simulator");
+  t.skip(`the merge-tree forecast engine needs Git ${MERGE_TREE_ENGINE_MIN_GIT} or newer; older Git falls back to the worktree simulator`);
   return true;
 }
 
@@ -4451,6 +4458,108 @@ test("merge-tree forecasts fall back with a reason when the merge-tree session i
     vlab(repo, "reconcile", "feature", "--use-forecast", mergeTree.id, "--json"),
   );
   assert.equal(reconciled.receipt.resultTree, mergeTree.predictedResultTree);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+function tooOldFixture(t) {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "feature.txt", "feature\n");
+  git(repo, "add", ".");
+  const source = JSON.parse(vlab(repo, "commit", "-m", "feature"));
+  git(repo, "switch", "main");
+  write(repo, "target.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target");
+  return { repo, source };
+}
+
+function mergeTreeForecastWithEnv(repo, env) {
+  const started = Date.now();
+  const result = spawnSync(
+    process.execPath,
+    [cli, "forecast", "feature", "--forecast-engine", "merge-tree", "--json"],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
+    },
+  );
+  const elapsedMs = Date.now() - started;
+  assert.equal(result.status, 0, result.stderr);
+  return { forecast: JSON.parse(result.stdout), elapsedMs };
+}
+
+function assertImmediateTooOldFallback({ forecast, elapsedMs }, worktree, source, gitVersionText) {
+  assert.deepEqual(normalizeForecast(forecast), normalizeForecast(worktree));
+  assert.equal(forecast.engine, "worktree");
+  assert.equal(forecast.status, "complete");
+  assert.equal(forecast.fallbacks.length, 1);
+  const [fallback] = forecast.fallbacks;
+  assert.equal(fallback.engine, "merge-tree");
+  assert.equal(fallback.reason, "git-too-old");
+  assert.equal(fallback.step, 0);
+  assert.equal(fallback.sourceCommit, source.commit);
+  assert.equal(fallback.requiredGit, MERGE_TREE_ENGINE_MIN_GIT);
+  assert.equal(fallback.git, gitVersionText);
+  assert.match(fallback.detail, new RegExp(`older than the ${MERGE_TREE_ENGINE_MIN_GIT.replace(".", "\\.")}`));
+  // The session refuses the first request as soon as its process reports
+  // its version: nothing is written, nothing waits for the session timeout,
+  // and no `git --version` process is spawned.
+  assert.ok(elapsedMs < 20_000, `the fallback took ${elapsedMs} ms`);
+  const commands = forecast.timings.git.byCommand;
+  const session = commands.find((item) => item.command === "merge-tree-session");
+  assert.ok(session, commands.map((item) => item.command).join(", "));
+  assert.equal(session.processes, 1);
+  assert.equal(session.count, 1);
+  assert.ok(
+    !commands.some((item) => item.command === "--version"),
+    commands.map((item) => item.command).join(", "),
+  );
+  assert.ok(forecast.timings.worktree.totalMs > 0);
+  assert.equal(forecast.timings.mergeTree.totalMs >= 0, true);
+}
+
+test("merge-tree forecasts fall back to git-too-old before the first request on Git older than the engine needs", (t) => {
+  const { repo, source } = tooOldFixture(t);
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "feature");
+  const spoofed = mergeTreeForecastWithEnv(repo, {
+    VLAB_TEST_MERGE_TREE_GIT_VERSION: "2.48.1.windows.1",
+  });
+  assertImmediateTooOldFallback(spoofed, worktree, source, "2.48.1.windows.1");
+  assert.equal(forecastFileCount(repo), 2);
+
+  if (mergeTreeEngineSupported()) {
+    // A version at the floor is accepted and the engine runs.
+    const accepted = mergeTreeForecastWithEnv(repo, {
+      VLAB_TEST_MERGE_TREE_GIT_VERSION: `${MERGE_TREE_ENGINE_MIN_GIT}.0`,
+    });
+    assert.equal(accepted.forecast.engine, "merge-tree");
+    assert.deepEqual(accepted.forecast.fallbacks, []);
+    assert.deepEqual(normalizeForecast(accepted.forecast), normalizeForecast(worktree));
+  }
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+  assert.equal(git(repo, "worktree", "list", "--porcelain").split("\n").filter((line) => line.startsWith("worktree ")).length, 1);
+});
+
+test("on a host Git older than the merge-tree engine needs the fallback is immediate and names that version", (t) => {
+  if (mergeTreeEngineSupported()) {
+    t.skip(`${hostGitVersion()} runs the merge-tree engine; the too-old path is covered with a spoofed version`);
+    return;
+  }
+  const { repo, source } = tooOldFixture(t);
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "feature");
+  const real = mergeTreeForecastWithEnv(repo, {});
+  assertImmediateTooOldFallback(
+    real,
+    worktree,
+    source,
+    hostGitVersion().replace(/^git version /, ""),
+  );
   assert.equal(git(repo, "status", "--porcelain=v1"), "");
 });
 

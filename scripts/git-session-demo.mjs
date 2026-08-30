@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import { MERGE_TREE_ENGINE_MIN_GIT } from "../src/git.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
@@ -80,13 +81,14 @@ for (let index = 1; index <= 12; index += 1) {
 }
 git("switch", "-q", "main");
 
-// The merge-tree engine needs Git 2.45 (bare tree operands to merge-tree);
+// The merge-tree engine needs Git 2.49 (`merge-tree --stdin` flushes each record only from there);
 // older Git records a git-too-old fallback and the worktree simulator answers.
 const mergeTreeSupported = (() => {
   const match = git("--version").match(/(\d+)\.(\d+)/);
   if (!match) return true;
   const [major, minor] = [Number(match[1]), Number(match[2])];
-  return major > 2 || (major === 2 && minor >= 45);
+  const [wantMajor, wantMinor] = MERGE_TREE_ENGINE_MIN_GIT.split(".").map(Number);
+  return major > wantMajor || (major === wantMajor && minor >= wantMinor);
 })();
 
 const session = measure("--git-session", "--forecast-engine", "worktree");
@@ -140,7 +142,7 @@ console.log(
 );
 if (!mergeTreeSupported) {
   console.log(
-    `merge-tree   engine unavailable (${git("--version")}; it needs Git 2.45): the mode above fell back to the worktree simulator`,
+    `merge-tree   engine unavailable (${git("--version")}; it needs Git ${MERGE_TREE_ENGINE_MIN_GIT}): the mode above fell back to the worktree simulator`,
   );
 }
 console.log(

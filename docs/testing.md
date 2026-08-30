@@ -7,8 +7,9 @@ run history-changing manual experiments in a valuable repository.
 ## Requirements
 
 - Node.js 20 or newer
-- Git 2.40 or newer (Git 2.45 or newer to exercise the merge-tree forecast
-  engine; the merge-tree scenarios skip on older Git)
+- Git 2.40 or newer (Git 2.49 or newer to exercise the merge-tree forecast
+  engine; the merge-tree scenarios skip on older Git, where one scenario
+  verifies the immediate `git-too-old` fallback instead)
 - a clean source checkout for release qualification
 - enough system temporary space for disposable repositories
 
@@ -74,7 +75,7 @@ counts and medians against this host's entry in `benchmarks/baseline.json`
 (ADR-0017). A process count above the baseline, a median above twice the
 baseline (or the baseline plus 5 ms, whichever is larger), or a forecast whose
 modes disagree fails the check; a host without an entry is skipped with a
-warning, and a forecast mode the host cannot run (merge-tree below Git 2.45)
+warning, and a forecast mode the host cannot run (merge-tree below Git 2.49)
 is reported as skipped. The entry's `recordedAt`, `git`, and `node` fields
 are the provenance the check prints, not a result report: the baseline is the
 one committed host-specific measurement, permitted because this check

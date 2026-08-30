@@ -117,7 +117,8 @@ remains the semantic oracle, whenever:
   under attributes the session cannot see; or
 - the batched inspection or the session fails (`target-tree-unavailable`,
   `change-tree-unavailable`, `merge-tree-unavailable`, and `git-too-old` when
-  the session fails on its first step on Git older than 2.45).
+  the session process reports a Git older than 2.49, before any merge is
+  requested).
 
 The clean prefix is discarded rather than resumed; re-running the whole queue
 in the worktree simulator keeps one implementation of every non-clean step
@@ -154,13 +155,17 @@ or the documentation records them:
   only the root file is. A later step could then merge under different
   attributes than the worktree simulator's checkout. FR-REC-06 guards the
   application.
-- The engine needs Git 2.45: `merge-tree` accepts bare tree operands from
-  2.45, and `GIT_ATTR_SOURCE` exists from 2.43 (older Git ignores it and
+- The engine needs Git 2.49 (corrected from 2.45 by the 2026-08-30
+  amendment below): `merge-tree --stdin` flushes each record before reading
+  the next request only from 2.49, `merge-tree` accepts bare tree operands
+  from 2.45, and `GIT_ATTR_SOURCE` exists from 2.43 (older Git ignores it and
   reads attributes from the caller's checkout). vlab's supported floor stays
-  2.40; on older Git the first merge fails, the forecast records
-  `git-too-old`, and the whole queue runs in the worktree simulator. The
-  differential tests, the demo's merge-tree assertions, and the benchmark's
-  merge-tree mode skip there. The engine is verified on 2.55.
+  2.40; on older Git the session worker reads the version from its own
+  process's trace2 `version` event, refuses the first merge, and the forecast
+  records `git-too-old` while the whole queue runs in the worktree simulator.
+  The differential tests, the demo's merge-tree assertions, and the
+  benchmark's merge-tree mode skip there. The engine is verified on 2.49,
+  2.55, and 2.55.0.windows.3.
 - External merge drivers named in attributes run under both engines.
 - `rerere` was applied by the worktree simulator's cherry-pick and by real
   application, never by merge-tree, so a user with `rerere.autoUpdate` saw a
@@ -202,6 +207,47 @@ with the merge-tree engine against 20 with the worktree engine. Wall time is
 machine-specific; process count and tree equality are the acceptance
 invariants. The POSIX host measurement is recorded on issue #3.
 
+## Amendment 2026-08-30
+
+### Git floor corrected to 2.49
+
+The first POSIX run of the differential suite (Debian 13, Git 2.47.3,
+Node 22.23.2, a Linux container on the Windows workstation;
+[GitHub issue #7](https://github.com/jwh3times/vcs-lab/issues/7)) failed
+every merge-tree scenario: each forecast waited out the 60 s session timeout
+and fell back with `merge-tree-unavailable`, and every other forecast
+scenario under `VLAB_FORECAST_ENGINE=merge-tree` paid the same minute. The
+cause is a Git behavior the Context above verified only on 2.55:
+`git merge-tree --stdin` flushes each record before reading the next request
+only from Git 2.49 (Git commit `344a107b`, "merge-tree --stdin: flush stdout
+to avoid deadlock", first released in 2.49.0). On 2.38 through 2.48 the
+records sit in the process's stdio buffer until it exits, so a session that
+feeds each step's result into the next never sees its first answer. The
+engine's floor is therefore 2.49, not 2.45; bare tree operands (2.45) and
+`GIT_ATTR_SOURCE` (2.43) are older requirements that remain satisfied.
+
+The `git-too-old` detection moves before the first request. The session
+process runs with `GIT_TRACE2_EVENT=2` and `GIT_TRACE2_EVENT_BRIEF=1`, and
+the worker reads the trace2 `version` event Git writes to stderr as it
+starts (Git 2.22+, before it reads any input; about 2 ms on both hosts) and
+refuses the first merge when that version is below the floor. The forecast
+records `git-too-old` with the reported version and the whole queue runs in
+the worktree simulator; no request is written, nothing waits, and no
+`git --version` process is spawned, so process counts are unchanged on every
+path. A session that exits on its first request without having reported a
+version is still checked once with `git --version`, as before. Git's own
+stderr messages are kept apart from the trace2 lines for error reporting,
+and a caller's `GIT_TRACE2_EVENT` setting is overridden for that one
+process.
+
+Rejected for this correction: a `git --version` process before every
+merge-tree forecast (one more process on the supported path, breaking the
+single-digit criterion of Horizon 1.5); a bounded wait for the first record
+before checking the version (timing-dependent process counts); `stdbuf` or
+pseudo-terminal tricks (POSIX-only, and a clean record carries no newline to
+line-buffer on); and raising vlab's supported Git baseline to 2.49 (Debian 13
+ships 2.47 and Ubuntu 24.04 LTS ships 2.43).
+
 ## Constraints
 
 - No receipt-publishing path moves engines: application runs the real
@@ -231,7 +277,7 @@ invariants. The POSIX host measurement is recorded on issue #3.
 
 - A forecast that conflicts pays for the failed merge-tree attempt.
 - Nested `.gitattributes` edits inside a queue leave a documented
-  equivalence gap that only FR-REC-06 closes; Git older than 2.45 gets no
+  equivalence gap that only FR-REC-06 closes; Git older than 2.49 gets no
   engine at all.
 - A third suite mode lengthens qualification.
 

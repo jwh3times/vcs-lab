@@ -7,7 +7,7 @@
 | Architecture baseline | v0.9.0 release |
 | Status | Current implementation reference |
 | Last updated | 2026-08-29 |
-| Runtime | Node.js 20+ (ES modules), Git 2.40+ (merge-tree forecast engine: Git 2.45+) |
+| Runtime | Node.js 20+ (ES modules), Git 2.40+ (merge-tree forecast engine: Git 2.49+) |
 | External runtime dependencies | None beyond Node.js and Git |
 
 This document explains the system that exists. [product.md](product.md) defines
@@ -471,10 +471,15 @@ simulator's commits) for Git to garbage-collect. A conflicted, empty,
 merge-commit, root-commit, or attribute-changing step, or a session failure,
 discards the merge-tree attempt and reruns the whole queue in the worktree
 simulator with the reason recorded in the forecast. The engine needs Git
-2.45, which accepts bare tree operands to `merge-tree`; on older Git the
-first step fails and the forecast records a `git-too-old` fallback, so the
-version is checked only on that failure path and costs no Git process on the
-supported path.
+2.49, the first version whose `merge-tree --stdin` flushes each record
+before reading the next request (bare tree operands date from 2.45 and
+`GIT_ATTR_SOURCE` from 2.43). The session process runs with
+`GIT_TRACE2_EVENT=2`, so its trace2 `version` event reaches the worker on
+stderr before Git reads any input; on older Git the worker refuses the first
+request and the forecast records a `git-too-old` fallback naming that
+version, so the check costs no Git process on any path and never waits for
+the session timeout. Git's own stderr messages are kept apart from the
+trace2 lines for error reporting.
 
 Forecasts use committed heads by default. A workspace forecast may explicitly
 select one immutable source checkpoint and records that distinct scope. Dirty

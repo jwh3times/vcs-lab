@@ -938,13 +938,19 @@ export function forecastEngine() {
 }
 
 /**
- * The oldest Git the merge-tree engine works on: `git merge-tree` accepts
- * bare tree object IDs for its three operands from 2.45 (older versions
- * resolve them as commits and die), and `GIT_ATTR_SOURCE` exists from 2.43.
- * vlab's supported baseline stays 2.40; on older Git the engine falls back
- * to the worktree simulator with the reason `git-too-old`.
+ * The oldest Git the merge-tree engine works on. `git merge-tree --stdin`
+ * flushes each record before reading the next line only from 2.49 (Git
+ * commit 344a107b, "merge-tree --stdin: flush stdout to avoid deadlock");
+ * before that the records sit in the process's stdio buffer until it exits,
+ * so a session never sees its first answer. The other requirements are older:
+ * bare tree object IDs for the three operands from 2.45 (earlier versions
+ * resolve them as commits and die) and `GIT_ATTR_SOURCE` from 2.43. vlab's
+ * supported baseline stays 2.40; on older Git the session worker reads the
+ * version from the trace2 `version` event of its own process, refuses the
+ * first request, and the engine falls back to the worktree simulator with
+ * the reason `git-too-old` without spawning another process.
  */
-export const MERGE_TREE_ENGINE_MIN_GIT = "2.45";
+export const MERGE_TREE_ENGINE_MIN_GIT = "2.49";
 
 let cachedGitVersion = null;
 
@@ -998,6 +1004,11 @@ export class MergeTreeSession {
     this.gitCommand = process.env.VLAB_TEST_MERGE_TREE_SESSION_FAILURE === "1"
       ? "vlab-intentionally-missing-git"
       : "git";
+    // Test hook: pretend the session process reported this Git version
+    // instead of the one its trace2 version event names.
+    this.spoofGitVersion = process.env.VLAB_TEST_MERGE_TREE_GIT_VERSION || null;
+    /** The Git version the session process reported, once known. */
+    this.gitVersion = null;
   }
 
   startWorker() {
@@ -1012,6 +1023,8 @@ export class MergeTreeSession {
           cwd: this.cwd,
           gitCommand: this.gitCommand,
           attrSource: this.attrSource,
+          requiredGit: MERGE_TREE_ENGINE_MIN_GIT,
+          spoofGitVersion: this.spoofGitVersion,
         },
       },
     );
@@ -1078,9 +1091,11 @@ export class MergeTreeSession {
       throw new CliError("The Git merge-tree session returned malformed data.");
     }
     record(Boolean(response.ok));
+    if (response.gitVersion) this.gitVersion = response.gitVersion;
     if (!response.ok) {
       const failure = new CliError(`Git merge-tree session failed: ${response.error}`);
       failure.sessionFailure = response.sessionFailure ?? null;
+      failure.gitVersion = response.gitVersion ?? null;
       throw failure;
     }
     return response.result;
