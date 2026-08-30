@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Route every repository read through one engine seam, `src/engine.js`
+  (ADR-0019, issue #11; ADR-0015 phase 0b and ADR-0014 Gate A item 1). The
+  seam catalogs 38 read operations; `src/git.js` implements each with the
+  plumbing it ran before, so process counts are unchanged, and domain
+  modules no longer call `runGit` for reads. A read engine is selected with
+  `VLAB_ENGINE` or `--engine <git|native>`: `git` (the default and the
+  oracle) or `native`, the phase 1 core, which passes every operation
+  through to Git with the reason `binding-missing` until its binding exists.
+  Every Git metrics block (forecast and receipt timings, benchmarks, the
+  doctor) now reports `engine`, the per-operation `fallbacks` with counts,
+  and `directReads`, the number of reads that bypassed the seam; a bypass is
+  refused outright in native mode. `vlab doctor` reports the selected read
+  and forecast engines and, with `--differential`, runs every cataloged
+  operation through both engines and compares the results
+  (`vcs-lab.engine-differential/v1`). The suite gains a third mode,
+  `VLAB_ENGINE=native npm test`, which proves that every read it exercises
+  goes through the seam.
+
 ## 0.10.0
 
 - Make `merge-tree` the default forecast engine on Windows and keep

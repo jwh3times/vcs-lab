@@ -112,7 +112,8 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
 | `src/errors.js` | Expected CLI error type with optional detail | None |
 | `src/ids.js` | Unique protocol IDs, SHA-256, Git blob hashing, slugs | Node crypto |
-| `src/git.js` | Safe synchronous Git adapter, repository context, object reads, object and merge-tree sessions, forecast engine selection, metrics | Git executable, workers |
+| `src/engine.js` | The read-side engine seam: the catalog of 38 read operations, the read-engine selector and native-engine stub, per-operation fallback, composites, and the differential comparison | `src/git.js` |
+| `src/git.js` | The Git engine: safe synchronous Git adapter, the Git implementation of every read operation, repository context, object and merge-tree sessions, engine selectors, the read-bypass rule, metrics | Git executable, workers |
 | `src/git-session-worker.js` | Owns asynchronous `git cat-file --batch-command` stream for a synchronous caller | Worker threads, Git |
 | `src/merge-tree-session-worker.js` | Owns one asynchronous `git merge-tree --stdin` stream for the synchronous merge-tree forecast engine | Worker threads, Git |
 | `src/store.js` | Common runtime directory and atomic JSON read/write | `src/git.js` |
@@ -142,7 +143,9 @@ but a receipt does not rewrite a commit or tree ID.
 The code is intentionally dependency-free. Domain modules use synchronous APIs
 so a CLI command has a linear, auditable control flow. The Git session worker
 contains the asynchronous streaming boundary without converting the domain
-layer to promises.
+layer to promises. Domain modules read the repository only through
+`src/engine.js` and mutate it only through `runGit` from `src/git.js`; the
+"Git adapter" dependency named below means that pair (§14.4).
 
 ## 4. State and identity model
 
@@ -805,6 +808,41 @@ closed within the same bounds when the simulation ends.
 The ordinary path remains both fallback and semantic oracle. Equality matters
 more than raw wall time.
 
+### 14.4 Read-side engine seam
+
+Every repository read a domain module performs is one of the 38 operations
+cataloged in `src/engine.js`
+([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md)):
+repository and host context, object resolution and batched reads, history
+walks and commit metadata, refs and notes, and worktree, index, and status
+queries. `src/git.js` is the Git engine that implements each operation with
+exactly the plumbing the module ran before, one process or one object-session
+query, so the seam changed no process count. Composites such as
+`currentHead`, `changeIdForCommit`, and `assertClean` are derived from
+cataloged operations only. Mutations do not pass through the seam; they stay
+explicit `runGit` calls.
+
+`VLAB_ENGINE` or `--engine <git|native>` selects the read engine. `git` is
+the default everywhere and the oracle. `native` is the phase 1 Rust core of
+ADR-0015; until its binding exists the seam reports it as unavailable
+(`binding-missing`) and every operation passes through to Git. When the
+selected engine lacks an operation or throws, the seam answers with Git and
+records the fallback; `endGitMetrics` reports `engine`, the `fallbacks`
+aggregated per operation and reason, and `directReads`.
+
+A read-only Git command that reaches `runGit` without the seam's private mark
+is a direct read: counted in `directReads`, traced, and refused in native
+mode. The doctor's process-cost probes are the only exemption. The read-only
+classification is the same one that decides object-session invalidation.
+
+`vlab doctor` reports both selectors (`engine`, `forecastEngine`), and
+`vlab doctor --differential` runs every cataloged operation through each
+engine against the current repository, comparing result digests, process
+counts, and fallbacks operation by operation
+(`vcs-lab.engine-differential/v1`). The suite runs a third time with
+`VLAB_ENGINE=native`, which proves that every read it exercises goes through
+the seam.
+
 ## 15. Consistency model and invariants
 
 ### 15.1 Strong local invariants
@@ -904,6 +942,8 @@ and test process termination at every boundary.
 - actual process launches;
 - session queries and immutable cache hits;
 - failures;
+- the selected read engine, the per-operation fallbacks it recorded, and the
+  number of reads that bypassed the engine seam;
 - aggregate/maximum duration by Git subcommand.
 
 Forecasts separate preflight, planning, simulation, invariant, temporary
@@ -912,7 +952,8 @@ pinned trees. Reconciliation accumulates active time across start/continue
 processes and separately records elapsed wall time.
 
 `vlab doctor --benchmark` measures ordinary repository probes and the object
-session. `vlab spec benchmark` measures cold, unchanged, and one-change corpus
+session, and `vlab doctor --differential` compares the read engines operation
+by operation. `vlab spec benchmark` measures cold, unchanged, and one-change corpus
 paths plus metadata size. `vlab metadata benchmark` creates a bounded
 disposable repository and measures history, stock worktree discovery, registry
 reads, complete workspace status, notes, retained resolutions, and complete
@@ -985,10 +1026,15 @@ The current development baseline covers:
 - metadata validation and the resolution catalog agreeing on tag-pointing
   retention refs and bare-array notes, with an export/import round trip that
   carries a tag-pointing retention ref between clones.
+- the engine seam: no module other than the seam imports read operations
+  from the Git engine, the native engine passes every operation through with
+  recorded fallbacks and identical results, a read outside the seam is
+  refused in native mode, the differential doctor reports every cataloged
+  operation equal, and invalid engine selections fail before any work.
 
-The same suite is run with the session forced on and with the merge-tree
-forecast engine selected. Demos complement tests by providing user-inspectable
-repositories and commands.
+The same suite is run with the session forced on, with each forecast engine
+selected, and with the native read engine selected. Demos complement tests by
+providing user-inspectable repositories and commands.
 
 ## 20. Extension rules
 
@@ -1062,7 +1108,13 @@ simulates clean forecast steps through one `git merge-tree` session (the
 default on Windows since 2026-08-30, opt-in elsewhere) with Windows and Linux
 differential evidence, the Windows post-batching rerun is recorded in
 ADR-0013, and the Linux benchmark baseline is committed; sparse cones remain
-optional, and the contract catalog and engine seam are next. A canonical fact log with
+optional. The read-side engine seam of phase 0b is implemented
+([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md), §14.4):
+every repository read is one of 38 cataloged operations, the native engine
+is selectable and passes through to Git with recorded fallbacks until its
+binding exists, and the suite's third mode refuses any read outside the seam.
+The contract catalog and canonical-JSON profile that complete phase 0b are
+next. A canonical fact log with
 Git notes and refs as projections, private draft stacks, and any gateway
 remain behind Gate B. Git stays the exact-state store and escape hatch in
 every phase; a server or resident service still requires ADR-0013's row to

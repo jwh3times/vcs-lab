@@ -673,9 +673,27 @@ ordinary compatibility path. If a session fails, the command continues through
 ordinary Git. `--forecast-engine merge-tree` selects the merge-tree forecast
 engine for one invocation and `--forecast-engine worktree` the worktree
 simulator; without either, Windows uses the merge-tree engine and POSIX hosts
-the worktree simulator. Trace output contains command names, durations,
-and whether a query started a process, reused a persistent process, or hit the
-immutable object cache; it never includes file content or commit messages.
+the worktree simulator. `--engine native` (or `VLAB_ENGINE=native`) selects
+the native read engine of ADR-0015 for one invocation; no native binding
+exists yet, so every repository read passes through to Git and the result's
+Git metrics list each passthrough under `fallbacks` with the reason
+`binding-missing`, next to `engine` and `directReads`, the number of reads
+that bypassed the engine seam (always zero; such a read is refused in native
+mode). Trace output contains command names, durations, and whether a query
+started a process, reused a persistent process, or hit the immutable object
+cache; it never includes file content or commit messages.
+
+Compare the read engines operation by operation in any repository with:
+
+```bash
+vlab doctor --differential
+```
+
+The report runs each of the 38 cataloged read operations of `src/engine.js`
+through the Git engine and the native engine against the current repository
+and lists per-operation result digests, process counts, and fallbacks
+(ADR-0019); the plain `vlab doctor` output names the selected read and
+forecast engines.
 
 Run an equality-checked comparison over a 12-change forecast with:
 
@@ -763,7 +781,10 @@ stale rejection, exact-resolution batching, contextual forks, empty-step
 blocking, exact abort, linked-worktree isolation, completed-record validation,
 portable unreachable origins, plus a caller-isolated repository-scale fixture
 that verifies semantic scan results, process-amplification decisions, privacy,
-and cleanup. The complete suite is also run with `VLAB_GIT_SESSION=1` to
-exercise the Windows-default session path and with each forecast engine
-forced (`VLAB_FORECAST_ENGINE=worktree` and `VLAB_FORECAST_ENGINE=merge-tree`),
-because the default engine differs by platform.
+and cleanup, and the engine seam's import discipline, passthrough equality,
+bypass refusal, and differential report. The complete suite is also run with
+`VLAB_GIT_SESSION=1` to exercise the Windows-default session path, with each
+forecast engine forced (`VLAB_FORECAST_ENGINE=worktree` and
+`VLAB_FORECAST_ENGINE=merge-tree`) because the default engine differs by
+platform, and with `VLAB_ENGINE=native`, which refuses any repository read
+that does not pass through `src/engine.js`.

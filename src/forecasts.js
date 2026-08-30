@@ -4,22 +4,25 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
   beginGitMetrics,
-  currentHead,
   endGitMetrics,
   forecastEngine,
   GIT_NO_RERERE,
+  MERGE_TREE_ENGINE_MIN_GIT,
+  MergeTreeSession,
+  runGit,
+  withGitObjectSession,
+} from "./git.js";
+import {
+  currentHead,
   gitAtLeast,
   gitVersion,
   inspectGitObjects,
-  MERGE_TREE_ENGINE_MIN_GIT,
-  MergeTreeSession,
+  porcelainStatus,
   repoContext,
   resolveObjectIds,
   resolveRevision,
-  runGit,
   treeId,
-  withGitObjectSession,
-} from "./git.js";
+} from "./engine.js";
 import { newId, sha256 } from "./ids.js";
 import { buildMergePlan } from "./merge-plan.js";
 import {
@@ -631,7 +634,7 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
   const before = {
     head: beforeHead,
     tree: beforeTree,
-    status: runGit(["status", "--porcelain=v1"], { cwd }).stdout,
+    status: porcelainStatus(cwd),
   };
   phases.preflightMs = performance.now() - preflightStarted;
   const planningStarted = performance.now();
@@ -656,7 +659,7 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
   const after = {
     head: afterHead,
     tree: afterTree,
-    status: runGit(["status", "--porcelain=v1"], { cwd }).stdout,
+    status: porcelainStatus(cwd),
   };
   if (
     before.head !== after.head ||

@@ -27,14 +27,22 @@ import {
   FORECAST_ENGINES,
   forecastEngine,
   beginGitMetrics,
-  commitSubject,
-  currentHead,
   endGitMetrics,
   gitObjectSessionEnabled,
+  READ_ENGINES,
+  readEngine,
   runGit,
-  treeId,
   withGitObjectSession,
 } from "./git.js";
+import {
+  commitSubject,
+  currentHead,
+  describeReadEngines,
+  gitVersion,
+  historyGraph,
+  runDifferential,
+  treeId,
+} from "./engine.js";
 import {
   archiveWorkspace,
   checkpointWorkspace,
@@ -121,7 +129,7 @@ Usage:
   vlab spec status [--json]
   vlab spec resolve [markdown-file] [--all] [--json]
   vlab spec benchmark [--documents <n>] [--blocks <n>] [--json]
-  vlab doctor [--benchmark] [--samples <n>] [--warmup <n>]
+  vlab doctor [--benchmark] [--samples <n>] [--warmup <n>] [--differential]
   vlab version
 
 Plan legend: '=' proven covered/omit, '?' heuristic review, '+' new/replay.
@@ -134,6 +142,11 @@ Global diagnostics:
                      simulate clean forecast steps in a temporary worktree
                      (the oracle; default on POSIX) or with one git merge-tree
                      process (default on Windows; needs Git 2.49, else falls back)
+  --engine <git|native>
+                     answer repository reads with Git processes (the default and
+                     the oracle) or with the native core, which passes every
+                     read through to Git until its binding exists; each fallback
+                     is recorded in the Git metrics of the result
 `;
 
 function parseArgs(args) {
@@ -752,14 +765,17 @@ function gitBenchmark(options = {}) {
     { name: "history", args: ["log", "-20", "--format=%H"] },
     { name: "notes", args: ["notes", "--ref=vcs-lab", "list"], allowFailure: true },
   ];
+  // These probes measure the raw cost of one Git process on this host, so
+  // they deliberately bypass the engine seam (`rawProbe`).
   return probes.map((probe) => {
     for (let index = 0; index < warmupCount; index += 1) {
-      runGit(probe.args, { allowFailure: probe.allowFailure });
+      runGit(probe.args, { allowFailure: probe.allowFailure, rawProbe: true });
     }
     const samples = [];
     for (let index = 0; index < sampleCount; index += 1) {
       samples.push(
-        runGit(probe.args, { allowFailure: probe.allowFailure }).durationMs,
+        runGit(probe.args, { allowFailure: probe.allowFailure, rawProbe: true })
+          .durationMs,
       );
     }
     const sorted = [...samples].sort((left, right) => left - right);
@@ -892,10 +908,23 @@ export async function main(rawArgs) {
       process.env.VLAB_FORECAST_ENGINE = value;
       continue;
     }
+    if (item === "--engine" || item.startsWith("--engine=")) {
+      const inline = item.includes("=");
+      const value = inline ? item.slice("--engine=".length) : rawArgs[index + 1];
+      if (!inline) index += 1;
+      if (!READ_ENGINES.includes(value)) {
+        throw new CliError(
+          `--engine requires one of: ${READ_ENGINES.join(", ")}.`,
+        );
+      }
+      process.env.VLAB_ENGINE = value;
+      continue;
+    }
     args.push(item);
   }
-  // Validate the environment selection on every command, as the flag is.
+  // Validate the environment selections on every command, as the flags are.
   forecastEngine();
+  readEngine();
   const [command, ...rest] = args;
   if (!command || command === "help" || command === "--help" || command === "-h") {
     console.log(HELP);
@@ -1082,16 +1111,7 @@ export async function main(rawArgs) {
       return;
     }
     case "graph": {
-      const graph = runGit([
-        "log",
-        "--graph",
-        "--oneline",
-        "--decorate",
-        "--branches",
-        "--tags",
-        "--remotes",
-        "HEAD",
-      ]).stdout;
+      const graph = historyGraph();
       const records = listNoteRecords();
       print(`Project history\n${graph}\n\nCausal edges\n${formatCausalEdges(records)}`);
       return;
@@ -1270,14 +1290,16 @@ export async function main(rawArgs) {
       throw new CliError("Unknown spec command. Use index, show, merge-plan, status, resolve, or benchmark.");
     }
     case "doctor": {
-      const git = runGit(["--version"]);
       const context = initLab();
       print({
         ok: true,
-        git: git.stdout,
+        git: gitVersion().raw,
         node: process.version,
         repository: context.root,
         notesRef: "refs/notes/vcs-lab",
+        engine: describeReadEngines(),
+        forecastEngine: forecastEngine(),
+        differential: options.differential ? runDifferential(context.root) : undefined,
         benchmark: options.benchmark ? gitBenchmark(options) : undefined,
         objectSession: options.benchmark
           ? gitObjectSessionBenchmark(options, context.root)

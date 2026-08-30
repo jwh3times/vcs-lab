@@ -286,7 +286,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-GIT-04 | P1 | Ordinary branches and linked worktrees shall remain usable alongside `vlab`. | Implemented | Git can switch, fetch, and inspect branches without `vlab`. |
 | FR-GIT-05 | P1 | Repository initialization shall configure causal-note display and rewrite behavior without modifying tracked files. | Implemented | Integration test verifies clean status after initialization. |
 | FR-GIT-06 | P1 | Human-readable output shall have a JSON equivalent for state needed by automation. | Partial | Core plans, receipts, forecasts, workspaces, specs, and operations support JSON; a formal CLI schema catalog remains planned. |
-| FR-GIT-07 | P1 | The CLI shall accept explicit compatibility/performance controls without changing domain semantics. | Implemented | `--git-session`, `--no-git-session`, and `--forecast-engine` produce equality-checked forecasts. |
+| FR-GIT-07 | P1 | The CLI shall accept explicit compatibility/performance controls without changing domain semantics. | Implemented | `--git-session`, `--no-git-session`, and `--forecast-engine` produce equality-checked forecasts; `--engine` selects the read engine behind the equality-tested seam of ADR-0019 and every fallback is reported. |
 | FR-GIT-08 | P2 | A supported metadata synchronization command shall move all required causal records between clones. | Implemented experimentally | Fresh-clone round-trip reproduces coverage, resolution catalog, and spec identity without manual ref knowledge. |
 
 ### 9.2 Logical change identity
@@ -657,7 +657,7 @@ A release is eligible when:
 
 1. `npm test` passes in ordinary mode.
 2. `VLAB_GIT_SESSION=1 npm test` passes.
-3. `VLAB_FORECAST_ENGINE=worktree npm test` and `VLAB_FORECAST_ENGINE=merge-tree npm test` pass (the default engine differs by platform).
+3. `VLAB_FORECAST_ENGINE=worktree npm test` and `VLAB_FORECAST_ENGINE=merge-tree npm test` pass (the default engine differs by platform), and `VLAB_ENGINE=native npm test` passes (every read goes through the engine seam).
 4. All maintained demos complete.
 5. Version constants, package metadata, changelog, and release tag agree.
 6. Bundle and source archive install/test smoke checks pass outside the source
@@ -751,7 +751,8 @@ splits the gate into two.
 existing contracts a second time may begin when all of:
 
 1. a published schema and conformance-fixture catalog and a single
-   equality-tested read-side engine seam exist;
+   equality-tested read-side engine seam exist (the seam since 2026-08-30,
+   ADR-0019; the catalog is open);
 2. the Windows post-batching benchmark rerun and a Git-best-mode baseline
    exist; and
 3. a named per-command budget on a representative Windows or OneDrive host

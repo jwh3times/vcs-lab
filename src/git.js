@@ -13,6 +13,59 @@ const SESSION_CONTENT_BUFFER_BYTES = 64 * 1024 * 1024;
 const SESSION_TIMEOUT_MS = 60_000;
 let nextSessionId = 1;
 
+/**
+ * Marks a `runGit` call as one of this module's own read implementations.
+ * The symbol is private, so a read that reaches `runGit` without it comes
+ * from outside the engine seam (`src/engine.js`) and is counted as a direct
+ * read; in native engine mode it is refused (ADR-0019).
+ */
+const ENGINE_READ = Symbol("vlab.engine-read");
+
+/**
+ * The read engines the seam can select. `git` is this module: one process
+ * per query, or the object session. `native` is the phase 1 core of
+ * ADR-0015; until its binding exists every operation passes through to Git
+ * and records the fallback.
+ */
+export const READ_ENGINES = ["git", "native"];
+
+let readEngineOverride = null;
+
+export function defaultReadEngine() {
+  return "git";
+}
+
+/**
+ * Select the read engine. The environment variable mirrors
+ * `VLAB_FORECAST_ENGINE`; the CLI sets it from `--engine`, and
+ * `withReadEngine` overrides it for a differential comparison.
+ */
+export function readEngine() {
+  if (readEngineOverride) return readEngineOverride;
+  const value = process.env.VLAB_ENGINE;
+  if (value === undefined || value === "") return defaultReadEngine();
+  if (READ_ENGINES.includes(value)) return value;
+  throw new CliError(
+    `Unknown engine '${value}'. Use one of: ${READ_ENGINES.join(", ")}.`,
+  );
+}
+
+/** Run `callback` with `engine` selected, restoring the previous selection. */
+export function withReadEngine(engine, callback) {
+  if (!READ_ENGINES.includes(engine)) {
+    throw new CliError(
+      `Unknown engine '${engine}'. Use one of: ${READ_ENGINES.join(", ")}.`,
+    );
+  }
+  const previous = readEngineOverride;
+  readEngineOverride = engine;
+  try {
+    return callback();
+  } finally {
+    readEngineOverride = previous;
+  }
+}
+
 function sessionDiagnostic(event, details = {}) {
   if (process.env.VLAB_GIT_SESSION_DIAGNOSTICS !== "1") return;
   const line = `[vlab session] ${JSON.stringify({
@@ -44,7 +97,7 @@ function gitCommandName(args) {
 }
 
 export function beginGitMetrics(label = "git") {
-  const collector = { label, commands: [] };
+  const collector = { label, commands: [], fallbacks: [], directReads: 0 };
   activeMetricCollectors.add(collector);
   return collector;
 }
@@ -53,6 +106,47 @@ function recordGitMetric(item) {
   for (const collector of activeMetricCollectors) {
     collector.commands.push(item);
   }
+}
+
+/**
+ * Record that the engine seam answered `record.operation` with Git because
+ * the selected engine could not (`record.reason`). Aggregated per operation
+ * and reason by `endGitMetrics`.
+ */
+export function recordEngineFallback(record) {
+  for (const collector of activeMetricCollectors) {
+    collector.fallbacks.push(record);
+  }
+}
+
+function recordDirectRead(command) {
+  for (const collector of activeMetricCollectors) {
+    collector.directReads += 1;
+  }
+  if (process.env.VLAB_TRACE === "1") {
+    process.stderr.write(
+      `[vlab trace] git ${command} was read outside the engine seam\n`,
+    );
+  }
+}
+
+function aggregateFallbacks(fallbacks) {
+  const byKey = new Map();
+  for (const item of fallbacks) {
+    const key = `${item.operation}\0${item.reason}`;
+    const current = byKey.get(key) ?? {
+      operation: item.operation,
+      reason: item.reason,
+      count: 0,
+    };
+    current.count += 1;
+    byKey.set(key, current);
+  }
+  return [...byKey.values()].sort(
+    (left, right) =>
+      left.operation.localeCompare(right.operation) ||
+      left.reason.localeCompare(right.reason),
+  );
 }
 
 function traceGitMetric(item) {
@@ -73,25 +167,41 @@ function invalidateObjectSession(cwd) {
   activeObjectSessions.get(path.resolve(cwd))?.cache.clear();
 }
 
-function gitCommandMutates(args, command) {
-  const readOnly = new Set([
-    "--version",
-    "cat-file",
-    "cherry",
-    "diff",
-    "for-each-ref",
-    "log",
-    "ls-files",
-    "merge-base",
-    "rev-list",
-    "rev-parse",
-    "show",
-    "show-ref",
-    "status",
-  ]);
-  if (readOnly.has(command)) return false;
+const READ_ONLY_GIT_COMMANDS = new Set([
+  "--version",
+  "cat-file",
+  "cherry",
+  "diff",
+  "for-each-ref",
+  "log",
+  "ls-files",
+  "ls-tree",
+  "merge-base",
+  "rev-list",
+  "rev-parse",
+  "show",
+  "show-ref",
+  "status",
+  "symbolic-ref",
+]);
+
+/**
+ * Whether a Git invocation can change repository state. Read-only commands
+ * neither invalidate the object session nor may run outside the engine seam;
+ * everything else is a mutation and stays a plain `runGit` call.
+ */
+export function gitCommandMutates(args, command = gitCommandName(args)) {
+  if (READ_ONLY_GIT_COMMANDS.has(command)) {
+    // `symbolic-ref <name> <ref>` writes; vlab only ever reads one name.
+    return command === "symbolic-ref" &&
+      args.filter((item) => !item.startsWith("-")).length > 2;
+  }
   if (command === "notes") {
     return !args.some((item) => ["list", "show"].includes(item));
+  }
+  if (command === "worktree") return !args.includes("list");
+  if (command === "branch") {
+    return !args.some((item) => ["--show-current", "--list"].includes(item));
   }
   if (command === "hash-object") return args.includes("-w");
   return true;
@@ -131,6 +241,9 @@ export function endGitMetrics(collector) {
     cacheHits: collector.commands.filter((item) => item.cacheHit).length,
     totalMs: Number(totalMs.toFixed(2)),
     failed: collector.commands.filter((item) => !item.ok).length,
+    engine: readEngine(),
+    fallbacks: aggregateFallbacks(collector.fallbacks),
+    directReads: collector.directReads,
     byCommand: [...byCommand.values()]
       .map((item) => ({
         ...item,
@@ -152,13 +265,26 @@ export function runGit(args, options = {}) {
     trim = true,
     binary = false,
     maxBuffer = 256 * 1024 * 1024,
+    rawProbe = false,
   } = options;
+
+  const command = gitCommandName(args);
+  if (!gitCommandMutates(args, command) && !options[ENGINE_READ] && !rawProbe) {
+    // A read that did not come through the engine seam. `rawProbe` marks the
+    // doctor's deliberate process-cost probes; nothing else may read here.
+    recordDirectRead(command);
+    if (readEngine() === "native") {
+      throw new CliError(
+        `git ${command} was read outside the engine seam; every Git read must be an operation of src/engine.js.`,
+      );
+    }
+  }
 
   const startedAt = performance.now();
   sessionDiagnostic("git-spawn-start", {
     cwd,
     args,
-    command: gitCommandName(args),
+    command,
   });
   const result = spawnSync("git", args, {
     cwd,
@@ -198,7 +324,6 @@ export function runGit(args, options = {}) {
     ? stderr
     : [stdout, stderr].filter(Boolean).join("\n");
 
-  const command = gitCommandName(args);
   recordGitMetric({
     command,
     durationMs,
@@ -621,6 +746,22 @@ export function withGitObjectSession(cwd = process.cwd(), callback) {
   }
 }
 
+/*
+ * Read operations of the Git engine. Each function below is the Git
+ * implementation of one operation in the catalog of `src/engine.js`; domain
+ * modules call the seam, never these functions directly. Every Git process
+ * they launch carries the private `ENGINE_READ` mark, which is what lets
+ * `runGit` tell a seam read from a read that bypassed it.
+ */
+
+function readGit(args, options = {}) {
+  return runGit(args, { ...options, [ENGINE_READ]: true });
+}
+
+function readText(args, options = {}) {
+  return readGit(args, options).stdout;
+}
+
 export function readGitBlob(blob, cwd = process.cwd()) {
   const sessionResult = queryObjectSession(cwd, "contents", [blob]);
   if (sessionResult) {
@@ -630,7 +771,7 @@ export function readGitBlob(blob, cwd = process.cwd()) {
     }
     return object.content;
   }
-  return runGit(["cat-file", "blob", blob], {
+  return readGit(["cat-file", "blob", blob], {
     cwd,
     binary: true,
     trim: false,
@@ -658,7 +799,7 @@ export function readGitObjects(expressions, cwd = process.cwd()) {
   const sessionResult = queryObjectSession(cwd, "contents", expressions);
   if (sessionResult) return sessionResult;
   const input = Buffer.from(`${expressions.join("\n")}\n`, "utf8");
-  const response = runGit(["cat-file", "--batch"], {
+  const response = readGit(["cat-file", "--batch"], {
     cwd,
     input,
     binary: true,
@@ -721,7 +862,7 @@ export function inspectGitObjects(expressions, cwd = process.cwd()) {
       size: object.exists ? object.size : 0,
     }));
   }
-  const output = runGit(["cat-file", "--batch-check"], {
+  const output = readGit(["cat-file", "--batch-check"], {
     cwd,
     input: `${expressions.join("\n")}\n`,
     trim: false,
@@ -750,6 +891,7 @@ export function inspectGitObjects(expressions, cwd = process.cwd()) {
   });
 }
 
+/** Run a mutating Git command and return its trimmed standard output. */
 export function gitText(args, options = {}) {
   return runGit(args, options).stdout;
 }
@@ -758,7 +900,7 @@ export function repoContext(cwd = process.cwd()) {
   const cacheKey = path.resolve(cwd);
   const cached = repositoryContextCache.get(cacheKey);
   if (cached) return cached;
-  const [root, gitDirRaw, commonDirRaw, objectFormat] = gitText(
+  const [root, gitDirRaw, commonDirRaw, objectFormat] = readText(
     [
       "rev-parse",
       "--show-toplevel",
@@ -790,7 +932,7 @@ export function resolveRevision(revision, cwd = process.cwd()) {
     }
     return object.oid;
   }
-  return gitText(["rev-parse", "--verify", `${revision}^{commit}`], { cwd });
+  return readText(["rev-parse", "--verify", `${revision}^{commit}`], { cwd });
 }
 
 export function resolveObjectIds(expressions, cwd = process.cwd()) {
@@ -803,16 +945,12 @@ export function resolveObjectIds(expressions, cwd = process.cwd()) {
     }
     return objects.map((object) => object.oid);
   }
-  const output = gitText(["rev-parse", ...expressions], { cwd });
+  const output = readText(["rev-parse", ...expressions], { cwd });
   const ids = output.split(/\r?\n/).filter(Boolean);
   if (ids.length !== expressions.length) {
     throw new CliError("Git did not resolve every requested object expression.");
   }
   return ids;
-}
-
-export function currentHead(cwd = process.cwd()) {
-  return resolveRevision("HEAD", cwd);
 }
 
 export function treeId(revision, cwd = process.cwd()) {
@@ -824,16 +962,83 @@ export function treeId(revision, cwd = process.cwd()) {
     }
     return object.oid;
   }
-  return gitText(["rev-parse", `${revision}^{tree}`], { cwd });
+  return readText(["rev-parse", `${revision}^{tree}`], { cwd });
 }
 
 export function mergeBase(left, right, cwd = process.cwd()) {
-  return gitText(["merge-base", left, right], { cwd });
+  return readText(["merge-base", left, right], { cwd });
 }
 
 export function listCommits(base, tip, cwd = process.cwd()) {
-  const result = gitText(["rev-list", "--reverse", `${base}..${tip}`], { cwd });
+  const result = readText(["rev-list", "--reverse", `${base}..${tip}`], { cwd });
   return result ? result.split(/\r?\n/).filter(Boolean) : [];
+}
+
+/** Every commit reachable from `revision`, newest first. */
+export function reachableCommits(revision, cwd = process.cwd()) {
+  const output = readText(["rev-list", revision], { cwd });
+  return output ? output.split(/\r?\n/).filter(Boolean) : [];
+}
+
+/** The number of commits reachable from `revision`. */
+export function countCommits(revision, cwd = process.cwd()) {
+  return Number(readText(["rev-list", "--count", revision], { cwd }));
+}
+
+/** The commits in `base..tip` that have more than one parent, sorted. */
+export function mergeCommitsBetween(base, tip, cwd = process.cwd()) {
+  const output = readText(["rev-list", "--parents", `${base}..${tip}`], { cwd });
+  if (!output) return [];
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(/\s+/))
+    .filter((fields) => fields.length > 2)
+    .map(([commit]) => commit)
+    .sort();
+}
+
+/**
+ * Root commits (no parents) reachable from any branch, tag, or remote ref,
+ * unique and sorted; empty when the repository has no such ref.
+ */
+export function rootCommits(cwd = process.cwd()) {
+  const result = readGit(
+    ["rev-list", "--max-parents=0", "--branches", "--tags", "--remotes"],
+    { cwd, allowFailure: true },
+  );
+  return [...new Set(
+    result.ok && result.stdout ? result.stdout.split(/\r?\n/).filter(Boolean) : [],
+  )].sort();
+}
+
+/**
+ * `{ commit, subject, message }` for every commit `git log` selects from
+ * `revisions` (revisions, ranges, or exclusions), newest first unless
+ * `reverse`. One process regardless of history length.
+ */
+export function commitHistory(revisions, cwd = process.cwd(), options = {}) {
+  const output = readText(
+    [
+      "log",
+      "-z",
+      ...(options.reverse ? ["--reverse"] : []),
+      "--format=%H%x00%s%x00%B",
+      ...revisions,
+    ],
+    { cwd, trim: false },
+  );
+  const records = [];
+  const fields = output.split("\0");
+  for (let index = 0; index + 2 < fields.length; index += 3) {
+    const commit = fields[index].trim();
+    if (!commit) continue;
+    records.push({
+      commit,
+      subject: fields[index + 1],
+      message: fields[index + 2],
+    });
+  }
+  return records;
 }
 
 export function commitMessage(commit, cwd = process.cwd()) {
@@ -847,14 +1052,14 @@ export function commitMessage(commit, cwd = process.cwd()) {
     const separator = raw.indexOf("\n\n");
     return (separator < 0 ? "" : raw.slice(separator + 2)).trim();
   }
-  return gitText(["show", "-s", "--format=%B", commit], { cwd });
+  return readText(["show", "-s", "--format=%B", commit], { cwd });
 }
 
 export function commitSubject(commit, cwd = process.cwd()) {
   if (objectSession(cwd)?.failed === false) {
     return commitMessage(commit, cwd).split(/\r?\n/, 1)[0];
   }
-  return gitText(["show", "-s", "--format=%s", commit], { cwd });
+  return readText(["show", "-s", "--format=%s", commit], { cwd });
 }
 
 export function extractTrailer(message, name) {
@@ -863,35 +1068,103 @@ export function extractTrailer(message, name) {
   return match?.[1]?.trim() ?? null;
 }
 
-export function changeIdForCommit(commit, cwd = process.cwd()) {
-  return extractTrailer(commitMessage(commit, cwd), "Change-Id") ?? `git:${commit}`;
-}
-
 export function isAncestor(ancestor, descendant, cwd = process.cwd()) {
-  return runGit(["merge-base", "--is-ancestor", ancestor, descendant], {
+  return readGit(["merge-base", "--is-ancestor", ancestor, descendant], {
     cwd,
     allowFailure: true,
   }).ok;
+}
+
+/**
+ * The commits of `source` (beyond `base`) whose patch ID also appears in
+ * `target`, as `git cherry` reports them; empty when Git cannot compare.
+ */
+export function patchEquivalentCommits(target, source, base, cwd = process.cwd()) {
+  const result = readGit(["cherry", target, source, base], {
+    cwd,
+    allowFailure: true,
+  });
+  const equivalents = [];
+  if (!result.ok || !result.stdout) return equivalents;
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const match = line.match(/^(-|\+)\s+([0-9a-f]+)/i);
+    if (match?.[1] === "-") equivalents.push(match[2]);
+  }
+  return equivalents;
 }
 
 export function refExists(ref, cwd = process.cwd()) {
-  return runGit(["show-ref", "--verify", "--quiet", ref], {
+  return readGit(["show-ref", "--verify", "--quiet", ref], {
     cwd,
     allowFailure: true,
   }).ok;
 }
 
-export function assertClean(cwd = process.cwd()) {
-  const status = gitText(["status", "--porcelain=v1"], { cwd });
-  if (status) {
-    throw new CliError("The worktree must be clean for this operation.", {
-      details: status,
+/** The raw, unpeeled object ID `ref` names, or null when it does not exist. */
+export function refTarget(ref, cwd = process.cwd()) {
+  const result = readGit(["show-ref", "--verify", "--hash", ref], {
+    cwd,
+    allowFailure: true,
+  });
+  return result.ok ? result.stdout : null;
+}
+
+/** `{ ref, oid }` for every ref under `pattern`, in Git's ref order. */
+export function listRefs(pattern, cwd = process.cwd()) {
+  const scan = readGit(
+    ["for-each-ref", "--format=%(refname)%00%(objectname)", pattern],
+    { cwd, allowFailure: true },
+  );
+  if (!scan.ok) {
+    throw new CliError(`Could not scan refs under '${pattern}'.`, {
+      details: scan.stderr,
     });
   }
+  const entries = [];
+  for (const line of scan.stdout.split(/\r?\n/)) {
+    if (!line) continue;
+    const [ref, oid] = line.split("\0");
+    if (ref && oid) entries.push({ ref, oid });
+  }
+  return entries;
+}
+
+/**
+ * The symbolic target of `name` (normally `HEAD`), or null when it is
+ * detached or absent; `short` asks Git for its unambiguous short form.
+ */
+export function symbolicRef(name, cwd = process.cwd(), options = {}) {
+  const result = readGit(
+    ["symbolic-ref", "--quiet", ...(options.short ? ["--short"] : []), name],
+    { cwd, allowFailure: true },
+  );
+  return result.ok && result.stdout ? result.stdout : null;
+}
+
+/** Whether `name` (a ref, pseudo-ref, or revision) resolves to an object. */
+export function revisionResolves(name, cwd = process.cwd()) {
+  return readGit(["rev-parse", "--verify", "--quiet", name], {
+    cwd,
+    allowFailure: true,
+  }).ok;
+}
+
+/** The path Git uses for `name` inside this worktree's Git directory. */
+export function gitPath(name, cwd = process.cwd()) {
+  return readText(["rev-parse", "--git-path", name], { cwd });
+}
+
+/** Whether `cwd` lies inside a Git work tree (false when Git rejects it). */
+export function isInsideWorkTree(cwd = process.cwd()) {
+  const probe = readGit(["rev-parse", "--is-inside-work-tree"], {
+    cwd,
+    allowFailure: true,
+  });
+  return probe.ok && probe.stdout === "true";
 }
 
 export function findCommitByChangeId(changeId, cwd = process.cwd()) {
-  const output = gitText(
+  const output = readText(
     ["log", "--all", "--format=%H%x1f%B%x1e"],
     { cwd, trim: false },
   );
@@ -906,6 +1179,248 @@ export function findCommitByChangeId(changeId, cwd = process.cwd()) {
     }
   }
   return null;
+}
+
+/** The decorated `git log --graph` text of every ref, for `vlab graph`. */
+export function historyGraph(cwd = process.cwd()) {
+  return readText(
+    [
+      "log",
+      "--graph",
+      "--oneline",
+      "--decorate",
+      "--branches",
+      "--tags",
+      "--remotes",
+      "HEAD",
+    ],
+    { cwd },
+  );
+}
+
+/** `{ note, target }` for every note in `notesRef`; empty when it is absent. */
+export function listNoteEntries(notesRef, cwd = process.cwd()) {
+  const result = readGit(["notes", `--ref=${notesRef}`, "list"], {
+    cwd,
+    allowFailure: true,
+  });
+  if (!result.ok || !result.stdout) return [];
+  return result.stdout
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [note, target] = line.trim().split(/\s+/);
+      return note && target ? { note, target } : null;
+    })
+    .filter(Boolean);
+}
+
+/** The trimmed note text `notesRef` attaches to `target`, or null when none. */
+export function readNoteText(notesRef, target, cwd = process.cwd()) {
+  const result = readGit(["notes", `--ref=${notesRef}`, "show", target], {
+    cwd,
+    allowFailure: true,
+  });
+  return result.ok ? result.stdout : null;
+}
+
+/**
+ * Parse `git status --porcelain=v2 --branch -z` output into the exact HEAD
+ * commit and the number of changed or untracked entries. Header fields start
+ * with `# `; rename and copy entries (`2 ...`) carry the original path in a
+ * second NUL-terminated field that must not be counted as another entry.
+ */
+function parseWorktreeStatus(output) {
+  let head = null;
+  let dirtyFiles = 0;
+  const fields = output.split("\0");
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index];
+    if (!field) continue;
+    if (field.startsWith("# ")) {
+      if (field.startsWith("# branch.oid ")) {
+        const oid = field.slice("# branch.oid ".length);
+        head = oid === "(initial)" ? null : oid;
+      }
+      continue;
+    }
+    dirtyFiles += 1;
+    if (field.startsWith("2 ")) index += 1;
+  }
+  return { head, dirtyFiles };
+}
+
+/**
+ * One worktree-scoped status query: `{ ok: true, head, dirtyFiles }` for a
+ * work tree Git can read, or `{ ok: false, error, exitCode }` with Git's
+ * output when it cannot (the caller decides whether that is a missing work
+ * tree or an error).
+ */
+export function workspaceStatus(cwd = process.cwd()) {
+  const status = readGit(["status", "--porcelain=v2", "--branch", "-z"], {
+    cwd,
+    allowFailure: true,
+    trim: false,
+  });
+  if (!status.ok) {
+    return {
+      ok: false,
+      head: null,
+      dirtyFiles: null,
+      error: status.output,
+      exitCode: status.status || 1,
+    };
+  }
+  return { ok: true, ...parseWorktreeStatus(status.stdout), error: null, exitCode: 0 };
+}
+
+/**
+ * `git status --porcelain=v1` text: trimmed and newline-separated by
+ * default, or the raw NUL-terminated form with `nulTerminated`.
+ */
+export function porcelainStatus(cwd = process.cwd(), options = {}) {
+  return readText(
+    ["status", "--porcelain=v1", ...(options.nulTerminated ? ["-z"] : [])],
+    { cwd, trim: !options.nulTerminated },
+  );
+}
+
+/** Paths with unresolved merge conflicts in the index. */
+export function unmergedPaths(cwd = process.cwd()) {
+  const result = readGit(["diff", "--name-only", "--diff-filter=U"], {
+    cwd,
+    allowFailure: true,
+  });
+  return result.stdout ? result.stdout.split(/\r?\n/).filter(Boolean) : [];
+}
+
+function parseIndexEntries(output) {
+  const entries = [];
+  for (const record of output.split("\0")) {
+    if (!record) continue;
+    const tab = record.indexOf("\t");
+    if (tab < 0) continue;
+    const [mode, blob, stageText] = record.slice(0, tab).split(/\s+/);
+    entries.push({
+      mode,
+      blob,
+      stage: Number(stageText),
+      path: record.slice(tab + 1),
+    });
+  }
+  return entries;
+}
+
+/**
+ * `{ mode, blob, stage, path }` for the index entries under `paths` (or the
+ * whole index), or only the unmerged stages with `unmergedOnly`.
+ */
+export function indexEntries(cwd = process.cwd(), options = {}) {
+  const args = ["ls-files", options.unmergedOnly ? "-u" : "--stage", "-z"];
+  if (options.paths?.length) args.push("--", ...options.paths);
+  return parseIndexEntries(readText(args, { cwd, trim: false }));
+}
+
+/** Tracked paths under `pathspecs`, sorted; empty when Git cannot list them. */
+export function listTrackedPaths(pathspecs, cwd = process.cwd()) {
+  const result = readGit(["ls-files", "-z", "--", ...pathspecs], {
+    cwd,
+    trim: false,
+    allowFailure: true,
+  });
+  return result.ok && result.stdout
+    ? result.stdout.split("\0").filter(Boolean).sort()
+    : [];
+}
+
+/**
+ * Tracked, modified, and untracked (not ignored) paths under `pathspecs`
+ * with their `git ls-files -t` tag and, for index entries, mode, blob, and
+ * stage; untracked entries carry the `?` tag and null index fields.
+ */
+export function pathInventory(pathspecs, cwd = process.cwd()) {
+  const output = readText(
+    [
+      "ls-files",
+      "-z",
+      "-t",
+      "--cached",
+      "--modified",
+      "--others",
+      "--exclude-standard",
+      "--stage",
+      "--full-name",
+      "--",
+      ...pathspecs,
+    ],
+    { cwd, trim: false },
+  );
+  const entries = [];
+  for (const record of output.split("\0").filter(Boolean)) {
+    if (record.startsWith("? ")) {
+      entries.push({ tag: "?", mode: null, blob: null, stage: null, path: record.slice(2) });
+      continue;
+    }
+    const tag = record[0];
+    const body = record.slice(2);
+    const tab = body.indexOf("\t");
+    if (tab < 0) continue;
+    const [mode, blob, stageText] = body.slice(0, tab).split(" ");
+    entries.push({ tag, mode, blob, stage: Number(stageText), path: body.slice(tab + 1) });
+  }
+  return entries;
+}
+
+/** Untracked paths that the ignore rules exclude. */
+export function ignoredPaths(cwd = process.cwd()) {
+  return readText(
+    ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+    { cwd, trim: false },
+  ).split("\0").filter(Boolean);
+}
+
+/**
+ * Every work tree of the repository as
+ * `{ path, head, branch, detached, bare, locked, prunable }`, parsed from
+ * `git worktree list --porcelain -z`; `locked` and `prunable` carry Git's
+ * reason text (possibly empty) or null.
+ */
+export function listWorktrees(cwd = process.cwd()) {
+  const output = readText(["worktree", "list", "--porcelain", "-z"], {
+    cwd,
+    trim: false,
+  });
+  const worktrees = [];
+  let current = null;
+  for (const field of output.split("\0")) {
+    if (field === "") {
+      if (current) worktrees.push(current);
+      current = null;
+      continue;
+    }
+    if (field.startsWith("worktree ")) {
+      if (current) worktrees.push(current);
+      current = {
+        path: field.slice("worktree ".length),
+        head: null,
+        branch: null,
+        detached: false,
+        bare: false,
+        locked: null,
+        prunable: null,
+      };
+      continue;
+    }
+    if (!current) continue;
+    if (field.startsWith("HEAD ")) current.head = field.slice("HEAD ".length);
+    else if (field.startsWith("branch ")) current.branch = field.slice("branch ".length);
+    else if (field === "detached") current.detached = true;
+    else if (field === "bare") current.bare = true;
+    else if (field === "locked" || field.startsWith("locked ")) current.locked = field.slice("locked".length).trim();
+    else if (field === "prunable" || field.startsWith("prunable ")) current.prunable = field.slice("prunable".length).trim();
+  }
+  if (current) worktrees.push(current);
+  return worktrees;
 }
 
 export const FORECAST_ENGINES = ["worktree", "merge-tree"];
@@ -966,10 +1481,10 @@ export const MERGE_TREE_ENGINE_MIN_GIT = "2.49";
 
 let cachedGitVersion = null;
 
-/** `git --version`, run at most once per process. */
+/** `git --version` as `{ raw, parts }`, run at most once per process. */
 export function gitVersion(cwd = process.cwd()) {
   if (!cachedGitVersion) {
-    const raw = runGit(["--version"], { cwd }).stdout.trim();
+    const raw = readGit(["--version"], { cwd }).stdout.trim();
     const match = raw.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
     cachedGitVersion = {
       raw,
@@ -979,21 +1494,6 @@ export function gitVersion(cwd = process.cwd()) {
     };
   }
   return cachedGitVersion;
-}
-
-/**
- * Whether the host Git is at least `required` (`"major.minor"`). Output that
- * cannot be parsed counts as new enough so that Git itself reports any
- * failure.
- */
-export function gitAtLeast(required, cwd = process.cwd()) {
-  const { parts } = gitVersion(cwd);
-  if (!parts) return true;
-  const wanted = required.split(".").map(Number);
-  for (const [index, value] of wanted.entries()) {
-    if (parts[index] !== value) return parts[index] > value;
-  }
-  return true;
 }
 
 const MERGE_TREE_RESPONSE_BYTES = 64 * 1024;

@@ -58,9 +58,11 @@ forecast steps run through a `git merge-tree` session
 ([ADR-0016](adr/0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md);
 the default on Windows since 2026-08-30, opt-in on POSIX hosts) with Windows
 and Linux differential evidence and a committed Linux benchmark baseline, and
-the Windows post-batching rerun is recorded in ADR-0013. The next work is
-therefore the contract catalog and engine seam that Gate A requires (Horizon 2
-item 1); no storage layer or service is approved.
+the Windows post-batching rerun is recorded in ADR-0013. The read-side engine
+seam that Gate A requires is implemented, unreleased
+([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md)); the
+next work is the contract catalog and canonical-JSON profile that complete
+Horizon 2 item 1. No storage layer or service is approved.
 
 ## Horizon 1: close the current development line
 
@@ -211,6 +213,22 @@ Program phase 0b of ADR-0015 and Gate A item 1 of ADR-0014.
 - Add conformance fixtures that verify human/JSON parity for state required by
   automation.
 
+Status on 2026-08-30 (tracked by
+[GitHub issue #11](https://github.com/jwh3times/vcs-lab/issues/11)): the
+engine seam is implemented, unreleased, under
+[ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md):
+`src/engine.js` catalogs 38 read operations, `VLAB_ENGINE`/`--engine`
+selects `git` or the passthrough `native` engine, every Git metrics block
+reports `engine`, per-operation `fallbacks`, and `directReads`, `vlab doctor
+--differential` compares the engines operation by operation, and
+`VLAB_ENGINE=native npm test` is the third suite mode in which a read outside
+the seam is refused. No domain module calls `runGit` for a read. The
+remaining items of this increment, in order, are the versioned CLI
+output/schema catalog with standalone JSON Schema documents, the canonical
+JSON profile with shared test vectors, the compatibility and unknown-version
+rules per record family, and the human/JSON conformance fixtures; the phase 1
+ADR that names the Gate A item 3 budget follows them.
+
 ### 2. Strengthen identity and proof diagnostics
 
 - Add repository-wide Change-ID collision and duplicate-origin-chain audits
@@ -309,7 +327,7 @@ resident service, or wire protocol is approved before its phase and gate.
 | Phase | Gate | Scope | Exit criterion | Reversibility |
 | --- | --- | --- | --- | --- |
 | 0a Git-native wins | none | Horizon 1.5 | Horizon 1.5 exit criteria (met 2026-08-30: ADR-0016 with Windows and Linux evidence, the ADR-0013 rerun, and the Linux benchmark baseline) | Flag only; complete outcome on its own. |
-| 0b Contract freeze and engine seam | none | Horizon 2 item 1 | Horizon 2 item 1 exit criteria | Pure refactor. |
+| 0b Contract freeze and engine seam | none | Horizon 2 item 1 | Horizon 2 item 1 exit criteria (engine seam implemented 2026-08-30, ADR-0019; the contract catalog and canonical-JSON profile are open) | Pure refactor. |
 | 1 Native read engine in Rust | Gate A | Repository context, batched object reads, peeling, history walks, merge-base, ancestry, refs, notes reads, and worktree-scoped status through `vlab-core` behind the seam; per-operation backend matrix in its ADR; bounded jj-lib spike | Suite green in native mode on Linux and Windows with identical JSON; zero Git processes for history, registry, note-catalog, resolution-catalog, and per-workspace status in the scale benchmark; the Gate A named budget met; `git fsck` clean; no lingering processes | Engine selector or uninstall the binding; kill switch and two-release sunset. |
 | 2 Native planning and status | Gate A | Merge-plan and rebase-plan construction, receipt reachability, Change-ID extraction, the advisory `git-patch-id-heuristic` proof (a stable patch-id proof, if wanted, gets its own ADR), spec blob-identity checks; FR-ID-06 audit; FR-PLAN-08 proof bundle and verifier | Plan fingerprints byte-identical across engines on the suite plus at least 1,000 generated histories; status semantics preserved at zero processes | Per-operation fallback. |
 | 3 Derived catalog | Gate A, plus the incremental-catalog row below (an already-batched path over a representative budget, per ADR-0013) | Deletable fact segments with per-record digests, rebuildable indexes, `builtFrom` stamps, reindex command, approval facts, advisory leases in a mutable side file; caches outside synced folders; notes and refs remain canonical | 5,000-fact benchmark under budget with zero processes on both hosts; deleting the catalog yields identical output; torn-tail and stale-catalog recovery pass; writer-lock waits under 10 ms at 16 concurrent agents | Delete the directory. |

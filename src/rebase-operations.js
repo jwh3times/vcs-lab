@@ -3,18 +3,23 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { CliError } from "./errors.js";
 import {
-  assertClean,
   beginGitMetrics,
-  changeIdForCommit,
-  currentHead,
   endGitMetrics,
   GIT_NO_RERERE,
-  repoContext,
-  resolveObjectIds,
   runGit,
-  treeId,
   withGitObjectSession,
 } from "./git.js";
+import {
+  assertClean,
+  changeIdForCommit,
+  currentHead,
+  gitPath,
+  repoContext,
+  resolveObjectIds,
+  revisionResolves,
+  symbolicRef,
+  treeId,
+} from "./engine.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
 import {
@@ -52,16 +57,13 @@ function requirePendingRebase(cwd) {
 }
 
 function currentBranch(cwd) {
-  const result = runGit(["symbolic-ref", "--quiet", "HEAD"], {
-    cwd,
-    allowFailure: true,
-  });
-  if (!result.ok || !result.stdout.startsWith("refs/heads/")) {
+  const ref = symbolicRef("HEAD", cwd);
+  if (!ref || !ref.startsWith("refs/heads/")) {
     throw new CliError("Causal rebase requires a named local branch.");
   }
   return {
-    ref: result.stdout,
-    name: result.stdout.slice("refs/heads/".length),
+    ref,
+    name: ref.slice("refs/heads/".length),
   };
 }
 
@@ -80,16 +82,9 @@ function requireOperationBranch(operation, cwd) {
 
 function assertNoGitReplay(cwd) {
   const names = ["CHERRY_PICK_HEAD", "REVERT_HEAD", "MERGE_HEAD", "REBASE_HEAD"];
-  const active = names.filter((name) =>
-    runGit(["rev-parse", "--verify", "--quiet", name], {
-      cwd,
-      allowFailure: true,
-    }).ok,
-  );
+  const active = names.filter((name) => revisionResolves(name, cwd));
   const privateReplayPaths = ["rebase-merge", "rebase-apply", "sequencer"]
-    .map((name) =>
-      runGit(["rev-parse", "--git-path", name], { cwd }).stdout,
-    )
+    .map((name) => gitPath(name, cwd))
     .filter((location) => fs.existsSync(path.resolve(cwd, location)));
   if (active.length || privateReplayPaths.length) {
     throw new CliError(
@@ -735,11 +730,7 @@ export function rebaseStatus(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const operation = readRebaseState(cwd);
   if (!operation) return { active: false, state: "idle" };
-  const branch = runGit(["symbolic-ref", "--quiet", "HEAD"], {
-    cwd,
-    allowFailure: true,
-  });
-  const actualBranchRef = branch.ok ? branch.stdout : null;
+  const actualBranchRef = symbolicRef("HEAD", cwd);
   const actualHead = currentHead(cwd);
   return {
     active: true,

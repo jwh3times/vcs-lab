@@ -1,4 +1,10 @@
-import { readGitObjects, runGit } from "./git.js";
+import { runGit } from "./git.js";
+import {
+  listNoteEntries as listNotes,
+  reachableCommits,
+  readGitObjects,
+  readNoteText,
+} from "./engine.js";
 
 export const NOTES_REF = "vcs-lab";
 
@@ -35,12 +41,9 @@ function parseNoteText(text) {
 }
 
 export function readNote(commit, cwd = process.cwd()) {
-  const result = runGit(["notes", `--ref=${NOTES_REF}`, "show", commit], {
-    cwd,
-    allowFailure: true,
-  });
-  if (!result.ok) return emptyNote();
-  return parseNoteText(result.stdout);
+  const text = readNoteText(NOTES_REF, commit, cwd);
+  if (text === null) return emptyNote();
+  return parseNoteText(text);
 }
 
 /**
@@ -83,19 +86,7 @@ export function listNoteTargets(cwd = process.cwd()) {
 }
 
 function listNoteEntries(cwd = process.cwd()) {
-  const result = runGit(["notes", `--ref=${NOTES_REF}`, "list"], {
-    cwd,
-    allowFailure: true,
-  });
-  if (!result.ok || !result.stdout) return [];
-  return result.stdout
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      const [note, target] = line.trim().split(/\s+/);
-      return note && target ? { note, target } : null;
-    })
-    .filter(Boolean);
+  return listNotes(NOTES_REF, cwd);
 }
 
 function recordsForEntries(entries, cwd) {
@@ -126,8 +117,7 @@ export function recordsReachableFrom(
 ) {
   let reachable = reachableCommits;
   if (!reachable) {
-    const output = runGit(["rev-list", ref], { cwd }).stdout;
-    reachable = new Set(output ? output.split(/\r?\n/).filter(Boolean) : []);
+    reachable = new Set(reachableCommits(ref, cwd));
   }
   const entries = listNoteEntries(cwd).filter((entry) =>
     reachable.has(entry.target),

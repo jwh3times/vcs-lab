@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { repoContext } from "./git.js";
+import { repoContext } from "./engine.js";
 import { readJson, writeJson } from "./store.js";
 
 export function rebaseStatePath(cwd = process.cwd()) {

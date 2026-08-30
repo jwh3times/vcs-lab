@@ -2,10 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   inspectGitObjects,
+  listNoteEntries,
+  listRefs as scanRefs,
+  listTrackedPaths,
+  listWorktrees,
   readGitObjects,
   repoContext,
-  runGit,
-} from "./git.js";
+  rootCommits,
+} from "./engine.js";
 import { sha256 } from "./ids.js";
 import { normalizeMarkdown } from "./specs.js";
 import {
@@ -51,20 +55,15 @@ function countBy(items, field) {
 }
 
 function listRefs(prefix, cwd) {
-  const output = runGit(
-    ["for-each-ref", "--format=%(refname)%09%(objectname)", prefix],
-    { cwd, allowFailure: true },
-  ).stdout;
-  if (!output) return [];
-  return output
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      const tab = line.indexOf("\t");
-      return { ref: line.slice(0, tab), oid: line.slice(tab + 1) };
-    })
-    .filter((entry) => entry.ref && entry.oid)
-    .sort((left, right) => left.ref.localeCompare(right.ref));
+  // A ref store Git cannot scan is inventoried as empty, as before the seam;
+  // the diagnostics below then report what the inventory lacks.
+  let entries;
+  try {
+    entries = scanRefs(prefix, cwd);
+  } catch {
+    return [];
+  }
+  return [...entries].sort((left, right) => left.ref.localeCompare(right.ref));
 }
 
 /**
@@ -98,13 +97,7 @@ function sortDiagnostics(diagnostics) {
 
 export function repositoryLineage(cwd = process.cwd()) {
   const context = repoContext(cwd);
-  const result = runGit(
-    ["rev-list", "--max-parents=0", "--branches", "--tags", "--remotes"],
-    { cwd, allowFailure: true },
-  );
-  const roots = [...new Set(
-    result.ok && result.stdout ? result.stdout.split(/\r?\n/).filter(Boolean) : [],
-  )].sort();
+  const roots = rootCommits(cwd);
   const identity = {
     algorithm: METADATA_LINEAGE_ALGORITHM,
     objectFormat: context.objectFormat,
@@ -127,20 +120,9 @@ export function lineageRelation(source, destination) {
 }
 
 function noteEntries(cwd) {
-  const output = runGit(["notes", `--ref=${NOTES_REF}`, "list"], {
-    cwd,
-    allowFailure: true,
-  }).stdout;
-  if (!output) return [];
-  return output
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      const [note, target] = line.trim().split(/\s+/);
-      return { note, target };
-    })
-    .filter((entry) => entry.note && entry.target)
-    .sort((left, right) => left.target.localeCompare(right.target));
+  return [...listNoteEntries(NOTES_REF, cwd)].sort((left, right) =>
+    left.target.localeCompare(right.target),
+  );
 }
 
 function parseNoteObject(object, entry, diagnostics) {
@@ -455,12 +437,7 @@ function validatePortableNotes(context, diagnostics, options) {
 }
 
 function validateSpecs(context, diagnostics) {
-  const output = runGit(["ls-files", "-z", "--", ".vcs-lab/specs"], {
-    cwd: context.root,
-    trim: false,
-    allowFailure: true,
-  }).stdout;
-  const files = output ? output.split("\0").filter(Boolean).sort() : [];
+  const files = listTrackedPaths([".vcs-lab/specs"], context.root);
   const manifests = [];
   for (const file of files) {
     const absolute = path.join(context.root, file);
@@ -620,15 +597,9 @@ function validateSharedLocal(context, diagnostics) {
 }
 
 function parseWorktreePaths(cwd) {
-  const output = runGit(["worktree", "list", "--porcelain", "-z"], {
-    cwd,
-    trim: false,
-  }).stdout;
-  const paths = [];
-  for (const field of output.split("\0")) {
-    if (field.startsWith("worktree ")) paths.push(field.slice("worktree ".length));
-  }
-  return [...new Set(paths.map((item) => path.resolve(item)))].sort();
+  return [...new Set(
+    listWorktrees(cwd).map((worktree) => path.resolve(worktree.path)),
+  )].sort();
 }
 
 function inspectPrivateState(context, diagnostics) {

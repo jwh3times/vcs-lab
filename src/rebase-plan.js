@@ -1,33 +1,21 @@
-import { runGit, withGitObjectSession } from "./git.js";
+import { withGitObjectSession } from "./git.js";
+import { mergeCommitsBetween, symbolicRef } from "./engine.js";
 import { sha256 } from "./ids.js";
 import { buildMergePlanBetween } from "./merge-plan.js";
 import { CliError } from "./errors.js";
 
 function currentBranch(cwd) {
-  const result = runGit(
-    ["symbolic-ref", "--quiet", "--short", "HEAD"],
-    { cwd, allowFailure: true },
-  );
-  if (!result.ok || !result.stdout) {
+  const branch = symbolicRef("HEAD", cwd, { short: true });
+  if (!branch) {
     throw new CliError(
       "HEAD is detached; provide an explicit source ref for rebase planning.",
     );
   }
-  return result.stdout;
+  return branch;
 }
 
 function mergeCommits(base, sourceHead, cwd) {
-  const output = runGit(
-    ["rev-list", "--parents", `${base}..${sourceHead}`],
-    { cwd },
-  ).stdout;
-  if (!output) return [];
-  return output
-    .split(/\r?\n/)
-    .map((line) => line.trim().split(/\s+/))
-    .filter((fields) => fields.length > 2)
-    .map(([commit]) => commit)
-    .sort();
+  return mergeCommitsBetween(base, sourceHead, cwd);
 }
 
 function fingerprint(plan) {

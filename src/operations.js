@@ -1,22 +1,25 @@
 import fs from "node:fs";
 import { performance } from "node:perf_hooks";
 import {
-  assertClean,
   beginGitMetrics,
-  changeIdForCommit,
-  commitMessage,
-  currentHead,
   endGitMetrics,
   extractTrailer,
-  findCommitByChangeId,
   GIT_NO_RERERE,
+  runGit,
+  withGitObjectSession,
+} from "./git.js";
+import {
+  assertClean,
+  changeIdForCommit,
+  commitHistory,
+  commitMessage,
+  commitSubject,
+  currentHead,
+  findCommitByChangeId,
   repoContext,
   resolveObjectIds,
   resolveRevision,
-  runGit,
-  treeId,
-  withGitObjectSession,
-} from "./git.js";
+} from "./engine.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
 import { buildMergePlan } from "./merge-plan.js";
@@ -54,9 +57,8 @@ function resolveChangeOrCommit(value, cwd) {
 }
 
 function coveredChangeIds(ref, cwd) {
-  const output = runGit(["log", ref, "--format=%B%x1e"], { cwd }).stdout;
   const ids = new Set();
-  for (const message of output.split("\x1e")) {
+  for (const { message } of commitHistory([ref], cwd)) {
     const id = extractTrailer(message, "Change-Id");
     if (id) ids.add(id);
     for (const match of message.matchAll(/^Absorbs:\s*(\S+)/gim)) ids.add(match[1]);
@@ -91,10 +93,7 @@ export function cherryPick(value, options = {}) {
       throw new CliError("Cherry-pick produced conflicts.", { details: picked.output });
     }
     appliedChangeId = newId("ch");
-    const originalSubject = runGit(
-      ["show", "-s", "--format=%s", originCommit],
-      { cwd },
-    ).stdout;
+    const originalSubject = commitSubject(originCommit, cwd);
     const message = [
       originalSubject,
       "",

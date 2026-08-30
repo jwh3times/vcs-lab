@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { repoContext, runGit } from "./git.js";
+import { runGit } from "./git.js";
+import { repoContext } from "./engine.js";
 
 export function labRuntimeDir(cwd = process.cwd()) {
   const { commonDir } = repoContext(cwd);

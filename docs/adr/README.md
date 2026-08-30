@@ -36,6 +36,7 @@ survive refactoring and session boundaries. They complement the
 | [0016](0016-simulate-clean-forecast-steps-with-a-merge-tree-session.md) | Accepted | Simulate clean forecast steps with a merge-tree session behind a flag |
 | [0017](0017-commit-a-per-host-benchmark-baseline-with-an-automated-regression-check.md) | Accepted | Commit a per-host benchmark baseline with an automated regression check |
 | [0018](0018-disable-git-rerere-inside-vlab-picks-and-landing-merges.md) | Accepted | Disable Git rerere inside vlab's cherry-picks and landing merges |
+| [0019](0019-route-every-git-read-through-one-engine-seam.md) | Accepted | Route every Git read through one engine seam with per-operation fallback |
 
 ## Creating or changing an ADR
 

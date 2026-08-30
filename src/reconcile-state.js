@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { repoContext, runGit } from "./git.js";
+import { repoContext } from "./engine.js";
+
+export { unmergedPaths } from "./engine.js";
 import { readJson, writeJson } from "./store.js";
 
 export function reconciliationStatePath(cwd = process.cwd()) {
@@ -23,14 +25,6 @@ export function writeReconciliationState(state, cwd = process.cwd()) {
 
 export function clearReconciliationState(cwd = process.cwd()) {
   fs.rmSync(reconciliationStatePath(cwd), { force: true });
-}
-
-export function unmergedPaths(cwd = process.cwd()) {
-  const result = runGit(["diff", "--name-only", "--diff-filter=U"], {
-    cwd,
-    allowFailure: true,
-  });
-  return result.stdout ? result.stdout.split(/\r?\n/).filter(Boolean) : [];
 }
 
 export function cherryPickHead(cwd = process.cwd()) {

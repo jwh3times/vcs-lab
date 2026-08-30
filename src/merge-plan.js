@@ -1,34 +1,16 @@
+import { withGitObjectSession } from "./git.js";
 import {
+  commitHistory,
   isAncestor,
   mergeBase,
+  patchEquivalentCommits,
   resolveObjectIds,
-  runGit,
-  withGitObjectSession,
-} from "./git.js";
+} from "./engine.js";
 import { recordsReachableFrom } from "./notes.js";
 import { acceptedCausalRecords } from "./metadata.js";
 
-function parseHistory(output) {
-  const records = [];
-  const fields = output.split("\0");
-  for (let index = 0; index + 2 < fields.length; index += 3) {
-    const commit = fields[index].trim();
-    if (!commit) continue;
-    records.push({
-      commit,
-      subject: fields[index + 1],
-      message: fields[index + 2],
-    });
-  }
-  return records;
-}
-
 function directChangeCoverage(ref, cwd) {
-  const output = runGit(
-    ["log", "-z", ref, "--format=%H%x00%s%x00%B"],
-    { cwd, trim: false },
-  ).stdout;
-  const history = parseHistory(output);
+  const history = commitHistory([ref], cwd);
   return {
     commits: new Set(history.map((item) => item.commit)),
     changeIds: new Set(
@@ -61,28 +43,14 @@ function receiptCoverage(ref, directCommits, cwd) {
 }
 
 function sourceChanges(base, source, cwd) {
-  const output = runGit(
-    ["log", "-z", "--reverse", "--format=%H%x00%s%x00%B", `${base}..${source}`],
-    { cwd, trim: false },
-  ).stdout;
-  return parseHistory(output).map((item) => ({
+  return commitHistory([`${base}..${source}`], cwd, { reverse: true }).map((item) => ({
     ...item,
     changeId: extractChangeId(item.commit, item.message),
   }));
 }
 
 function patchCandidates(target, source, base, cwd) {
-  const result = runGit(["cherry", target, source, base], {
-    cwd,
-    allowFailure: true,
-  });
-  const candidates = new Set();
-  if (!result.ok || !result.stdout) return candidates;
-  for (const line of result.stdout.split(/\r?\n/)) {
-    const match = line.match(/^(-|\+)\s+([0-9a-f]+)/i);
-    if (match?.[1] === "-") candidates.add(match[2]);
-  }
-  return candidates;
+  return new Set(patchEquivalentCommits(target, source, base, cwd));
 }
 
 function chooseEffectiveBase(physicalBase, receipts, sourceHead, cwd) {

@@ -1,17 +1,20 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { extractTrailer, gitText, runGit } from "./git.js";
 import {
   commitMessage,
   currentHead,
-  extractTrailer,
-  gitText,
+  ignoredPaths,
+  isInsideWorkTree,
+  porcelainStatus,
   refExists,
   repoContext,
   resolveRevision,
-  runGit,
+  symbolicRef,
   treeId,
-} from "./git.js";
+  workspaceStatus,
+} from "./engine.js";
 import { newId, sha256, slug } from "./ids.js";
 import { ensureLabRuntime, readJson, writeJson } from "./store.js";
 import { CliError } from "./errors.js";
@@ -54,32 +57,6 @@ function findWorkspace(state, value) {
   return { index, workspace: state.workspaces[index] };
 }
 
-/**
- * Parse `git status --porcelain=v2 --branch -z` output into the exact HEAD
- * commit and the number of changed or untracked entries. Header fields start
- * with `# `; rename and copy entries (`2 ...`) carry the original path in a
- * second NUL-terminated field that must not be counted as another entry.
- */
-function parseWorktreeStatus(output) {
-  let head = null;
-  let dirtyFiles = 0;
-  const fields = output.split("\0");
-  for (let index = 0; index < fields.length; index += 1) {
-    const field = fields[index];
-    if (!field) continue;
-    if (field.startsWith("# ")) {
-      if (field.startsWith("# branch.oid ")) {
-        const oid = field.slice("# branch.oid ".length);
-        head = oid === "(initial)" ? null : oid;
-      }
-      continue;
-    }
-    dirtyFiles += 1;
-    if (field.startsWith("2 ")) index += 1;
-  }
-  return { head, dirtyFiles };
-}
-
 function workspacePathKind(workspacePath) {
   let stat;
   try {
@@ -89,14 +66,6 @@ function workspacePathKind(workspacePath) {
   }
   if (!stat) return "missing";
   return stat.isDirectory() ? "directory" : "other";
-}
-
-function isInsideWorkTree(workspacePath) {
-  const probe = runGit(["rev-parse", "--is-inside-work-tree"], {
-    cwd: workspacePath,
-    allowFailure: true,
-  });
-  return probe.ok && probe.stdout === "true";
 }
 
 function inspectWorkspace(workspace) {
@@ -112,18 +81,14 @@ function inspectWorkspace(workspace) {
     // count together. When it fails, a directory Git does not recognize as a
     // work tree is invalid; a recognized work tree whose status cannot be
     // read is an error rather than a silently degraded entry.
-    const status = runGit(["status", "--porcelain=v2", "--branch", "-z"], {
-      cwd: workspace.path,
-      allowFailure: true,
-      trim: false,
-    });
+    const status = workspaceStatus(workspace.path);
     if (status.ok) {
       pathStatus = "active";
-      ({ head, dirtyFiles } = parseWorktreeStatus(status.stdout));
+      ({ head, dirtyFiles } = status);
     } else if (isInsideWorkTree(workspace.path)) {
       throw new CliError(
         `git status --porcelain=v2 --branch -z failed in workspace '${workspace.name}'`,
-        { details: status.output, exitCode: status.status || 1 },
+        { details: status.error, exitCode: status.exitCode },
       );
     } else {
       pathStatus = "invalid";
@@ -407,19 +372,14 @@ export function archiveWorkspace(value, options = {}) {
   requireMaterialized(workspace, "archiving it");
   assertCallerOutsideWorkspace(cwd, workspace, "archive");
 
-  const status = gitText(["status", "--porcelain=v1"], {
-    cwd: workspace.path,
-  });
+  const status = porcelainStatus(workspace.path);
   if (status) {
     throw new CliError(
       `Workspace '${workspace.name}' has tracked or untracked changes. Commit or remove them before archiving.`,
       { details: status },
     );
   }
-  const ignored = gitText(
-    ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
-    { cwd: workspace.path, trim: false },
-  ).split("\0").filter(Boolean);
+  const ignored = ignoredPaths(workspace.path);
   if (ignored.length) {
     throw new CliError(
       `Workspace '${workspace.name}' contains ignored files. Move or remove them before archiving.`,
@@ -503,7 +463,12 @@ export function repairWorkspace(value, destination, options = {}) {
   if (path.resolve(repairedContext.commonDir) !== path.resolve(context.commonDir)) {
     throw new CliError("Repair path belongs to a different Git repository.");
   }
-  const branch = gitText(["branch", "--show-current"], { cwd: repairedPath });
+  // The branch name exactly as `git branch --show-current` reports it: the
+  // symbolic HEAD without its `refs/heads/` prefix, or empty when detached.
+  const headRef = symbolicRef("HEAD", repairedPath);
+  const branch = headRef?.startsWith("refs/heads/")
+    ? headRef.slice("refs/heads/".length)
+    : "";
   if (branch !== workspace.compatibilityBranch) {
     throw new CliError(
       `Repair path has branch '${branch || "(detached)"}', expected '${workspace.compatibilityBranch}'.`,

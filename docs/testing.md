@@ -56,6 +56,22 @@ VLAB_FORECAST_ENGINE=merge-tree npm test
 VLAB_FORECAST_ENGINE=worktree npm test
 ```
 
+Run it with the native read engine selected. No native binding exists yet,
+so every read operation passes through to Git and is recorded as a fallback;
+what the run proves is that every read the suite exercises goes through the
+engine seam (`src/engine.js`), because a read that bypasses the seam is
+refused in this mode (ADR-0019):
+
+```powershell
+$env:VLAB_ENGINE = "native"
+npm test
+Remove-Item Env:VLAB_ENGINE -ErrorAction SilentlyContinue
+```
+
+```bash
+VLAB_ENGINE=native npm test
+```
+
 Run the maintained demonstrations when changing their workflows:
 
 ```bash
@@ -68,9 +84,11 @@ npm run demo:git-session
 ```
 
 Use targeted Node test-name patterns during development, but complete the
-ordinary, forced-session, and both forced-engine runs before treating a
-cross-cutting or forecast change as qualified. `npm run demo:git-session`
-additionally compares the three forecast modes on one queue.
+ordinary, forced-session, both forced-forecast-engine, and native-engine runs
+before treating a cross-cutting, forecast, or read-path change as qualified.
+`npm run demo:git-session` additionally compares the three forecast modes on
+one queue, and `vlab doctor --differential` compares the read engines
+operation by operation in any repository.
 
 ## Benchmark regression check
 
@@ -115,8 +133,8 @@ unique and every reference must resolve to a definition.
 A release candidate is eligible only when:
 
 1. the source checkout begins and ends clean at the same candidate commit;
-2. the integration suite passes in ordinary, forced-session, and both forced
-   forecast-engine modes;
+2. the integration suite passes in ordinary, forced-session, both forced
+   forecast-engine, and native read-engine modes;
 3. all maintained demos complete;
 4. metadata validation reports no unexpected errors;
 5. expected-failure cases leave protected refs and worktrees unchanged;

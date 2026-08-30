@@ -4939,3 +4939,233 @@ test("merge-tree workspace forecasts match the worktree oracle for committed hea
   assert.equal(git(sourcePath, "status", "--porcelain=v1"), sourceStatus);
   assert.equal(readText(sourcePath, "draft.txt"), "uncommitted agent draft\n");
 });
+
+/**
+ * The names a domain module may import from the Git engine: mutations,
+ * transports, selectors, metrics, and pure helpers. Every read comes from
+ * `src/engine.js` (ADR-0019).
+ */
+const GIT_ENGINE_NON_READ_EXPORTS = new Set([
+  "runGit",
+  "gitText",
+  "GIT_NO_RERERE",
+  "beginGitMetrics",
+  "endGitMetrics",
+  "withGitObjectSession",
+  "gitObjectSessionEnabled",
+  "FORECAST_ENGINES",
+  "forecastEngine",
+  "defaultForecastEngine",
+  "MERGE_TREE_ENGINE_MIN_GIT",
+  "MergeTreeSession",
+  "READ_ENGINES",
+  "readEngine",
+  "withReadEngine",
+  "extractTrailer",
+]);
+
+function stripVolatile(value) {
+  return JSON.parse(JSON.stringify(value, (key, item) =>
+    ["timings", "metrics", "id", "forecastId", "createdAt"].includes(key) ? undefined : item,
+  ));
+}
+
+test("every repository read passes through the engine seam and the native engine passes through to Git", async (t) => {
+  // Import discipline: only the seam reads from the Git engine, and only the
+  // doctor's process-cost probes may bypass it.
+  const srcDir = path.join(projectRoot, "src");
+  const engineModules = new Set([
+    "git.js",
+    "engine.js",
+    "git-session-worker.js",
+    "merge-tree-session-worker.js",
+  ]);
+  for (const file of fs.readdirSync(srcDir).filter((name) => name.endsWith(".js"))) {
+    const source = fs.readFileSync(path.join(srcDir, file), "utf8");
+    if (engineModules.has(file)) continue;
+    if (file !== "cli.js") {
+      assert.ok(!source.includes("rawProbe"), `${file} must not bypass the engine seam with rawProbe`);
+    }
+    for (const block of source.matchAll(/import\s*\{([^}]*)\}\s*from\s*"\.\/git\.js";/g)) {
+      const names = block[1]
+        .split(",")
+        .map((item) => item.trim().split(/\s+as\s+/)[0])
+        .filter(Boolean);
+      for (const name of names) {
+        assert.ok(
+          GIT_ENGINE_NON_READ_EXPORTS.has(name),
+          `${file} imports ${name} from ./git.js; reads must come from ./engine.js`,
+        );
+      }
+    }
+  }
+  const engine = await import(pathToFileURL(path.join(srcDir, "engine.js")).href);
+  const gitEngine = await import(pathToFileURL(path.join(srcDir, "git.js")).href);
+  assert.ok(engine.READ_OPERATIONS.length >= 38);
+  for (const operation of engine.READ_OPERATIONS) {
+    assert.equal(typeof engine[operation], "function", `${operation} is exported by the seam`);
+  }
+  assert.deepEqual(engine.READ_ENGINES, ["git", "native"]);
+
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "init");
+  vlab(repo, "commit", "-m", "base");
+  const head = git(repo, "rev-parse", "HEAD");
+  git(repo, "switch", "-c", "feature");
+  write(repo, "feature.txt", "feature\n");
+  git(repo, "add", "feature.txt");
+  vlab(repo, "commit", "-m", "feature");
+  git(repo, "switch", "main");
+  vlab(repo, "workspace", "create", "agent-a");
+
+  // The same commands answer identically under each engine, and the metrics
+  // of every result name the engine and its fallbacks.
+  const runWithEngine = (engineName, ...args) => {
+    const result = spawnSync(process.execPath, [cli, ...args], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_ENGINE: engineName },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  for (const args of [
+    ["merge-plan", "feature", "--json"],
+    ["rebase-plan", "main", "feature", "--json"],
+    ["workspace", "list", "--json"],
+    ["resolve", "list", "--json"],
+    ["metadata", "status", "--json"],
+  ]) {
+    assert.deepEqual(
+      stripVolatile(runWithEngine("native", ...args)),
+      stripVolatile(runWithEngine("git", ...args)),
+      `${args.join(" ")} differs between engines`,
+    );
+  }
+  const gitForecast = JSON.parse(vlab(repo, "forecast", "feature", "--json", "--engine", "git"));
+  const nativeForecast = JSON.parse(vlab(repo, "forecast", "feature", "--json", "--engine=native"));
+  assert.deepEqual(normalizeForecast(nativeForecast), normalizeForecast(gitForecast));
+  assert.equal(gitForecast.status, "complete");
+  assert.equal(gitForecast.timings.git.engine, "git");
+  assert.deepEqual(gitForecast.timings.git.fallbacks, []);
+  assert.equal(gitForecast.timings.git.directReads, 0);
+  assert.equal(nativeForecast.timings.git.engine, "native");
+  assert.equal(nativeForecast.timings.git.directReads, 0);
+  assert.equal(nativeForecast.timings.git.processes, gitForecast.timings.git.processes);
+  assert.ok(nativeForecast.timings.git.fallbacks.length > 0);
+  for (const fallback of nativeForecast.timings.git.fallbacks) {
+    assert.equal(fallback.reason, "binding-missing");
+    assert.ok(fallback.count >= 1);
+    assert.ok(engine.READ_OPERATIONS.includes(fallback.operation), fallback.operation);
+  }
+
+  // The doctor names both selectors and compares the engines operation by
+  // operation with the Git engine as oracle.
+  const doctor = JSON.parse(vlab(repo, "doctor", "--differential", "--engine", "native"));
+  assert.equal(doctor.engine.selected, "native");
+  assert.equal(doctor.engine.default, "git");
+  assert.deepEqual(doctor.engine.available, ["git", "native"]);
+  assert.deepEqual(doctor.engine.native, {
+    available: false,
+    reason: "binding-missing",
+    profile: null,
+    operations: [],
+  });
+  assert.ok(["worktree", "merge-tree"].includes(doctor.forecastEngine));
+  const differential = doctor.differential;
+  assert.equal(differential.schema, "vcs-lab.engine-differential/v1");
+  assert.deepEqual(differential.engines, ["git", "native"]);
+  assert.equal(differential.oracle, "git");
+  assert.equal(differential.equal, true);
+  assert.deepEqual(differential.counts, {
+    equal: engine.READ_OPERATIONS.length,
+    different: 0,
+    skipped: 0,
+  });
+  assert.deepEqual(
+    differential.operations.map((item) => item.operation).sort(),
+    [...engine.READ_OPERATIONS].sort(),
+  );
+  for (const item of differential.operations) {
+    assert.equal(item.status, "equal", item.operation);
+    assert.equal(item.results.git.error, null, item.operation);
+    assert.equal(item.results.git.digest, item.results.native.digest, item.operation);
+    assert.deepEqual(item.results.git.fallbacks, [], item.operation);
+    assert.deepEqual(
+      item.results.native.fallbacks,
+      [{ operation: item.operation, reason: "binding-missing", count: 1 }],
+      item.operation,
+    );
+    assert.equal(item.results.git.directReads, 0, item.operation);
+    assert.equal(item.results.native.directReads, 0, item.operation);
+  }
+  assert.equal(JSON.parse(vlab(repo, "doctor", "--engine", "git")).engine.selected, "git");
+  assert.equal(
+    JSON.parse(vlab(repo, "doctor", "--engine", "git")).engine.default,
+    "git",
+  );
+
+  // A read that bypasses the seam is counted in git mode and refused in
+  // native mode; the doctor's raw probes are the one exemption.
+  const previousEngine = process.env.VLAB_ENGINE;
+  try {
+    process.env.VLAB_ENGINE = "git";
+    const counted = gitEngine.beginGitMetrics("bypass");
+    assert.equal(gitEngine.runGit(["rev-parse", "HEAD"], { cwd: repo }).stdout, head);
+    const countedMetrics = gitEngine.endGitMetrics(counted);
+    assert.equal(countedMetrics.engine, "git");
+    assert.equal(countedMetrics.directReads, 1);
+    assert.deepEqual(countedMetrics.fallbacks, []);
+
+    process.env.VLAB_ENGINE = "native";
+    assert.throws(
+      () => gitEngine.runGit(["rev-parse", "HEAD"], { cwd: repo }),
+      /git rev-parse was read outside the engine seam/,
+    );
+    assert.throws(
+      () => gitEngine.runGit(["worktree", "list", "--porcelain"], { cwd: repo }),
+      /git worktree was read outside the engine seam/,
+    );
+    assert.equal(
+      gitEngine.runGit(["rev-parse", "HEAD"], { cwd: repo, rawProbe: true }).stdout,
+      head,
+    );
+    const seam = gitEngine.beginGitMetrics("seam");
+    assert.equal(engine.currentHead(repo), head);
+    assert.equal(engine.treeId(head, repo), git(repo, "rev-parse", `${head}^{tree}`));
+    const seamMetrics = gitEngine.endGitMetrics(seam);
+    assert.equal(seamMetrics.engine, "native");
+    assert.equal(seamMetrics.directReads, 0);
+    assert.deepEqual(seamMetrics.fallbacks, [
+      { operation: "resolveRevision", reason: "binding-missing", count: 1 },
+      { operation: "treeId", reason: "binding-missing", count: 1 },
+    ]);
+    // A mutation is never a bypass, whichever engine is selected.
+    gitEngine.runGit(["update-ref", "refs/vcs-lab-test/probe", head], { cwd: repo });
+    assert.equal(git(repo, "rev-parse", "refs/vcs-lab-test/probe"), head);
+    assert.equal(
+      gitEngine.withReadEngine("git", () => gitEngine.readEngine()),
+      "git",
+    );
+    assert.equal(gitEngine.readEngine(), "native");
+  } finally {
+    if (previousEngine === undefined) delete process.env.VLAB_ENGINE;
+    else process.env.VLAB_ENGINE = previousEngine;
+  }
+
+  // Invalid selections fail before any work, by flag or by environment.
+  const badFlag = vlabResult(repo, "doctor", "--engine", "bogus");
+  assert.notEqual(badFlag.status, 0);
+  assert.match(badFlag.stderr, /--engine requires one of: git, native/);
+  const badEnv = spawnSync(process.execPath, [cli, "doctor"], {
+    cwd: repo,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_ENGINE: "bogus" },
+  });
+  assert.notEqual(badEnv.status, 0);
+  assert.match(badEnv.stderr, /Unknown engine 'bogus'\. Use one of: git, native/);
+  assert.equal(git(repo, "rev-parse", "HEAD"), head);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});

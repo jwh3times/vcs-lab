@@ -4,11 +4,16 @@ import { CliError } from "./errors.js";
 import {
   beginGitMetrics,
   endGitMetrics,
-  repoContext,
-  resolveObjectIds,
-  runGit,
   withGitObjectSession,
 } from "./git.js";
+import {
+  indexEntries,
+  listWorktrees,
+  porcelainStatus,
+  repoContext,
+  resolveObjectIds,
+  symbolicRef,
+} from "./engine.js";
 import { simulateCausalRebasePlan } from "./forecasts.js";
 import { newId, sha256 } from "./ids.js";
 import { readReconciliationState } from "./reconcile-state.js";
@@ -87,26 +92,13 @@ export function rebaseForecastForPlan(id, plan, cwd = process.cwd()) {
 
 function captureCaller(cwd) {
   const [head, tree] = resolveObjectIds(["HEAD^{commit}", "HEAD^{tree}"], cwd);
-  const branch = runGit(
-    ["symbolic-ref", "--quiet", "--short", "HEAD"],
-    { cwd, allowFailure: true },
-  );
   return {
     head,
     tree,
-    branch: branch.ok ? branch.stdout : null,
-    index: runGit(["ls-files", "--stage", "-z"], {
-      cwd,
-      trim: false,
-    }).stdout,
-    status: runGit(["status", "--porcelain=v1", "-z"], {
-      cwd,
-      trim: false,
-    }).stdout,
-    worktrees: runGit(["worktree", "list", "--porcelain"], {
-      cwd,
-      trim: false,
-    }).stdout,
+    branch: symbolicRef("HEAD", cwd, { short: true }),
+    index: JSON.stringify(indexEntries(cwd)),
+    status: porcelainStatus(cwd, { nulTerminated: true }),
+    worktrees: JSON.stringify(listWorktrees(cwd)),
   };
 }
 

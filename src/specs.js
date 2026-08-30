@@ -4,7 +4,8 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { deflateSync } from "node:zlib";
 import { gitBlobId, newId, sha256, slug } from "./ids.js";
-import { readGitObjects, repoContext, runGit } from "./git.js";
+import { runGit } from "./git.js";
+import { pathInventory, readGitObjects, repoContext } from "./engine.js";
 import { readJson } from "./store.js";
 import {
   readPendingOperation,
@@ -422,41 +423,17 @@ export function indexSpec(file, cwd = process.cwd(), options = {}) {
 }
 
 function markdownInventory(cwd) {
-  const output = runGit(
-    [
-      "ls-files",
-      "-z",
-      "-t",
-      "--cached",
-      "--modified",
-      "--others",
-      "--exclude-standard",
-      "--stage",
-      "--full-name",
-      "--",
-      "*.md",
-    ],
-    { cwd, trim: false },
-  ).stdout;
   const files = new Set();
   const blobs = new Map();
   const dirty = new Set();
-  for (const record of output.split("\0").filter(Boolean)) {
-    if (record.startsWith("? ")) {
-      const file = record.slice(2);
-      files.add(file);
-      dirty.add(file);
+  for (const entry of pathInventory(["*.md"], cwd)) {
+    files.add(entry.path);
+    if (entry.tag === "?") {
+      dirty.add(entry.path);
       continue;
     }
-    const tag = record[0];
-    const body = record.slice(2);
-    const tab = body.indexOf("\t");
-    if (tab < 0) continue;
-    const metadata = body.slice(0, tab).split(" ");
-    const file = body.slice(tab + 1);
-    files.add(file);
-    if (metadata[2] === "0") blobs.set(file, metadata[1]);
-    if (tag !== "H") dirty.add(file);
+    if (entry.stage === 0) blobs.set(entry.path, entry.blob);
+    if (entry.tag !== "H") dirty.add(entry.path);
   }
   return {
     files: [...files]

@@ -1,13 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
+import { runGit } from "./git.js";
 import {
+  indexEntries,
   inspectGitObjects,
+  listRefs,
   readGitBlob,
   readGitObjects,
   refExists,
   resolveRevision,
-  runGit,
-} from "./git.js";
+} from "./engine.js";
 import { newId } from "./ids.js";
 import { appendNote, readNote, readNotes } from "./notes.js";
 import { acceptedCausalRecords } from "./metadata.js";
@@ -23,30 +25,11 @@ import { CliError } from "./errors.js";
 
 const RESOLUTION_REFS = "refs/vcs-lab/resolutions";
 
-function parseIndexEntries(output) {
-  const entries = [];
-  for (const record of output.split("\0")) {
-    if (!record) continue;
-    const tab = record.indexOf("\t");
-    if (tab < 0) continue;
-    const [mode, blob, stageText] = record.slice(0, tab).split(/\s+/);
-    entries.push({
-      mode,
-      blob,
-      stage: Number(stageText),
-      path: record.slice(tab + 1),
-    });
-  }
-  return entries;
-}
-
 function conflictStages(filePath, cwd) {
-  const output = runGit(["ls-files", "-u", "-z", "--", filePath], {
-    cwd,
-    trim: false,
-  }).stdout;
   const byStage = new Map(
-    parseIndexEntries(output).map((entry) => [entry.stage, entry]),
+    indexEntries(cwd, { paths: [filePath], unmergedOnly: true }).map(
+      (entry) => [entry.stage, entry],
+    ),
   );
   const compact = (stage) => {
     const entry = byStage.get(stage);
@@ -81,20 +64,13 @@ function compactResolution(record) {
  * error rather than an empty catalog.
  */
 function listResolutionRefs(cwd) {
-  const scan = runGit(
-    ["for-each-ref", "--format=%(refname)%00%(objectname)", RESOLUTION_REFS],
-    { cwd, allowFailure: true },
-  );
-  if (!scan.ok) {
+  let entries;
+  try {
+    entries = listRefs(RESOLUTION_REFS, cwd);
+  } catch (error) {
     throw new CliError("Could not scan resolution retention refs.", {
-      details: scan.stderr,
+      details: error.details,
     });
-  }
-  const entries = [];
-  for (const line of scan.stdout.split(/\r?\n/)) {
-    if (!line) continue;
-    const [ref, oid] = line.split("\0");
-    if (ref && oid) entries.push({ ref, oid });
   }
   if (entries.length === 0) return [];
   const objects = inspectGitObjects(
@@ -165,11 +141,9 @@ export function captureConflictDescriptors(paths, cwd = process.cwd()) {
 }
 
 function stagedResult(filePath, cwd) {
-  const output = runGit(["ls-files", "--stage", "-z", "--", filePath], {
-    cwd,
-    trim: false,
-  }).stdout;
-  const entry = parseIndexEntries(output).find((item) => item.stage === 0);
+  const entry = indexEntries(cwd, { paths: [filePath] }).find(
+    (item) => item.stage === 0,
+  );
   return entry ? { resultMode: entry.mode, resultBlob: entry.blob } : {
     resultMode: null,
     resultBlob: null,

@@ -7,6 +7,7 @@ import {
   endGitMetrics,
   runGit,
 } from "./git.js";
+import { countCommits, gitVersion, listWorktrees } from "./engine.js";
 import { appendNote, listNoteRecords } from "./notes.js";
 import { metadataStatus } from "./metadata.js";
 import {
@@ -112,14 +113,7 @@ function measurePhase(name, sampleCount, operation) {
 }
 
 function countWorktrees(repo) {
-  const output = runGit(["worktree", "list", "--porcelain", "-z"], {
-    cwd: repo,
-    trim: false,
-  }).stdout;
-  return output
-    .split("\0")
-    .filter((field) => field.startsWith("worktree "))
-    .length;
+  return listWorktrees(repo).length;
 }
 
 function ratio(numerator, denominator) {
@@ -299,7 +293,7 @@ export function benchmarkRepositoryScale(options = {}) {
       { cwd: repo },
     );
     runGit(["config", "core.autocrlf", "false"], { cwd: repo });
-    const gitVersion = runGit(["--version"], { cwd: repo }).stdout;
+    const gitVersionText = gitVersion(repo).raw;
     const emptyTree = runGit(["mktree"], { cwd: repo, input: "" }).stdout;
     const commits = [];
     let parent = null;
@@ -408,10 +402,7 @@ export function benchmarkRepositoryScale(options = {}) {
     };
     const measurements = {
       history: measurePhase("history", sampleCount, () => ({
-        commits: Number(runGit(
-          ["rev-list", "--count", "refs/heads/main"],
-          { cwd: repo },
-        ).stdout),
+        commits: countCommits("refs/heads/main", repo),
       })),
       gitWorktrees: measurePhase("git-worktrees", sampleCount, () => ({
         worktrees: countWorktrees(repo),
@@ -455,7 +446,7 @@ export function benchmarkRepositoryScale(options = {}) {
       environment: {
         platform: process.platform,
         node: process.version,
-        git: gitVersion,
+        git: gitVersionText,
       },
       fixture,
       coverage: {

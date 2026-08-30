@@ -1,14 +1,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { beginGitMetrics, endGitMetrics, runGit } from "./git.js";
 import {
-  beginGitMetrics,
-  endGitMetrics,
   readGitObjects,
+  readNoteText,
   refExists,
+  refTarget,
   repoContext,
-  runGit,
-} from "./git.js";
+  treeId,
+} from "./engine.js";
 import { sha256 } from "./ids.js";
 import {
   canonicalJson,
@@ -125,14 +126,11 @@ function buildNotesCommit(entries, cwd, options = {}) {
 }
 
 function readRecordsFromNoteRef(ref, attachment, cwd) {
-  const result = runGit(["notes", `--ref=${ref}`, "show", attachment], {
-    cwd,
-    allowFailure: true,
-  });
-  if (!result.ok || !result.stdout) return [];
+  const text = readNoteText(ref, attachment, cwd);
+  if (!text) return [];
   let parsed;
   try {
-    parsed = JSON.parse(result.stdout);
+    parsed = JSON.parse(text);
   } catch {
     throw new CliError(`Cannot merge malformed existing note on '${attachment}'.`);
   }
@@ -307,11 +305,7 @@ function inspectEnvelopePayload(envelope) {
       ),
     );
     const refs = envelope.manifest.refs.map((entry) => {
-      const result = runGit(["show-ref", "--verify", "--hash", entry.ref], {
-        cwd: temporary.repo,
-        allowFailure: true,
-      });
-      if (!result.ok || result.stdout !== entry.oid) {
+      if (refTarget(entry.ref, temporary.repo) !== entry.oid) {
         throw new CliError(`Metadata envelope ref '${entry.ref}' does not match its manifest.`);
       }
       return entry;
@@ -399,10 +393,7 @@ function importPreview(envelope, incoming, cwd) {
   });
   const hasRecordAdds = records.some((entry) => entry.action === "add");
   const refs = incoming.refs.map((entry) => {
-    const current = runGit(["show-ref", "--verify", "--hash", entry.ref], {
-      cwd,
-      allowFailure: true,
-    });
+    const current = refTarget(entry.ref, cwd);
     // Ref targets are compared raw, without peeling: the manifest records the
     // unpeeled object ID of each exported ref, so a retention ref that names
     // an annotated tag of its retention commit round-trips exactly. As a
@@ -410,10 +401,10 @@ function importPreview(envelope, incoming, cwd) {
     // and a source ref that names a tag of that same commit are different
     // targets and are reported as a conflict rather than a noop.
     let action = "create";
-    if (entry.ref === NOTES_REF && current.ok) action = hasRecordAdds ? "merge" : "noop";
-    else if (current.ok && current.stdout === entry.oid) action = "noop";
-    else if (current.ok) action = "conflict";
-    return { ref: entry.ref, incoming: entry.oid, existing: current.ok ? current.stdout : null, action };
+    if (entry.ref === NOTES_REF && current !== null) action = hasRecordAdds ? "merge" : "noop";
+    else if (current === entry.oid) action = "noop";
+    else if (current !== null) action = "conflict";
+    return { ref: entry.ref, incoming: entry.oid, existing: current, action };
   });
   const objectProblems = destinationObjectProblems(
     incoming.records,
@@ -467,11 +458,7 @@ function stageEnvelopeRefs(envelope, cwd) {
     // Compare the raw staged target rather than a peeled commit: the manifest
     // carries the unpeeled object ID, and a retention ref may legitimately
     // name an annotated tag of its retention commit.
-    const stagedTarget = runGit(["show-ref", "--verify", "--hash", entry.stageRef], {
-      cwd,
-      allowFailure: true,
-    });
-    if (!stagedTarget.ok || stagedTarget.stdout !== entry.oid) {
+    if (refTarget(entry.stageRef, cwd) !== entry.oid) {
       throw new CliError(`Staged metadata ref '${entry.ref}' changed during import.`);
     }
   }
@@ -493,35 +480,29 @@ function applyImport(envelope, incoming, preview, cwd) {
   try {
     const commands = ["start"];
     const notesStage = staged.find((entry) => entry.ref === NOTES_REF);
-    const existingNotes = runGit(["show-ref", "--verify", "--hash", NOTES_REF], {
-      cwd,
-      allowFailure: true,
-    });
+    const existingNotes = refTarget(NOTES_REF, cwd);
     const notesPreview = preview.refs.find((entry) => entry.ref === NOTES_REF);
     if (notesStage && notesPreview?.action !== "noop") {
-      if (!existingNotes.ok) {
+      if (existingNotes === null) {
         commands.push(`create ${NOTES_REF} ${notesStage.oid}`);
       } else {
         const combined = combineNoteEntries(NOTES_REF, incoming.records, cwd);
-        const existingTree = runGit(["rev-parse", `${NOTES_REF}^{tree}`], { cwd }).stdout;
+        const existingTree = treeId(NOTES_REF, cwd);
         const merged = buildNotesCommit(combined, cwd, {
           baseRef: NOTES_REF,
-          parents: [existingNotes.stdout, notesStage.oid],
+          parents: [existingNotes, notesStage.oid],
           message: `Import vcs-lab metadata ${envelope.manifest.integrity.manifestHash.slice(0, 16)}`,
         });
         if (merged.tree !== existingTree) {
-          commands.push(`update ${NOTES_REF} ${merged.commit} ${existingNotes.stdout}`);
+          commands.push(`update ${NOTES_REF} ${merged.commit} ${existingNotes}`);
         }
       }
     }
     for (const entry of staged.filter((item) => item.ref.startsWith(RESOLUTION_PREFIX))) {
-      const current = runGit(["show-ref", "--verify", "--hash", entry.ref], {
-        cwd,
-        allowFailure: true,
-      });
-      if (!current.ok) {
+      const current = refTarget(entry.ref, cwd);
+      if (current === null) {
         commands.push(`create ${entry.ref} ${entry.oid}`);
-      } else if (current.stdout !== entry.oid) {
+      } else if (current !== entry.oid) {
         throw new CliError(`Resolution ref '${entry.ref}' changed or conflicts during import.`);
       }
     }

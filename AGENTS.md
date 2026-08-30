@@ -47,10 +47,12 @@ formatter or linter; run `git diff --check` and `node --check <file>`.
 Tests use `node:test` and descriptive behavior names such as
 `test("stale forecasts fail before starting a reconciliation", ...)`. Add
 regression coverage for observable changes and use temporary repositories for
-history-changing cases. For Git-session, forecast, or cross-cutting changes, run
-`npm test`, `VLAB_GIT_SESSION=1 npm test`, `VLAB_FORECAST_ENGINE=worktree npm test`,
-and `VLAB_FORECAST_ENGINE=merge-tree npm test` (the default engine differs by
-platform). No numeric coverage threshold is
+history-changing cases. For Git-session, forecast, read-path, or cross-cutting
+changes, run `npm test`, `VLAB_GIT_SESSION=1 npm test`,
+`VLAB_FORECAST_ENGINE=worktree npm test`, `VLAB_FORECAST_ENGINE=merge-tree npm test`
+(the default forecast engine differs by platform), and `VLAB_ENGINE=native npm test`
+(every read must pass through `src/engine.js`; never call `runGit` for a read
+in a domain module). No numeric coverage threshold is
 defined; preserve the behavioral and failure-safety guarantees in
 `docs/testing.md`.
 

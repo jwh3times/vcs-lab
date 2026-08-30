@@ -1,15 +1,14 @@
+import { GIT_NO_RERERE, runGit } from "./git.js";
 import {
   assertClean,
   changeIdForCommit,
   commitSubject,
   currentHead,
-  GIT_NO_RERERE,
   listCommits,
   mergeBase,
   resolveRevision,
-  runGit,
   treeId,
-} from "./git.js";
+} from "./engine.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
 
