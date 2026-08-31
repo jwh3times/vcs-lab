@@ -178,11 +178,22 @@ current `vlab` path:
    bottleneck. `core.fsmonitor` is rejected without implementation — it starts
    a per-repository daemon that outlives the command, which the release gate
    forbids. Git's best mode is therefore Git's current mode, satisfying Gate A
-   item 2 with the existing baseline. What remains open is the second half:
-   derive sparse-checkout cones from workspace focus, with workspace-creation
-   and materialized-bytes phases added to a v2 benchmark profile. That targets
-   materialization rather than reads, and is the most plausible remaining
-   source of a budget the batched Git path misses.
+   item 2 with the existing baseline.
+
+   **The second half is delivered in part (2026-08-31).** Measured first:
+   `vlab workspace create` on a 3000-file tree took 1804 ms, the first phase
+   in this program over the profile's 1000 ms interactive budget, and unlike
+   the read paths this cost scales with the tree. Sparse cones are therefore
+   justified and implemented — `vlab workspace create --cone <dir,dir>`, an
+   optional `cone` member on `vcs-lab.workspace/v1`, reapplied on restore and
+   reversible with `git sparse-checkout disable` — taking the same command to
+   467 ms. Two redundant Git processes were removed from the command at the
+   same time, and it now runs at 379 ms against a 154 ms raw-Git floor.
+   **Gate A item 3 is still unmet**: the one budget miss found in the whole
+   program was fixed by stock Git, which is exactly what phase 0a is for. What
+   remains of this item is the v2 benchmark profile with workspace-creation
+   and materialized-bytes phases, which ADR-0017 makes a deliberate
+   re-record step for every host.
 
 Exit criteria: predicted and per-step trees are byte-identical between the two
 simulators on the whole suite in both session modes; the 12-change demo

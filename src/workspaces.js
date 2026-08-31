@@ -6,6 +6,7 @@ import {
   commitMessage,
   currentHead,
   ignoredPaths,
+  inspectGitObjects,
   isInsideWorkTree,
   porcelainStatus,
   refExists,
@@ -172,12 +173,76 @@ function appendPreviousPath(workspace, previousPath) {
   ];
 }
 
+/**
+ * Normalize and validate a sparse-checkout cone. Cone mode takes directory
+ * prefixes relative to the repository root; anything absolute, empty, or
+ * climbing out of the tree is refused rather than passed to Git, because a
+ * cone that escapes the worktree is a request nobody can mean.
+ */
+function normalizeCone(cone) {
+  if (cone === undefined || cone === null) return null;
+  const entries = (Array.isArray(cone) ? cone : String(cone).split(","))
+    .map((entry) => String(entry).trim().split("\\").join("/").replace(/^\.\//, ""))
+    .filter(Boolean)
+    .map((entry) => entry.replace(/\/+$/, ""));
+  if (entries.length === 0) return null;
+  for (const entry of entries) {
+    if (path.isAbsolute(entry) || /^[a-zA-Z]:/.test(entry)) {
+      throw new CliError(`Cone path must be relative to the repository root: '${entry}'`);
+    }
+    if (entry === ".." || entry.startsWith("../") || entry.includes("/../")) {
+      throw new CliError(`Cone path must stay inside the repository: '${entry}'`);
+    }
+  }
+  return [...new Set(entries)].sort();
+}
+
+/**
+ * Materialize a linked worktree, optionally restricted to a sparse-checkout
+ * cone so the workspace writes only the directories it owns. Measured on this
+ * host, a cone over one of twenty directories cut a 3000-file checkout from
+ * 1529 ms to 191 ms and from 2946 KiB to 147 KiB (issue #10).
+ *
+ * The cone changes only which files are present in the working tree: the
+ * workspace ID, compatibility branch, base snapshot, checkpoints, and
+ * lifecycle are identical with it and without it, and Git still has the whole
+ * tree. It is opt-in, and reversible in place with
+ * `git sparse-checkout disable` inside the worktree.
+ */
+function addWorktree(context, worktreePath, addArgs, cone) {
+  if (!cone?.length) {
+    runGit(["worktree", "add", ...addArgs], { cwd: context.root });
+    return;
+  }
+  runGit(["worktree", "add", "--no-checkout", ...addArgs], { cwd: context.root });
+  // `set --cone` establishes cone mode itself, so a separate
+  // `sparse-checkout init` is a process spent on nothing (Git 2.37+; the
+  // supported floor is 2.40).
+  runGit(["sparse-checkout", "set", "--cone", ...cone], { cwd: worktreePath });
+  runGit(["checkout"], { cwd: worktreePath });
+}
+
 export function createWorkspace(name, options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const context = repoContext(cwd);
   const target = options.from ?? "HEAD";
-  const baseSnapshot = resolveRevision(target, cwd);
   const safeName = slug(name);
+  const branch = `vlab/ws/${safeName}`;
+
+  // Resolving the base and checking the branch for a collision are two
+  // questions about objects, so they go through one batched inspection rather
+  // than a rev-parse process and a show-ref process. On this Windows host each
+  // avoided process is about 35 ms of a command that measured 457 ms, and the
+  // batch also rides the object session when one is open (ADR-0009, ADR-0019).
+  const [baseObject, branchObject] = inspectGitObjects(
+    [`${target}^{commit}`, `refs/heads/${branch}`],
+    cwd,
+  );
+  if (!baseObject.exists || baseObject.type !== "commit") {
+    throw new CliError(`Git revision '${target}' did not resolve to a commit.`);
+  }
+  const baseSnapshot = baseObject.oid;
+
   const state = readWorkspaces(cwd);
   if (state.workspaces.some((workspace) => workspace.name === name)) {
     throw new CliError(`Workspace '${name}' already exists.`);
@@ -188,14 +253,12 @@ export function createWorkspace(name, options = {}) {
   const workspacePath = path.resolve(
     options.path ?? path.join(parent, `${repoName}.workspaces`, safeName),
   );
-  const branch = `vlab/ws/${safeName}`;
-  if (refExists(`refs/heads/${branch}`, cwd)) {
+  if (branchObject.exists) {
     throw new CliError(`The compatibility branch '${branch}' already exists.`);
   }
+  const cone = normalizeCone(options.cone);
   fs.mkdirSync(path.dirname(workspacePath), { recursive: true });
-  runGit(["worktree", "add", "-b", branch, workspacePath, baseSnapshot], {
-    cwd: context.root,
-  });
+  addWorktree(context, workspacePath, ["-b", branch, workspacePath, baseSnapshot], cone);
 
   const workspace = {
     schema: "vcs-lab.workspace/v1",
@@ -208,6 +271,7 @@ export function createWorkspace(name, options = {}) {
     createdAt: new Date().toISOString(),
     owner: options.owner ?? null,
     focus: options.focus ?? null,
+    cone,
     lifecycle: "active",
   };
   state.workspaces.push(workspace);
@@ -439,9 +503,14 @@ export function restoreWorkspace(value, options = {}) {
     throw new CliError(`Workspace restore path already exists: ${restoredPath}`);
   }
   fs.mkdirSync(path.dirname(restoredPath), { recursive: true });
-  runGit(
-    ["worktree", "add", restoredPath, workspace.compatibilityBranch],
-    { cwd: context.root },
+  // Restoring re-materializes the worktree, so it must reapply the cone the
+  // workspace was created with; otherwise an archive/restore cycle would
+  // silently write the whole tree.
+  addWorktree(
+    context,
+    restoredPath,
+    [restoredPath, workspace.compatibilityBranch],
+    normalizeCone(workspace.cone),
   );
   const now = new Date().toISOString();
   const updates = {

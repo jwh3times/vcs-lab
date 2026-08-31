@@ -1053,6 +1053,83 @@ test("cherry-pick preserves logical identity and fork makes divergence explicit"
   assert.equal(fork.relation, "derived-fork");
 });
 
+test("a sparse cone materializes only its directories and survives archive and restore", (t) => {
+  // Measured on this host, a cone over one of twenty directories cut a
+  // 3000-file checkout from 1529 ms to 191 ms (issue #10). What this test
+  // pins is the semantics, not the speed: the cone must change which files
+  // are present and nothing else about the workspace.
+  const { repo } = makeRepo(t);
+  for (const area of ["alpha", "beta", "gamma"]) {
+    for (let i = 0; i < 3; i += 1) {
+      write(repo, `${area}/file${i}.txt`, `${area} ${i}\n`);
+    }
+  }
+  write(repo, "root.txt", "root\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "fixture");
+  vlab(repo, "init");
+
+  const full = JSON.parse(vlab(repo, "workspace", "create", "full-ws"));
+  const coned = JSON.parse(
+    vlab(repo, "workspace", "create", "coned-ws", "--cone", "alpha,gamma"),
+  );
+
+  assert.equal(full.cone, null, "a workspace without --cone records no cone");
+  assert.deepEqual(coned.cone, ["alpha", "gamma"], "cone is normalized and sorted");
+
+  const present = (workspacePath, relative) =>
+    fs.existsSync(path.join(workspacePath, relative));
+
+  // The full workspace has every area; the coned one has only its own.
+  for (const area of ["alpha", "beta", "gamma"]) {
+    assert.equal(present(full.path, `${area}/file0.txt`), true, `full has ${area}`);
+  }
+  assert.equal(present(coned.path, "alpha/file0.txt"), true, "cone has alpha");
+  assert.equal(present(coned.path, "gamma/file0.txt"), true, "cone has gamma");
+  assert.equal(present(coned.path, "beta/file0.txt"), false, "cone excludes beta");
+  assert.equal(present(coned.path, "root.txt"), true, "cone mode keeps root files");
+
+  // Identity, branch, base, and lifecycle are unaffected by the cone: Git
+  // still has the whole tree, only the working tree is narrowed.
+  assert.equal(coned.baseSnapshot, full.baseSnapshot);
+  assert.equal(coned.compatibilityBranch, "vlab/ws/coned-ws");
+  assert.equal(coned.lifecycle, "active");
+  assert.equal(
+    git(repo, "rev-parse", `${coned.compatibilityBranch}^{tree}`),
+    git(repo, "rev-parse", `${full.compatibilityBranch}^{tree}`),
+    "both branches point at the same complete tree",
+  );
+
+  // A checkpoint of a coned workspace still captures the whole tree, not just
+  // the materialized part; the cone is a working-tree view, not a truncation.
+  const checkpoint = JSON.parse(
+    vlab(coned.path, "workspace", "checkpoint", "--label", "coned"),
+  );
+  assert.equal(checkpoint.workspaceName, "coned-ws");
+  assert.equal(
+    checkpoint.tree,
+    git(repo, "rev-parse", "HEAD^{tree}"),
+    "the checkpoint tree is the full tree",
+  );
+
+  // Archive and restore must reapply the cone rather than silently writing
+  // every file back.
+  vlab(repo, "workspace", "archive", "coned-ws");
+  const restored = JSON.parse(vlab(repo, "workspace", "restore", "coned-ws"));
+  assert.deepEqual(restored.cone, ["alpha", "gamma"], "restore keeps the cone");
+  assert.equal(present(restored.path, "alpha/file0.txt"), true, "restored has alpha");
+  assert.equal(present(restored.path, "beta/file0.txt"), false, "restored still excludes beta");
+
+  // The cone is reversible in place with stock Git, leaving a full checkout.
+  git(restored.path, "sparse-checkout", "disable");
+  assert.equal(present(restored.path, "beta/file0.txt"), true, "disable restores the full tree");
+
+  // A cone that escapes the repository is refused rather than handed to Git.
+  const escaping = vlabResult(repo, "workspace", "create", "bad-ws", "--cone", "../outside");
+  assert.notEqual(escaping.status, 0);
+  assert.match(escaping.stderr, /must stay inside the repository/);
+});
+
 test("workspace lifecycle preserves identity and checkpoints across move, archive, repair, and prune", (t) => {
   const { repo, parent } = makeRepo(t);
   write(repo, "base.txt", "base\n");

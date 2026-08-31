@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- Add opt-in sparse-checkout cones to workspaces (issue #10, roadmap Horizon
+  1.5 item 3): `vlab workspace create <name> --cone <dir,dir>` materializes
+  only the named directory prefixes. Measured on the Windows host with 3000
+  files across 20 directories, this took `vlab workspace create` from 1804 ms
+  to 467 ms and from 3000 files to 150 — the full checkout was the first phase
+  in this program measured over the benchmark profile's 1000 ms interactive
+  budget, and the cone brings it back under.
+  - The cone narrows the working tree and nothing else. Workspace ID,
+    compatibility branch, pinned base, checkpoints, and lifecycle are
+    unchanged, Git still holds the whole tree, and a checkpoint of a coned
+    workspace still captures the full tree. Restore reapplies the cone so an
+    archive/restore cycle does not silently write every file back, and
+    `git sparse-checkout disable` reverses it in place.
+  - Recorded as a new optional `cone` member on `vcs-lab.workspace/v1`.
+    Adding an optional member inside a version is permitted by the
+    compatibility contract; the free-text `focus` label is unchanged, since
+    redefining it to carry paths would have forced a schema version bump.
+- Spend two fewer Git processes on `vlab workspace create`. Resolving the base
+  revision and checking the compatibility branch for a collision were a
+  `rev-parse` process and a `show-ref` process; they are now one batched
+  object inspection, which also rides the object session when one is open. The
+  separate `git sparse-checkout init` is dropped because `set --cone`
+  establishes cone mode itself. Seven Git processes become five, and a coned
+  `workspace create` fell from 457 ms to 379 ms on the Windows host.
+
 ## 0.11.0
 
 - Close the merge-tree engine's nested `.gitattributes` equivalence gap

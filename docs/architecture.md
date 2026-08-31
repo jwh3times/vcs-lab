@@ -640,7 +640,23 @@ descriptor.
 
 The registry resides in the common Git directory so every linked worktree can
 discover it. A descriptor includes logical ID, name, path, branch, pinned base,
-target label, optional owner/focus, creation time, and lifecycle.
+target label, optional owner/focus, creation time, lifecycle, and an optional
+sparse-checkout `cone`.
+
+`workspace create --cone <dir,dir>` materializes only the named directory
+prefixes, through `git worktree add --no-checkout` followed by
+`git sparse-checkout set --cone` and a checkout. The cone narrows the working
+tree and nothing else: the workspace ID, compatibility branch, pinned base,
+checkpoints, and lifecycle are identical with it and without it, Git still
+holds the whole tree, and a checkpoint of a coned workspace captures the full
+tree rather than the materialized subset. Restoring an archived workspace
+reapplies its cone, so an archive/restore cycle does not silently write every
+file back, and `git sparse-checkout disable` inside the worktree reverses it.
+Cone paths are validated as relative and inside the repository before they
+reach Git. Measured on the Windows host with 3000 files across 20
+directories, a cone over one directory took `vlab workspace create` from
+1804 ms to 467 ms; the full checkout was the first phase in the program
+measured over the 1000 ms interactive budget (issue #10).
 
 `workspace list` inspects each descriptor whose path exists with one
 worktree-scoped `git status --porcelain=v2 --branch -z` query. Its header

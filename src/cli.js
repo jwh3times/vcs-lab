@@ -113,7 +113,7 @@ Usage:
   vlab metadata import <directory> --dry-run [--json]
   vlab metadata import <directory> --apply [--json]
   vlab metadata benchmark [--history <n>] [--workspaces <n>] [--notes <n>] [--resolutions <n>] [--samples <n>] [--budget-ms <n>] [--json]
-  vlab workspace create <name> [--from <ref>] [--path <directory>] [--owner <name>] [--focus <text>]
+  vlab workspace create <name> [--from <ref>] [--path <directory>] [--owner <name>] [--focus <text>] [--cone <dir,dir>]
   vlab workspace list [--json]
   vlab workspace checkpoint [--label <text>] [--json]
   vlab workspace move <name> <directory> [--json]
@@ -152,7 +152,7 @@ Global diagnostics:
 function parseArgs(args) {
   const positionals = [];
   const options = {};
-  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--label", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks", "--history", "--workspaces", "--notes", "--resolutions", "--budget-ms"]);
+  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--cone", "--label", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks", "--history", "--workspaces", "--notes", "--resolutions", "--budget-ms"]);
   for (let index = 0; index < args.length; index += 1) {
     const item = args[index];
     if (valueFlags.has(item)) {
