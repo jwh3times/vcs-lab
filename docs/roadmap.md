@@ -6,7 +6,7 @@
 | --- | --- |
 | Baseline | v0.10.0 released |
 | Status | Maintained execution guide |
-| Last reviewed | 2026-08-30 |
+| Last reviewed | 2026-08-31 |
 | Planning horizon | Next bounded increment through the phased native-core program |
 
 This roadmap synthesizes the current
@@ -63,8 +63,10 @@ seam that Gate A requires is implemented, unreleased
 ([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md)), as
 are the schema catalog (`docs/schemas/`), the frozen canonical-JSON profile
 (`docs/canonical-json/`), and the per-family compatibility contract
-(`docs/schemas/compatibility.md`); the next work is the conformance fixtures
-that complete Horizon 2 item 1. No storage layer or service is approved.
+(`docs/schemas/compatibility.md`), and the human/JSON conformance fixtures
+(`docs/conformance/`), which complete Horizon 2 item 1 and program phase 0b.
+The next decision is the phase 1 ADR naming the Gate A item 3 budget. No
+storage layer or service is approved.
 
 ## Horizon 1: close the current development line
 
@@ -226,9 +228,10 @@ Program phase 0b of ADR-0015 and Gate A item 1 of ADR-0014.
 - Add conformance fixtures that verify human/JSON parity for state required by
   automation.
 
-Status on 2026-08-30 (tracked by
-[GitHub issue #11](https://github.com/jwh3times/vcs-lab/issues/11)): the
-engine seam is implemented, unreleased, under
+Status on 2026-08-31 (tracked by
+[GitHub issue #11](https://github.com/jwh3times/vcs-lab/issues/11)): every
+item of this increment is implemented and unreleased, so program phase 0b is
+complete. The engine seam is implemented under
 [ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md):
 `src/engine.js` catalogs 38 read operations, `VLAB_ENGINE`/`--engine`
 selects `git` or the passthrough `native` engine, every Git metrics block
@@ -250,7 +253,7 @@ future Rust implementation must reproduce byte for byte; the
 repository-lineage and envelope-manifest hashes now compute through it with
 unchanged bytes, while record digests keep their frozen legacy
 serialization. The per-family compatibility contract is frozen, unreleased, in
-`docs/schemas/compatibility.md` (2026-08-30) under
+`docs/schemas/compatibility.md` (2026-08-31) under
 [ADR-0020](adr/0020-freeze-per-family-compatibility-and-resource-bounds.md):
 one registry (`RECORD_FAMILIES` in `src/schemas.js`) states each family's
 written, additionally readable, and unknown versions, its store, and its
@@ -262,8 +265,21 @@ overwrite a note container from a newer build, and an operation journal or
 workspace registry of an unknown version is refused instead of resumed.
 `test/schema-compatibility.test.js` keeps the published tables and the runtime
 registry in agreement and exercises each disposition against the real CLI. The
-remaining item of this increment is the human/JSON conformance fixtures; the
-phase 1 ADR that names the Gate A item 3 budget follows it.
+human/JSON conformance fixtures complete the increment, unreleased, in
+`docs/conformance/` (2026-08-31): `fixtures.json` names, per command, the JSON
+members its human rendering must present and the members it deliberately does
+not, and `test/conformance.test.js` fails the suite in both directions. The
+exercise found that a command has a human rendering only when its handler
+calls a formatter, so eighteen commands print JSON whatever the flags; those
+are enumerated rather than claimed as parity. It also found four renderers
+asserting a value as fixed prose instead of reading the record, which could
+make the text contradict the JSON beside it; they now read the record, the
+rebase forecast gained the `same state` line its reconciliation counterpart
+had, and `vlab doctor` gained `version`, since `vlab version` is text-only and
+the build identity a peer needs for the ADR-0020 compatibility rules had no
+machine-readable home. Phase 0b is complete; the phase 1 ADR that names the
+Gate A item 3 budget is the next decision, or the program stops here with a
+complete outcome.
 
 ### 2. Strengthen identity and proof diagnostics
 

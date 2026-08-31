@@ -11,7 +11,9 @@ Schema catalog in `docs/schemas/` in agreement with the runtime validators in
 `src/schemas.js` (which remain the authority), and
 `test/schema-compatibility.test.js` keeps the published compatibility contract
 in `docs/schemas/compatibility.md` in agreement with the `RECORD_FAMILIES` and
-`RESOURCE_BOUNDS` registries in the same module. Maintained demonstrations and
+`RESOURCE_BOUNDS` registries in the same module, and
+`test/conformance.test.js` runs the human/JSON parity fixtures in
+`docs/conformance/fixtures.json` against the real CLI. Maintained demonstrations and
 repository utilities live in
 `scripts/`; `benchmarks/baseline.json` is the per-host benchmark baseline that
 `npm run test:benchmark` consumes. Product, architecture, testing, schema, and

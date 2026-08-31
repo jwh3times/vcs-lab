@@ -183,6 +183,18 @@ function print(value, json = false) {
   }
 }
 
+/**
+ * Render trust state from the record instead of asserting it as fixed prose,
+ * so the human line cannot contradict the JSON it summarizes (FR-GIT-06;
+ * issue #11 item 5). The status and envelope records name the signature field
+ * differently, so read either.
+ */
+function formatTrustState(trust) {
+  if (!trust || typeof trust !== "object") return "trust not reported";
+  const signed = trust.cryptographicallyTrusted ?? trust.cryptographicallySigned ?? false;
+  return `${signed ? "signed" : "not signed"}; ${trust.authorized ? "authorized" : "not authorized"}`;
+}
+
 function formatMetadataStatus(result, title = "Metadata status") {
   const lines = [
     title,
@@ -195,7 +207,7 @@ function formatMetadataStatus(result, title = "Metadata status") {
     `local        ${result.scopes.sharedLocal.checkpoints.totalRefCount ?? result.scopes.sharedLocal.checkpoints.refCount} checkpoint refs; ${result.scopes.sharedLocal.workspaceRegistry.count} workspaces`,
     `private      ${result.scopes.worktreePrivate.pendingOperationCount} operations; ${result.scopes.worktreePrivate.forecastCount} forecasts`,
     `diagnostics  ${result.summary.errors} errors, ${result.summary.warnings} warnings`,
-    `integrity    ${result.summary.valid ? "valid" : "invalid"}; not signed or authorized`,
+    `integrity    ${result.summary.valid ? "valid" : "invalid"}; ${formatTrustState(result.trust)}`,
   ];
   for (const diagnostic of result.diagnostics) {
     lines.push(`  ${diagnostic.severity === "error" ? "!" : "?"} ${diagnostic.code}: ${diagnostic.subject}`);
@@ -212,7 +224,7 @@ function formatMetadataTransfer(result) {
       `refs         ${result.refs}`,
       `quarantined  ${result.quarantinedRecords} excluded`,
       `payload      ${result.bytes} bytes`,
-      "trust        integrity only; not signed or authorized",
+      `trust        integrity only; ${formatTrustState(result.trust)}`,
     ].join("\n");
   }
   return [
@@ -223,7 +235,7 @@ function formatMetadataTransfer(result) {
     `refs         ${result.summary.createRefs} create, ${result.summary.mergeRefs} merge, ${result.summary.noopRefs} unchanged`,
     `conflicts    ${result.summary.conflicts}`,
     `applicable   ${result.summary.applicable ? "yes" : "no"}`,
-    "trust        integrity only; not signed or authorized",
+    `trust        integrity only; ${formatTrustState(result.trust)}`,
   ].join("\n");
 }
 
@@ -245,7 +257,7 @@ function formatScaleBenchmark(result) {
     "",
     `next action  ${result.analysis.nextAction}`,
     `index now    ${result.analysis.persistentIndex.recommendedNow ? "yes" : "no"} — ${result.analysis.persistentIndex.reason}`,
-    `service now  no — ${result.analysis.residentService.reason}`,
+    `service now  ${result.analysis.residentService.recommendedNow ? "yes" : "no"} — ${result.analysis.residentService.reason}`,
   );
   if (result.analysis.recommendations.length) {
     lines.push("", "Recommendations");
@@ -1293,6 +1305,10 @@ export async function main(rawArgs) {
       const context = initLab();
       print({
         ok: true,
+        // `vlab version` is text-only, so the doctor is the machine-readable
+        // home for the build identity a peer needs to apply the per-family
+        // compatibility rules of ADR-0020 (FR-GIT-06; issue #11 item 5).
+        version: VERSION,
         git: gitVersion().raw,
         node: process.version,
         repository: context.root,

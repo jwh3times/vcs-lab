@@ -317,11 +317,12 @@ export function formatRebaseForecast(forecast) {
     `status       ${forecast.status}`,
     `onto         ${forecast.ontoRef} @ ${short(forecast.ontoHead)}`,
     `source       ${forecast.sourceRef} @ ${short(forecast.sourceHead)}`,
-    "scope        committed heads only",
+    `scope        ${forecast.scope === "source-checkpoint" ? "immutable source checkpoint" : "committed heads only"}`,
     `plan         ${forecast.plan.counts.covered} omit, ${forecast.plan.counts["candidate-equivalent"]} review, ${forecast.plan.counts.new} replay`,
     `simulation   ${forecast.counts.clean} clean, ${forecast.counts.exactResolution} exact-resolved, ${forecast.counts.semanticSpec} spec-merged, ${forecast.counts.blocked} blocked`,
     `predicted    ${short(forecast.predictedResultTree)}`,
     `partial      ${short(forecast.partialResultTree)}`,
+    `same state   ${forecast.exactStateEqualityAfter === null || forecast.exactStateEqualityAfter === undefined ? "unknown" : forecast.exactStateEqualityAfter ? "yes" : "no"}`,
     `fingerprint  ${forecast.planFingerprint}`,
     ...formatForecastEngine(forecast),
   ];
@@ -358,7 +359,9 @@ export function formatRebaseForecast(forecast) {
   }
   lines.push(
     "",
-    "The caller HEAD, branch, index, status, files, and worktree list were not changed.",
+    forecast.callerInvariants?.preserved === false
+      ? "The caller worktree changed during forecasting; this forecast is not usable."
+      : "The caller HEAD, branch, index, status, files, and worktree list were not changed.",
   );
   if (forecast.status === "unsupported") {
     lines.push("Linear v1 cannot forecast source history containing merge commits.");

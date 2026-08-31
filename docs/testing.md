@@ -82,6 +82,13 @@ not complete until its catalog document passes these checks.
 `test/canonical-json.test.js` verifies the frozen canonical-JSON profile
 against the shared vectors in `docs/canonical-json/vectors.json`; a future
 native implementation must pass the same vector file byte for byte.
+`test/conformance.test.js` runs the human/JSON parity fixtures in
+`docs/conformance/fixtures.json` against the real CLI: every member a fixture
+marks required must appear in the command's text output, every member it marks
+JSON-only must not, and the commands declared JSON-only or text-only must stay
+that way. Adding a line to a human renderer that surfaces a JSON-only member,
+or removing one that surfaces a required member, fails the suite; update the
+fixture file in the same commit.
 `test/schema-compatibility.test.js` keeps the published compatibility contract
 in `docs/schemas/compatibility.md` in agreement with `RECORD_FAMILIES` and
 `RESOURCE_BOUNDS` in `src/schemas.js`, and exercises each disposition against

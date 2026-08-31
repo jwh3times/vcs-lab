@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Pin human/JSON output parity with conformance fixtures (issue #11 item 5;
+  ADR-0015 phase 0b), completing the phase 0b contract freeze. The new
+  `docs/conformance/` names, per command, the JSON members its human rendering
+  must present and the members it deliberately does not, and
+  `test/conformance.test.js` runs every fixture against the real CLI in a
+  disposable repository, failing in both directions: a required member that
+  stops appearing in the text, and a member declared JSON-only that starts
+  appearing.
+  - **The commands that never had a human rendering are now named.** A command
+    renders text only when its handler builds it with a formatter, so
+    `commit`, the three landing commands, `cherry-pick`, both `--abort`s,
+    every `workspace` subcommand except `workspace forecast`, `spec show`,
+    `spec benchmark`, and `doctor` print JSON whatever the flags — `--json` is a no-op for them. The schema
+    catalog previously implied the landing commands printed text without
+    `--json`; that is corrected, and the whole set is enumerated in the
+    conformance contract rather than left to be discovered.
+  - **Four renderers no longer assert state they did not read.** The rebase
+    forecast printed `scope        committed heads only` unconditionally while
+    `scope` is a real member, and claimed the caller worktree was unchanged
+    without consulting `callerInvariants.preserved`; the scale benchmark
+    printed `service now  no` instead of
+    `analysis.residentService.recommendedNow`; and the metadata status and
+    transfer renderers printed a fixed trust sentence instead of reading
+    `trust`. Each now reads the record, so the text cannot contradict the JSON
+    beside it.
+  - The rebase forecast gained the `same state` line its reconciliation
+    counterpart already had, and `vlab doctor` now reports `version`: `vlab
+    version` is text-only, so the build identity a peer needs to apply the
+    per-family compatibility rules of ADR-0020 had no machine-readable home.
 - Freeze the per-family compatibility, migration, unknown-version, and
   resource-bound contract (issue #11 item 4; ADR-0020; ADR-0015 phase 0b) in
   `docs/schemas/compatibility.md`, with `RECORD_FAMILIES` and

@@ -265,6 +265,10 @@ are computed under the frozen canonical JSON profile
 `vcs-lab.canonical-json/v1` (`src/canonical-json.js`, specified with shared
 test vectors in the [canonical JSON profile](canonical-json/README.md));
 record digests keep their frozen legacy serialization for byte stability.
+Human-readable and `--json` output of the same command are held to the
+per-command parity contract in [`docs/conformance/`](conformance/README.md),
+which also records which commands print JSON whatever the flags and which
+state is deliberately text-only.
 Compatibility, migration, unknown-version, and resource-bound rules are frozen
 per family in the [compatibility contract](schemas/compatibility.md)
 ([ADR-0020](adr/0020-freeze-per-family-compatibility-and-resource-bounds.md)),

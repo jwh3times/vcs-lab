@@ -18,7 +18,9 @@ for a missing field must be rejected by its document too.
 **Companion documents.** [compatibility.md](compatibility.md) freezes the
 compatibility, migration, unknown-version, and resource-bound rules per family;
 the [canonical JSON profile](../canonical-json/README.md) freezes the
-byte-exact serialization used for hashing.
+byte-exact serialization used for hashing; the
+[human/JSON conformance contract](../conformance/README.md) pins which command
+output is text, which is JSON, and which members the two must agree on.
 
 ## Conventions
 
@@ -122,8 +124,9 @@ Every command below accepts `--json` (or always prints JSON) and its output
 is versioned as follows. "Projection" means a stable unversioned wrapper
 whose members are listed here; the schema-bearing families inside it are
 documented above. Human-readable output of the same commands presents the
-same state (FR-GIT-06); the conformance fixtures of issue #11 item 5 will
-pin that parity.
+same state (FR-GIT-06); [`docs/conformance/`](../conformance/README.md) pins
+that parity field by field and records which commands have no human
+rendering at all.
 
 | Command | JSON output |
 | --- | --- |
@@ -161,9 +164,11 @@ pin that parity.
 | `vlab spec status` | Projection `{active, operationId, plans}` |
 | `vlab spec resolve` | Projection `{operationId, applied}` |
 | `vlab spec benchmark` | `vcs-lab.spec-benchmark/v2` |
-| `vlab doctor` | Projection `{ok, git, node, repository, notesRef, engine, forecastEngine, differential?, benchmark?, objectSession?}`; `differential` is a `vcs-lab.engine-differential/v1` |
+| `vlab doctor` | Projection `{ok, version, git, node, repository, notesRef, engine, forecastEngine, differential?, benchmark?, objectSession?}`; `version` is the vcs-lab build identity and `differential` is a `vcs-lab.engine-differential/v1` |
 
-Commands not listed (`vlab init`, `vlab branch`, `vlab merge`,
-`vlab compact-merge`, `vlab hard-squash`, `vlab graph`, `vlab version`,
-`vlab help`) print text, except that the landing commands print their
-`vcs-lab.landing/v1` receipt as JSON when `--json` is passed.
+`vlab merge`, `vlab compact-merge`, and `vlab hard-squash` print their
+`vcs-lab.landing/v1` receipt as JSON whatever the flags: like every command
+whose handler has no text renderer, `--json` is a no-op for them. `vlab init`,
+`vlab branch`, `vlab graph`, `vlab version`, and `vlab help` print text and
+have no JSON form. The [conformance contract](../conformance/README.md) lists
+which commands are which and pins the parity of those that have both.
