@@ -15,6 +15,11 @@ document (or be listed as superseded below), records produced by the real CLI
 must satisfy their documents, and a note record the runtime validator rejects
 for a missing field must be rejected by its document too.
 
+**Companion documents.** [compatibility.md](compatibility.md) freezes the
+compatibility, migration, unknown-version, and resource-bound rules per family;
+the [canonical JSON profile](../canonical-json/README.md) freezes the
+byte-exact serialization used for hashing.
+
 ## Conventions
 
 - `$id` is the schema identifier exactly as records carry it in their
@@ -27,12 +32,14 @@ for a missing field must be rejected by its document too.
   characters for SHA-1, 64 for SHA-256. The documents accept either length;
   the runtime validators enforce the repository's actual format.
 - Documents are open: unknown members are tolerated, and `required` lists
-  only what the current writer always emits. Formal compatibility, migration,
-  resource-bound, and unknown-version rules per family are item 4 of
-  issue #11 and will extend this catalog. Today the runtime behavior is:
-  unknown portable record schemas are quarantined rather than consumed
-  (`vlab metadata status` reports them), and unsupported private or tracked
-  schemas are refused with an error.
+  only what the current writer always emits. What may change inside one
+  version, which versions each family reads and writes, what a reader does
+  with a version it does not know, and how large a record may be are frozen
+  per family in [compatibility.md](compatibility.md) (ADR-0020), whose runtime
+  authority is `RECORD_FAMILIES` and `RESOURCE_BOUNDS` in `src/schemas.js`.
+  In short: unknown portable record schemas are quarantined rather than
+  consumed (`vlab metadata status` reports them), and unsupported private,
+  shared-local, tracked, or envelope schemas are refused with an error.
 - `x-vcs-lab-scope` annotates each document with its persistence scope and
   must agree with `schemaClassification` in `src/schemas.js`; `cli-output`
   marks a family that exists only as command output.

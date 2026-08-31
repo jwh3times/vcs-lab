@@ -265,8 +265,14 @@ are computed under the frozen canonical JSON profile
 `vcs-lab.canonical-json/v1` (`src/canonical-json.js`, specified with shared
 test vectors in the [canonical JSON profile](canonical-json/README.md));
 record digests keep their frozen legacy serialization for byte stability.
-Unknown portable record schemas are quarantined rather
-than consumed. Schema-version changes still require migration/compatibility
+Compatibility, migration, unknown-version, and resource-bound rules are frozen
+per family in the [compatibility contract](schemas/compatibility.md)
+([ADR-0020](adr/0020-freeze-per-family-compatibility-and-resource-bounds.md)),
+whose runtime authority is `RECORD_FAMILIES` and `RESOURCE_BOUNDS` in
+`src/schemas.js`: unknown portable record schemas are quarantined rather than
+consumed and their notes are never rewritten, while an unreadable private,
+shared-local, tracked, or envelope record refuses the command instead of being
+interpreted. Schema-version changes still require migration/compatibility
 tests.
 
 ## 7. Causal planning architecture
@@ -930,14 +936,23 @@ and test process termination at every boundary.
 - Git is invoked without shell interpolation.
 - Object expressions reject newlines and protocol-breaking forms.
 - Output buffers and session shared-memory buffers are bounded.
+- Every persisted record family has a published resource bound that is checked
+  before the record is parsed and fails closed
+  ([compatibility contract](schemas/compatibility.md) §4): an oversize
+  shared-portable note is quarantined, and an oversize local, tracked, or
+  imported record refuses the command.
+- A record whose schema version this build cannot read is quarantined or
+  refused by its scope's rule, and is never rewritten in place.
 - IDs used in paths are validated/slugged.
 - Trace output excludes object contents and messages.
 - Exact inputs are re-resolved before approved decisions are applied.
 
 ### 17.3 Missing controls
 
-- standalone JSON Schema documents and complete resource bounds for every
-  local/private record family;
+- repository-wide retention and pagination: nothing caps the number of notes,
+  stored forecasts, journal queue entries, registered workspaces, or retained
+  checkpoint and resolution refs, so those reads grow with the repository
+  ([compatibility contract](schemas/compatibility.md) §4);
 - cryptographic signatures and actor identity;
 - authorization/policy evaluation;
 - metadata quarantine and conflict resolution across remotes;

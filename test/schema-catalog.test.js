@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { schemaClassification, validateNoteRecord } from "../src/schemas.js";
+import { RECORD_FAMILIES, schemaClassification, validateNoteRecord } from "../src/schemas.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const schemasDir = path.join(projectRoot, "docs", "schemas");
@@ -173,6 +173,14 @@ test("every schema identifier used in src has exactly one catalog document", () 
   for (const file of fs.readdirSync(path.join(projectRoot, "src"))) {
     const content = fs.readFileSync(path.join(projectRoot, "src", file), "utf8");
     for (const match of content.matchAll(/vcs-lab\.[a-z-]+\/v\d+/g)) used.add(match[0]);
+  }
+  // The compatibility registry holds versions as data rather than as literal
+  // identifiers, so a family's registered, readable, and written versions are
+  // part of what src/ uses even when no literal string names them.
+  for (const [family, policy] of RECORD_FAMILIES) {
+    for (const version of [...policy.registered, ...policy.readable, ...policy.written]) {
+      used.add(`${family}/v${version}`);
+    }
   }
   for (const id of used) {
     if (SUPERSEDED_WITHOUT_DOCUMENT.has(id) || PROFILE_IDENTIFIERS.has(id)) continue;

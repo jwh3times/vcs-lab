@@ -18,6 +18,7 @@ import {
 import { newId, sha256, slug } from "./ids.js";
 import { ensureLabRuntime, readJson, writeJson } from "./store.js";
 import { CliError } from "./errors.js";
+import { assertReadableSchema } from "./schemas.js";
 
 const ACTIVE = "active";
 const ARCHIVED = "archived";
@@ -38,11 +39,33 @@ function workspaceFile(cwd) {
   return path.join(ensureLabRuntime(cwd), "workspaces.json");
 }
 
+/**
+ * Read the shared-local workspace registry. A registry whose schema this build
+ * does not read is refused rather than used (ADR-0020): the registry is the
+ * only record of which worktrees vcs-lab materialized, and `saveWorkspaces`
+ * rewrites the whole file, so consuming a version we do not understand would
+ * silently drop its members.
+ */
 export function readWorkspaces(cwd = process.cwd()) {
-  return readJson(workspaceFile(cwd), {
+  const registryPath = workspaceFile(cwd);
+  const registry = readJson(registryPath, {
     schema: "vcs-lab.workspaces/v1",
     workspaces: [],
   });
+  assertReadableSchema(registry?.schema, `The workspace registry at '${registryPath}'`, {
+    family: "vcs-lab.workspaces",
+    recovery: "Read it with the vcs-lab build that wrote it.",
+  });
+  if (!Array.isArray(registry.workspaces)) {
+    throw new CliError(`The workspace registry at '${registryPath}' has no workspace list.`);
+  }
+  for (const workspace of registry.workspaces) {
+    assertReadableSchema(workspace?.schema, `A workspace entry in '${registryPath}'`, {
+      family: "vcs-lab.workspace",
+      recovery: "Read it with the vcs-lab build that wrote it.",
+    });
+  }
+  return registry;
 }
 
 function saveWorkspaces(value, cwd) {

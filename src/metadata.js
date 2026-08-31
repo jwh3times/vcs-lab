@@ -18,11 +18,13 @@ import {
   METADATA_STATUS_SCHEMA,
   METADATA_VALIDATION_SCHEMA,
   NOTE_CONTAINER_SCHEMA,
+  RESOURCE_BOUNDS,
   isStructurallyValidNoteRecord,
   referencedObjectsForRecord,
   resolutionSignatureFor,
   schemaClassification,
   validateNoteRecord,
+  withinBound,
 } from "./schemas.js";
 
 const NOTES_REF = "refs/notes/vcs-lab";
@@ -149,6 +151,19 @@ function parseNoteObject(object, entry, diagnostics) {
     );
     return null;
   }
+  // Notes are shared-portable and untrusted: a note over a published resource
+  // bound is quarantined unparsed rather than loaded (ADR-0020).
+  if (!withinBound("noteContainerBytes", object.content.length)) {
+    addDiagnostic(
+      diagnostics,
+      "oversize-record",
+      "warning",
+      "shared-portable",
+      entry.target,
+      `The attached note exceeds the noteContainerBytes bound of ${RESOURCE_BOUNDS.noteContainerBytes}.`,
+    );
+    return null;
+  }
   let parsed;
   try {
     parsed = JSON.parse(object.content.toString("utf8"));
@@ -183,6 +198,17 @@ function parseNoteObject(object, entry, diagnostics) {
       entry.target,
       `Unsupported note container schema '${parsed.schema ?? "(missing)"}'.`,
       { schema: parsed.schema ?? null },
+    );
+    return null;
+  }
+  if (!withinBound("noteContainerRecords", parsed.records.length)) {
+    addDiagnostic(
+      diagnostics,
+      "oversize-record",
+      "warning",
+      "shared-portable",
+      entry.target,
+      `The attached note exceeds the noteContainerRecords bound of ${RESOURCE_BOUNDS.noteContainerRecords}.`,
     );
     return null;
   }

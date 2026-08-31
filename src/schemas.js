@@ -1,3 +1,4 @@
+import { CliError } from "./errors.js";
 import { sha256 } from "./ids.js";
 
 export const NOTE_CONTAINER_SCHEMA = "vcs-lab.note/v1";
@@ -7,26 +8,207 @@ export const METADATA_ENVELOPE_SCHEMA = "vcs-lab.metadata-envelope/v1";
 export const METADATA_LINEAGE_ALGORITHM = "git-root-commits-sha256/v1";
 export const RESOLUTION_SIGNATURE_ALGORITHM = "ordered-three-way-blobs/v1";
 
-const KNOWN_SCHEMAS = new Map([
-  ["vcs-lab.note/v1", "note-container"],
-  ["vcs-lab.landing/v1", "note-record"],
-  ["vcs-lab.application/v1", "note-record"],
-  ["vcs-lab.application/v4", "note-record"],
-  ["vcs-lab.reconciliation/v6", "note-record"],
-  ["vcs-lab.rebase-application/v1", "note-record"],
-  ["vcs-lab.rebase/v1", "note-record"],
-  ["vcs-lab.resolution/v1", "note-record"],
-  ["vcs-lab.reconciliation-operation/v4", "private"],
-  ["vcs-lab.rebase-operation/v1", "private"],
-  ["vcs-lab.forecast/v2", "private"],
-  ["vcs-lab.rebase-forecast/v1", "private"],
-  ["vcs-lab.workspaces/v1", "shared-local"],
-  ["vcs-lab.workspace/v1", "shared-local"],
-  ["vcs-lab.spec-manifest/v1", "tracked"],
-  ["vcs-lab.spec-manifest/v2", "tracked"],
-  ["vcs-lab.spec-manifest/v3", "tracked"],
-  ["vcs-lab.metadata-envelope/v1", "envelope"],
+/**
+ * The per-family compatibility registry (issue #11 item 4; ADR-0020). This is
+ * the runtime authority for what each record family accepts, what it writes,
+ * and what a reader does with a version it does not accept.
+ * `docs/schemas/compatibility.md` publishes the same rules and
+ * `test/schema-compatibility.test.js` fails the suite when the two disagree.
+ *
+ * - `scope`: persistence scope, as `schemaClassification` reports it.
+ * - `registered`: versions carried in the runtime registry, so
+ *   `schemaClassification(...).known` is true for them.
+ * - `readable`: versions a reader accepts, current and superseded.
+ * - `written`: versions a writer emits today.
+ * - `unknownVersion`: what a reader does with a version outside `readable`.
+ *   `quarantine` reports and skips the record without consuming it and without
+ *   failing the command; `refuse` fails the command closed; `ignore` yields no
+ *   records and leaves the stored bytes untouched.
+ * - `store`: where records of the family live.
+ */
+export const RECORD_FAMILIES = new Map([
+  ["vcs-lab.note", {
+    scope: "note-container",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "ignore",
+    store: "refs/notes/vcs-lab note blobs",
+  }],
+  ["vcs-lab.landing", {
+    scope: "note-record",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "quarantine",
+    store: "refs/notes/vcs-lab note containers",
+  }],
+  ["vcs-lab.application", {
+    scope: "note-record",
+    registered: [1, 4],
+    readable: [1, 4],
+    written: [1, 4],
+    unknownVersion: "quarantine",
+    store: "refs/notes/vcs-lab note containers",
+  }],
+  ["vcs-lab.reconciliation", {
+    scope: "note-record",
+    registered: [6],
+    readable: [6],
+    written: [6],
+    unknownVersion: "quarantine",
+    store: "refs/notes/vcs-lab note containers",
+  }],
+  ["vcs-lab.rebase-application", {
+    scope: "note-record",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "quarantine",
+    store: "refs/notes/vcs-lab note containers",
+  }],
+  ["vcs-lab.rebase", {
+    scope: "note-record",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "quarantine",
+    store: "refs/notes/vcs-lab note containers",
+  }],
+  ["vcs-lab.resolution", {
+    scope: "note-record",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "quarantine",
+    store: "refs/notes/vcs-lab note containers",
+  }],
+  ["vcs-lab.reconciliation-operation", {
+    scope: "private",
+    registered: [4],
+    readable: [4],
+    written: [4],
+    unknownVersion: "refuse",
+    store: "<git dir>/vcs-lab/reconciliation.json",
+  }],
+  ["vcs-lab.rebase-operation", {
+    scope: "private",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "refuse",
+    store: "<git dir>/vcs-lab/rebase.json",
+  }],
+  ["vcs-lab.forecast", {
+    scope: "private",
+    registered: [2],
+    readable: [1, 2],
+    written: [2],
+    unknownVersion: "refuse",
+    store: "<git dir>/vcs-lab/forecasts/<id>.json",
+  }],
+  ["vcs-lab.rebase-forecast", {
+    scope: "private",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "refuse",
+    store: "<git dir>/vcs-lab/forecasts/<id>.json",
+  }],
+  ["vcs-lab.workspaces", {
+    scope: "shared-local",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "refuse",
+    store: "<common dir>/vcs-lab/workspaces.json",
+  }],
+  ["vcs-lab.workspace", {
+    scope: "shared-local",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "refuse",
+    store: "entries of <common dir>/vcs-lab/workspaces.json",
+  }],
+  ["vcs-lab.spec-manifest", {
+    scope: "tracked",
+    registered: [1, 2, 3],
+    readable: [1, 2, 3],
+    written: [3],
+    unknownVersion: "refuse",
+    store: ".vcs-lab/specs/**",
+  }],
+  ["vcs-lab.metadata-envelope", {
+    scope: "envelope",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "refuse",
+    store: "manifest.json of a metadata export directory",
+  }],
 ]);
+
+const KNOWN_SCHEMAS = new Map(
+  [...RECORD_FAMILIES].flatMap(([family, policy]) =>
+    policy.registered.map((version) => [`${family}/v${version}`, policy.scope]),
+  ),
+);
+
+/**
+ * Frozen resource bounds for reading persisted records (issue #11 item 4;
+ * ADR-0020). Every bound fails closed: a shared-portable input over a bound is
+ * quarantined without being interpreted, and a worktree-private, shared-local,
+ * tracked, or imported input over a bound refuses the command. The bounds are
+ * constants, not configuration, so every implementation of the contract agrees.
+ * Transport bounds (process buffers, session buffers, session timeouts) are
+ * separate and live in `src/git.js`.
+ */
+export const RESOURCE_BOUNDS = Object.freeze({
+  /** Bytes of one refs/notes/vcs-lab note blob that may be parsed. */
+  noteContainerBytes: 8 * 1024 * 1024,
+  /** Records one note container may carry. */
+  noteContainerRecords: 4096,
+  /** Bytes of one worktree-private or shared-local JSON state file. */
+  localStateBytes: 64 * 1024 * 1024,
+  /** Bytes of one tracked specification manifest. */
+  specManifestBytes: 8 * 1024 * 1024,
+  /** Bytes of the manifest.json of a metadata envelope. */
+  envelopeManifestBytes: 16 * 1024 * 1024,
+  /** Bytes an envelope may declare for its objects.bundle payload. */
+  envelopeBundleBytes: 2 * 1024 * 1024 * 1024,
+  /** Records one metadata envelope may declare. */
+  envelopeRecords: 1_000_000,
+});
+
+/**
+ * True when `actual` is within the named bound. An unknown bound name is a
+ * programming error and throws, so a bound cannot be silently skipped.
+ */
+export function withinBound(name, actual) {
+  const limit = RESOURCE_BOUNDS[name];
+  if (typeof limit !== "number") {
+    throw new TypeError(`Unknown resource bound '${name}'.`);
+  }
+  return actual <= limit;
+}
+
+/**
+ * Fail a command closed when a worktree-private, shared-local, tracked, or
+ * imported input exceeds a bound. Shared-portable inputs are quarantined
+ * instead and must not call this.
+ */
+export function assertWithinBound(name, actual, subject) {
+  if (withinBound(name, actual)) return;
+  throw new CliError(
+    `${subject} exceeds the ${name} resource bound of ${RESOURCE_BOUNDS[name]}.`,
+    {
+      details:
+        "vcs-lab refuses to interpret a record larger than its published " +
+        "resource bound; see docs/schemas/compatibility.md.",
+    },
+  );
+}
 
 export function schemaClassification(schema) {
   if (typeof schema !== "string" || !schema) {
@@ -39,6 +221,64 @@ export function schemaClassification(schema) {
     version: match ? Number(match[2]) : null,
     scope: KNOWN_SCHEMAS.get(schema) ?? null,
   };
+}
+
+/**
+ * Resolve one schema identifier against the compatibility registry. `readable`
+ * says whether a reader accepts it; `migrated` says whether reading it also
+ * migrates it forward to a written version; `disposition` is `accept`,
+ * `migrate`, or the family's `unknownVersion` rule. An identifier whose family
+ * is not registered has no policy and reports `unknown-family`.
+ */
+export function schemaCompatibility(schema) {
+  const { family, version } = schemaClassification(schema);
+  const policy = family ? RECORD_FAMILIES.get(family) : null;
+  if (!policy || version === null) {
+    return {
+      family,
+      version,
+      policy: null,
+      scope: null,
+      readable: false,
+      migrated: false,
+      disposition: "unknown-family",
+    };
+  }
+  const readable = policy.readable.includes(version);
+  const migrated = readable && !policy.written.includes(version);
+  return {
+    family,
+    version,
+    policy,
+    scope: policy.scope,
+    readable,
+    migrated,
+    disposition: readable ? (migrated ? "migrate" : "accept") : policy.unknownVersion,
+  };
+}
+
+/**
+ * Refuse a stored record whose family or version this build does not read.
+ * Used by the worktree-private, shared-local, tracked, and envelope readers,
+ * whose registry rule is `refuse`; shared-portable readers quarantine instead.
+ * `family` additionally pins which family the store may hold, so one store
+ * cannot be resumed from another store's record.
+ */
+export function assertReadableSchema(schema, subject, { family = null, recovery = "" } = {}) {
+  const compatibility = schemaCompatibility(schema);
+  const quoted = typeof schema === "string" && schema ? JSON.stringify(schema) : "(missing)";
+  if (family && compatibility.family !== family) {
+    throw new CliError(`${subject} carries schema ${quoted}, not a ${family} record.`, {
+      details: recovery,
+    });
+  }
+  if (compatibility.readable) return compatibility;
+  const known = compatibility.policy
+    ? `This build reads ${compatibility.policy.readable.map((version) => `v${version}`).join(", ")} of that family.`
+    : "This build does not know that record family.";
+  throw new CliError(`${subject} carries unsupported schema ${quoted}.`, {
+    details: [known, recovery].filter(Boolean).join(" "),
+  });
 }
 
 export function oidLength(objectFormat) {

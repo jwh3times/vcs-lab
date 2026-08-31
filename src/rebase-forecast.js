@@ -1,6 +1,7 @@
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { CliError } from "./errors.js";
+import { assertReadableSchema } from "./schemas.js";
 import {
   beginGitMetrics,
   endGitMetrics,
@@ -43,8 +44,13 @@ export function readRebaseForecast(id, cwd = process.cwd()) {
 
 export function rebaseForecastForPlan(id, plan, cwd = process.cwd()) {
   const forecast = readRebaseForecast(id, cwd);
+  // Separate "this build cannot read that version" from "this forecast is not
+  // an approval" so the two failures do not share one message (ADR-0020).
+  assertReadableSchema(forecast?.schema, `Rebase forecast '${id}'`, {
+    family: "vcs-lab.rebase-forecast",
+    recovery: "Generate a new rebase forecast with: vlab rebase-forecast",
+  });
   if (
-    forecast.schema !== "vcs-lab.rebase-forecast/v1" ||
     forecast.id !== id ||
     forecast.status !== "complete" ||
     !forecast.predictedResultTree

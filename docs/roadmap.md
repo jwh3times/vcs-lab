@@ -61,10 +61,10 @@ and Linux differential evidence and a committed Linux benchmark baseline, and
 the Windows post-batching rerun is recorded in ADR-0013. The read-side engine
 seam that Gate A requires is implemented, unreleased
 ([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md)), as
-are the schema catalog (`docs/schemas/`) and the frozen canonical-JSON
-profile (`docs/canonical-json/`); the next work is the compatibility rules
-and conformance fixtures that complete Horizon 2 item 1. No storage layer or
-service is approved.
+are the schema catalog (`docs/schemas/`), the frozen canonical-JSON profile
+(`docs/canonical-json/`), and the per-family compatibility contract
+(`docs/schemas/compatibility.md`); the next work is the conformance fixtures
+that complete Horizon 2 item 1. No storage layer or service is approved.
 
 ## Horizon 1: close the current development line
 
@@ -249,10 +249,21 @@ and is implemented by `src/canonical-json.js` with shared test vectors a
 future Rust implementation must reproduce byte for byte; the
 repository-lineage and envelope-manifest hashes now compute through it with
 unchanged bytes, while record digests keep their frozen legacy
-serialization. The remaining items of this increment, in order, are the
-compatibility and unknown-version rules per record family and the
-human/JSON conformance fixtures; the phase 1 ADR that names the Gate A
-item 3 budget follows them.
+serialization. The per-family compatibility contract is frozen, unreleased, in
+`docs/schemas/compatibility.md` (2026-08-30) under
+[ADR-0020](adr/0020-freeze-per-family-compatibility-and-resource-bounds.md):
+one registry (`RECORD_FAMILIES` in `src/schemas.js`) states each family's
+written, additionally readable, and unknown versions, its store, and its
+unknown-version rule by scope — quarantine for shared-portable notes, refuse
+for private, shared-local, tracked, and envelope records — and
+`RESOURCE_BOUNDS` freezes a checked-before-parse bound for every persisted
+family. Two safety gaps closed with it: publishing a receipt can no longer
+overwrite a note container from a newer build, and an operation journal or
+workspace registry of an unknown version is refused instead of resumed.
+`test/schema-compatibility.test.js` keeps the published tables and the runtime
+registry in agreement and exercises each disposition against the real CLI. The
+remaining item of this increment is the human/JSON conformance fixtures; the
+phase 1 ADR that names the Gate A item 3 budget follows it.
 
 ### 2. Strengthen identity and proof diagnostics
 

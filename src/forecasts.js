@@ -42,6 +42,7 @@ import {
   listWorkspaces,
 } from "./workspaces.js";
 import { CliError } from "./errors.js";
+import { assertReadableSchema } from "./schemas.js";
 import {
   compactSpecMerge,
   materializeSpecMerge,
@@ -723,10 +724,14 @@ export function forecastReconciliation(sourceRef, options = {}) {
 
 export function forecastForPlan(id, plan, cwd = process.cwd()) {
   const forecast = readForecast(id, cwd);
-  if (
-    !["vcs-lab.forecast/v1", "vcs-lab.forecast/v2"].includes(forecast.schema) ||
-    forecast.id !== id
-  ) {
+  // The registry, not a local allow-list, decides which forecast versions this
+  // build reads: v1 is superseded but still accepted, and any other version is
+  // refused rather than interpreted (ADR-0020).
+  assertReadableSchema(forecast?.schema, `Forecast '${id}'`, {
+    family: "vcs-lab.forecast",
+    recovery: "Generate a new forecast with: vlab forecast",
+  });
+  if (forecast.id !== id) {
     throw new CliError(`Forecast '${id}' has invalid metadata.`);
   }
   const currentFingerprint = planFingerprint(plan);

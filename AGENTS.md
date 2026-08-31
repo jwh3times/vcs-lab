@@ -6,9 +6,12 @@
 modules such as `merge-plan.js`, `workspaces.js`, and `metadata.js`; `src/cli.js`
 owns command parsing and presentation. `bin/vlab.js` is the executable entry
 point. `test/integration.test.js` exercises the real CLI against disposable Git
-repositories, and `test/schema-catalog.test.js` keeps the published JSON
+repositories, `test/schema-catalog.test.js` keeps the published JSON
 Schema catalog in `docs/schemas/` in agreement with the runtime validators in
-`src/schemas.js` (which remain the authority). Maintained demonstrations and
+`src/schemas.js` (which remain the authority), and
+`test/schema-compatibility.test.js` keeps the published compatibility contract
+in `docs/schemas/compatibility.md` in agreement with the `RECORD_FAMILIES` and
+`RESOURCE_BOUNDS` registries in the same module. Maintained demonstrations and
 repository utilities live in
 `scripts/`; `benchmarks/baseline.json` is the per-host benchmark baseline that
 `npm run test:benchmark` consumes. Product, architecture, testing, schema, and

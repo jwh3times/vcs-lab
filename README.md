@@ -38,6 +38,10 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 - [Schema catalog](docs/schemas/README.md) publishes one JSON Schema document
   per persisted and automation-facing record family and maps every `--json`
   command to its output contract.
+- [Compatibility contract](docs/schemas/compatibility.md) freezes what may
+  change inside a schema version, which versions each family reads and writes,
+  what happens to a version this build does not know, and the resource bound on
+  every record.
 - [Canonical JSON profile](docs/canonical-json/README.md) freezes the
   byte-exact serialization and hashing rules (an RFC 8785 profile) with
   shared cross-implementation test vectors.

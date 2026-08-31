@@ -12,6 +12,7 @@ import {
   writePendingOperation,
 } from "./pending-operation.js";
 import { CliError } from "./errors.js";
+import { assertWithinBound } from "./schemas.js";
 
 export const SPEC_PARSER = "stable-markdown-blocks/v1";
 export const SPEC_MERGE_ALGORITHM = "stable-markdown-three-way/v1";
@@ -530,6 +531,10 @@ export function readSpecManifest(file, cwd = process.cwd()) {
   const context = repoContext(cwd);
   const relative = relativeSpecPath(file, context, cwd);
   const manifestPath = manifestPathFor(file, cwd);
+  const manifestStat = fs.statSync(manifestPath, { throwIfNoEntry: false });
+  if (manifestStat) {
+    assertWithinBound("specManifestBytes", manifestStat.size, `Spec manifest '${manifestPath}'`);
+  }
   const storedManifest = readJson(manifestPath, null);
   if (!storedManifest) {
     throw new CliError(`No manifest exists for '${file}'. Run 'vlab spec index ${file}'.`);
@@ -611,6 +616,11 @@ function revisionStageFromObjects(file, revision, sourceObject, manifestObject) 
       { details: `Index and commit it with: vlab spec index ${file}` },
     );
   }
+  assertWithinBound(
+    "specManifestBytes",
+    Buffer.byteLength(manifestRaw, "utf8"),
+    `Spec manifest for '${file}' at ${revision}`,
+  );
   let storedManifest;
   try {
     storedManifest = JSON.parse(manifestRaw);

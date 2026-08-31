@@ -14,6 +14,9 @@ the versioned record of delivered behavior.
   runtime flows, invariants, failure handling, and known debt.
 - [Schema catalog](schemas/README.md) — one JSON Schema document per persisted
   and automation-facing record family, and the CLI JSON output contracts.
+- [Compatibility contract](schemas/compatibility.md) — what may change inside a
+  version, which versions each family reads and writes, what happens to a
+  version this build does not know, and the resource bounds on every record.
 - [Canonical JSON profile](canonical-json/README.md) — the frozen RFC 8785
   serialization profile, encoder registry, and shared test vectors.
 - [Testing](testing.md) — supported validation commands and release evidence

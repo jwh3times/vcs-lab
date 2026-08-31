@@ -2,14 +2,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { sha256 } from "./ids.js";
 import { canonicalJson } from "./canonical-json.js";
-import { METADATA_ENVELOPE_SCHEMA, isOid } from "./schemas.js";
+import { METADATA_ENVELOPE_SCHEMA, RESOURCE_BOUNDS, isOid } from "./schemas.js";
 import { VERSION } from "./version.js";
 import { CliError } from "./errors.js";
 
 export const ENVELOPE_MANIFEST = "manifest.json";
 export const ENVELOPE_BUNDLE = "objects.bundle";
-const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
-const MAX_BUNDLE_BYTES = 2 * 1024 * 1024 * 1024;
+// Published resource bounds (ADR-0020); see docs/schemas/compatibility.md.
+const MAX_MANIFEST_BYTES = RESOURCE_BOUNDS.envelopeManifestBytes;
+const MAX_BUNDLE_BYTES = RESOURCE_BOUNDS.envelopeBundleBytes;
+const MAX_RECORDS = RESOURCE_BOUNDS.envelopeRecords;
 
 function validRef(ref) {
   return (
@@ -146,7 +148,7 @@ function validateManifestShape(manifest) {
     logicalRefs.add(entry.ref);
     bundleRefs.add(entry.bundleRef);
   }
-  if (manifest.records.length > 1_000_000) {
+  if (manifest.records.length > MAX_RECORDS) {
     throw new CliError("Metadata envelope record inventory exceeds the supported limit.");
   }
   for (const record of manifest.records) {

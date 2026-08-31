@@ -5,6 +5,8 @@ import {
   readGitObjects,
   readNoteText,
 } from "./engine.js";
+import { CliError } from "./errors.js";
+import { RESOURCE_BOUNDS, withinBound } from "./schemas.js";
 
 export const NOTES_REF = "vcs-lab";
 
@@ -15,29 +17,49 @@ function emptyNote() {
 }
 
 /**
- * Parse one note's trimmed text. This is the single note parser shared by
- * `readNote`, `readNotes`, and `listNoteRecords` so the resolution catalog,
- * receipts, and note rewriting cannot disagree about a note's shape: only a
- * versioned `vcs-lab.note/v1` container yields records, an unparsable note
- * becomes an opaque legacy record so it is preserved on rewrite, and any other
- * JSON shape (including a bare array of records, which `metadata validate`
- * rejects as a malformed container) yields no records.
+ * Classify one note's text. This is the single note parser shared by
+ * `readNote`, `readNotes`, `listNoteRecords`, and `appendNote` so the
+ * resolution catalog, receipts, and note rewriting cannot disagree about a
+ * note's shape. Notes are shared-portable and arrive by fetch from clones that
+ * may run another vcs-lab build, so every disposition here is non-fatal on read
+ * (ADR-0020):
+ *
+ * - `accept`: a versioned `vcs-lab.note/v1` container within its bounds.
+ * - `legacy`: unparsable text, preserved as one opaque record so a rewrite
+ *   cannot lose it.
+ * - `foreign`: valid JSON that is not a `vcs-lab.note/v1` container (a future
+ *   container version, or a bare array of records, which `metadata validate`
+ *   rejects as malformed). It yields no records and must not be rewritten.
+ * - `oversize`: over `noteContainerBytes` or `noteContainerRecords`. It is
+ *   quarantined unparsed rather than loaded, so an untrusted note cannot force
+ *   unbounded work.
  */
-function parseNoteText(text) {
-  if (!text) return emptyNote();
+function classifyNoteText(text) {
+  if (!text) return { note: emptyNote(), disposition: "empty" };
+  if (!withinBound("noteContainerBytes", Buffer.byteLength(text, "utf8"))) {
+    return { note: emptyNote(), disposition: "oversize" };
+  }
+  let parsed;
   try {
-    const parsed = JSON.parse(text);
-    if (parsed?.schema === NOTE_SCHEMA && Array.isArray(parsed.records)) {
-      return parsed;
-    }
+    parsed = JSON.parse(text);
   } catch {
     // Preserve an existing non-vlab note as an opaque legacy record.
     return {
-      schema: NOTE_SCHEMA,
-      records: [{ type: "legacy-note", text }],
+      note: { schema: NOTE_SCHEMA, records: [{ type: "legacy-note", text }] },
+      disposition: "legacy",
     };
   }
-  return emptyNote();
+  if (parsed?.schema !== NOTE_SCHEMA || !Array.isArray(parsed.records)) {
+    return { note: emptyNote(), disposition: "foreign" };
+  }
+  if (!withinBound("noteContainerRecords", parsed.records.length)) {
+    return { note: emptyNote(), disposition: "oversize" };
+  }
+  return { note: parsed, disposition: "accept" };
+}
+
+function parseNoteText(text) {
+  return classifyNoteText(text).note;
 }
 
 export function readNote(commit, cwd = process.cwd()) {
@@ -71,9 +93,43 @@ export function readNotes(objects, cwd = process.cwd()) {
   return notes;
 }
 
+/**
+ * Append one record to a commit's note container. `git notes add -f` replaces
+ * the whole blob, so this refuses to rewrite a note it could not fully read:
+ * a container of another version, or one over a published resource bound,
+ * would otherwise be destroyed by the rewrite (ADR-0020). Publishing a receipt
+ * fails closed instead, leaving the existing note byte-for-byte intact.
+ */
 export function appendNote(commit, record, cwd = process.cwd()) {
-  const note = readNote(commit, cwd);
+  const text = readNoteText(NOTES_REF, commit, cwd);
+  const { note, disposition } = classifyNoteText(text === null ? "" : text);
+  if (disposition === "foreign") {
+    throw new CliError(
+      `The note on '${commit}' is not a ${NOTE_SCHEMA} container.`,
+      {
+        details:
+          "vcs-lab will not overwrite a note container it cannot read. Inspect it " +
+          `with: git notes --ref=${NOTES_REF} show ${commit}`,
+      },
+    );
+  }
+  if (disposition === "oversize") {
+    throw new CliError(
+      `The note on '${commit}' exceeds a published note-container resource bound.`,
+      {
+        details:
+          `Notes are limited to ${RESOURCE_BOUNDS.noteContainerBytes} bytes and ` +
+          `${RESOURCE_BOUNDS.noteContainerRecords} records; see docs/schemas/compatibility.md.`,
+      },
+    );
+  }
   note.records.push(record);
+  if (!withinBound("noteContainerRecords", note.records.length)) {
+    throw new CliError(
+      `The note on '${commit}' would exceed the noteContainerRecords bound of ` +
+      `${RESOURCE_BOUNDS.noteContainerRecords}.`,
+    );
+  }
   runGit(
     ["notes", `--ref=${NOTES_REF}`, "add", "-f", "-F", "-", commit],
     { cwd, input: `${JSON.stringify(note, null, 2)}\n` },

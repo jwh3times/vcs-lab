@@ -82,6 +82,14 @@ not complete until its catalog document passes these checks.
 `test/canonical-json.test.js` verifies the frozen canonical-JSON profile
 against the shared vectors in `docs/canonical-json/vectors.json`; a future
 native implementation must pass the same vector file byte for byte.
+`test/schema-compatibility.test.js` keeps the published compatibility contract
+in `docs/schemas/compatibility.md` in agreement with `RECORD_FAMILIES` and
+`RESOURCE_BOUNDS` in `src/schemas.js`, and exercises each disposition against
+the real CLI: an unreadable journal, registry, or forecast is refused without
+being rewritten, a note container from another build survives a refused
+receipt publication byte for byte, and an oversize note is quarantined with a
+diagnostic rather than failing the command. A new record family, a new version,
+or a changed bound is not complete until these checks pass.
 
 Run the maintained demonstrations when changing their workflows:
 

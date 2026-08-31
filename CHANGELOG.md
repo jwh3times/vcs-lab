@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- Freeze the per-family compatibility, migration, unknown-version, and
+  resource-bound contract (issue #11 item 4; ADR-0020; ADR-0015 phase 0b) in
+  `docs/schemas/compatibility.md`, with `RECORD_FAMILIES` and
+  `RESOURCE_BOUNDS` in `src/schemas.js` as the runtime authority and
+  `test/schema-compatibility.test.js` failing the suite when the two
+  disagree. One registry now states each family's written versions,
+  additionally readable versions, store, and unknown-version rule, and the
+  rule follows the persistence scope: an unknown shared-portable note record
+  is quarantined and reported, while an unreadable worktree-private,
+  shared-local, tracked, or envelope record refuses the command. Nothing that
+  is quarantined or refused is ever rewritten, truncated, or deleted.
+  - **Two safety fixes.** Publishing a receipt onto a commit whose note came
+    from a newer vcs-lab no longer destroys that note: `git notes add -f`
+    replaces the whole blob, so `vlab` now refuses to append to a container it
+    cannot read and leaves it byte for byte intact. A reconciliation or rebase
+    journal, and the workspace registry, were previously read and resumed
+    whatever schema they declared; an unreadable version is now refused with a
+    message naming the file, the versions this build reads, and how to
+    recover.
+  - **Resource bounds.** Every persisted family now has a published bound that
+    is checked before the record is parsed: `noteContainerBytes` (8 MiB) and
+    `noteContainerRecords` (4096) quarantine an oversize note with an
+    `oversize-record` diagnostic instead of failing the command,
+    `localStateBytes` (64 MiB) is enforced once in `readJson` for both
+    journals, every stored forecast, and the workspace registry,
+    `specManifestBytes` (8 MiB) covers tracked manifests, and the metadata
+    envelope's previously ad-hoc limits are published as
+    `envelopeManifestBytes`, `envelopeBundleBytes`, and `envelopeRecords`.
+    Malformed local state is now a domain error naming the file rather than a
+    bare `SyntaxError`. Growth limits that need a retention design instead of
+    a constant are documented as deliberately absent.
+  - `vcs-lab.forecast/v1` is now expressed as a readable version of its family
+    in the registry rather than as an exception in a test allowlist, and the
+    rebase-forecast reader no longer reports an unreadable version and a
+    non-approving forecast with the same message.
 - Freeze the canonical JSON profile `vcs-lab.canonical-json/v1` (issue #11
   item 3; ADR-0015 phase 0b): RFC 8785 restricted to
   UTF-16-code-unit-sorted members and safe integers — non-integer numbers,

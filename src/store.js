@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { runGit } from "./git.js";
 import { repoContext } from "./engine.js";
+import { CliError } from "./errors.js";
+import { assertWithinBound } from "./schemas.js";
 
 export function labRuntimeDir(cwd = process.cwd()) {
   const { commonDir } = repoContext(cwd);
@@ -28,12 +30,30 @@ export function initLab(cwd = process.cwd()) {
   return context;
 }
 
+/**
+ * Read one worktree-private or shared-local JSON state file. This is the single
+ * reader for every `<git dir>/vcs-lab/**` and `<common dir>/vcs-lab/**`
+ * document, so it is where the `localStateBytes` resource bound is enforced
+ * (ADR-0020): a file over the bound is refused before it is parsed, rather than
+ * being loaded into memory first. Malformed content is refused as a domain
+ * error naming the file instead of surfacing a bare `SyntaxError`.
+ */
 export function readJson(filePath, fallback) {
+  let raw;
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const stat = fs.statSync(filePath);
+    assertWithinBound("localStateBytes", stat.size, `Local state file '${filePath}'`);
+    raw = fs.readFileSync(filePath, "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") return fallback;
     throw error;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new CliError(`Local state file '${filePath}' is not valid JSON.`, {
+      details: "Recover or remove the file; vcs-lab will not guess its contents.",
+    });
   }
 }
 
