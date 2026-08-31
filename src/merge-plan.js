@@ -108,7 +108,12 @@ function buildMergePlanInSession(targetRef, sourceRef, cwd) {
       proof = "commit-ancestry";
     } else if (receipt.commits.has(commit)) {
       status = "covered";
-      proof = "signed-shaped-landing-receipt";
+      // Pairs with `receipt-change-id` below: this proof is a reachable
+      // receipt listing the exact commit, that one is a receipt absorbing the
+      // logical ID. It replaces `signed-shaped-landing-receipt`, which said
+      // "signed" about a record nothing signs; that value remains legal in
+      // records written before v0.12.0 (docs/schemas/compatibility.md).
+      proof = "receipt-commit";
     } else if (direct.changeIds.has(changeId)) {
       status = "covered";
       proof = "stable-change-id";

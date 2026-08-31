@@ -355,7 +355,7 @@ test("causal rebase planning is deterministic and replays only hard-squash conti
   );
   assert.ok(
     plan.omitted.every((item) =>
-      ["signed-shaped-landing-receipt", "receipt-change-id"].includes(item.proof),
+      ["receipt-commit", "receipt-change-id"].includes(item.proof),
     ),
   );
   assert.deepEqual(

@@ -322,8 +322,14 @@ complete outcome.
   for FR-ID-06.
 - Specify Change-ID namespace, entropy, and cross-repository import behavior for
   FR-ID-07 before IDs participate in any trust decision.
-- Replace or version the historical `signed-shaped-landing-receipt` proof label
-  so integrity-linked local evidence is never confused with a signature.
+- **Done 2026-08-31.** The historical `signed-shaped-landing-receipt` proof
+  label is replaced by `receipt-commit`, which names what the evidence is: a
+  reachable receipt lists the exact commit, pairing with `receipt-change-id`
+  for a receipt that absorbed the logical ID. The old label printed the word
+  *signed* in every plan for a record nothing signs. Nothing branches on a
+  proof value, so this is an additive change inside each version rather than a
+  bump; records written earlier keep the old value and readers pass it through
+  (`docs/schemas/compatibility.md` section 2.1).
 - Define a portable proof bundle and independent classification verifier for
   FR-PLAN-08 after the schema catalog is stable.
 

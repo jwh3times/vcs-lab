@@ -98,6 +98,25 @@ The rule follows from who wrote the record and what is lost by guessing.
 - **Envelopes are refused.** Import is an explicit, auditable act on untrusted
   input; a version mismatch is reported rather than partially applied.
 
+## 2.1 Superseded values inside a version
+
+A value can be retired without retiring its family, when nothing branches on
+it. The `proof` member of a coverage classification is the current case.
+
+| Member | Retired value | Replaced by | Since |
+| --- | --- | --- | --- |
+| `proof` (`vcs-lab.merge-plan/v1`, `vcs-lab.rebase-plan/v1`, `vcs-lab.rebase/v1`, `vcs-lab.rebase-forecast/v1`) | `signed-shaped-landing-receipt` | `receipt-commit` | v0.12.0 |
+
+The old label printed the word *signed* in every plan for a record that nothing
+signs. Renaming it is permitted inside the version because the value is opaque
+to every reader: `proof` is carried and displayed, never branched on. Writers
+emit `receipt-commit`; a record written by an earlier build keeps
+`signed-shaped-landing-receipt` and is passed through unchanged, so no record
+changes meaning and nothing is narrowed.
+
+Retiring a value that a reader **does** branch on is a different change and
+needs a version bump, because it narrows an accepted set.
+
 ## 3. Migration
 
 Only two families read a version they do not write.

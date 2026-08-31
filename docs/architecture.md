@@ -303,17 +303,20 @@ session:
 The current precedence is:
 
 1. `commit-ancestry`: exact source commit is directly reachable from target.
-2. `signed-shaped-landing-receipt`: name retained for compatibility; a reachable
-   landing/reconciliation record lists the exact source commit. The record is
-   not cryptographically signed in v0.7.
+2. `receipt-commit`: a reachable landing or reconciliation record lists the
+   exact source commit.
 3. `stable-change-id`: target history contains the same logical ID.
 4. `receipt-change-id`: a reachable receipt absorbed the logical ID.
 5. `git-patch-id-heuristic`: advisory candidate only.
 6. no proof: new work.
 
-The awkward historical proof label `signed-shaped-landing-receipt` means “a
-record shaped for future signed proof,” not “verified signature.” It should be
-renamed or formally versioned when the proof schema is standardized.
+`receipt-commit` replaced `signed-shaped-landing-receipt` in v0.12.0. The old
+label meant a record shaped for future signed proof, but it printed the word
+*signed* in every plan for a record that nothing signs, inviting exactly the
+confusion section 15.3 warns against. Nothing in the tool branches on a proof
+value -- it is carried and displayed -- so the old value stays legal wherever a
+record written by an earlier build still holds it, and readers pass it through
+unchanged (see the [compatibility contract](schemas/compatibility.md)).
 
 ### 7.2 Reachability rule
 
@@ -912,8 +915,9 @@ history-filtered histories fail closed.
 
 Current receipts are integrity-linked to Git object IDs but locally writable by
 any actor with repository access. They are evidence consumed under local trust,
-not signatures or authorization. The historical phrase
-`signed-shaped-landing-receipt` does not change that boundary.
+not signatures or authorization. The proof label `receipt-commit` names what
+that evidence is; the historical `signed-shaped-landing-receipt` it replaced
+never denoted a verified signature and did not change this boundary.
 
 ## 16. Failure handling
 

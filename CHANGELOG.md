@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Rename the `signed-shaped-landing-receipt` coverage proof to
+  `receipt-commit` (roadmap Horizon 2 item 2; FR-PLAN-05). The old label
+  printed the word *signed* in every plan for a record that nothing
+  cryptographically signs, which is exactly the confusion the architecture's
+  trust-limitation section warns against. The new name says what the evidence
+  is — a reachable landing or reconciliation receipt lists the exact commit —
+  and pairs with the existing `receipt-change-id`, where a receipt absorbed
+  the logical ID instead.
+  - This is an additive change inside each version, not a bump. Nothing in
+    the tool branches on a proof value; it is carried and displayed. Plans and
+    receipts written by earlier builds keep `signed-shaped-landing-receipt`,
+    readers pass it through unchanged, and no record changes meaning. The
+    compatibility contract gains a section recording retired values and the
+    rule that retiring a value a reader *does* branch on would need a version
+    bump.
+
 - Measure workspace materialization in the benchmark, completing roadmap
   Horizon 1.5 item 3 and with it ADR-0015 program phase 0a (issue #10;
   ADR-0017 amended). The scale fixture committed the empty tree at every
