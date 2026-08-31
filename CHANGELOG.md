@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
 
 - Close the merge-tree engine's nested `.gitattributes` equivalence gap
   (issue #9; ADR-0016). The engine falls back to the worktree oracle when a

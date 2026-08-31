@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Baseline | v0.10.0 released |
+| Baseline | v0.11.0 released |
 | Status | Maintained execution guide |
 | Last reviewed | 2026-08-31 |
 | Planning horizon | Next bounded increment through the phased native-core program |
@@ -32,10 +32,14 @@ Roadmap states mean:
 The laboratory has already tested the core causal model over ordinary Git.
 v0.9.0 released the causal-rebase, workspace-lifecycle, checkpoint-forecast,
 scale-benchmark, and scan-batching work accumulated since v0.8.0; v0.10.0
-releases the merge-tree forecast engine (the default on Windows, with Windows
+released the merge-tree forecast engine (the default on Windows, with Windows
 and Linux evidence), the per-host benchmark baseline with its regression
 check, the rerere guard, and the metadata validate/resolve agreement fix
-accumulated since v0.9.0. On 2026-08-28
+accumulated since v0.9.0; v0.11.0 releases the whole of ADR-0015 program
+phase 0b — the read-side engine seam, the versioned schema catalog, the
+frozen canonical-JSON profile, the per-family compatibility and
+resource-bound contract, and the human/JSON conformance fixtures — together
+with the merge-tree engine’s nested `.gitattributes` fix. On 2026-08-28
 [ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
 split the native implementation gate and
 [ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) adopted a
