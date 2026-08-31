@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Close the merge-tree engine's nested `.gitattributes` equivalence gap
+  (issue #9; ADR-0016). The engine falls back to the worktree oracle when a
+  queued change other than the last touches `.gitattributes`, because the
+  remaining steps would otherwise merge under attributes it cannot see: it
+  fixes `GIT_ATTR_SOURCE` to the original target tree, while the worktree
+  simulator checks out the accumulated tree and reads what earlier steps
+  introduced. Only the root file was detected, so a queue whose earlier step
+  added `docs/.gitattributes` predicted a different tree in the two engines;
+  FR-REC-06 caught it at application time, but the forecast was wrong.
+  Detection now covers any `.gitattributes`, at the root or nested, and the
+  `attributes-changed` fallback names the triggering `path`.
+  - The paths come from `changedPaths`, a new member of each plan change in
+    `vcs-lab.merge-plan/v1` and `vcs-lab.rebase-plan/v1`, read by the same
+    single `git log` process that already builds the queue: `--name-only`
+    plus a leading `%x00` in the format, which gives the `-z` name list the
+    record boundary it otherwise lacks. No extra Git process, so every
+    committed benchmark process count is unchanged. Adding an optional member
+    inside a version is permitted by the compatibility contract.
+
 - Pin human/JSON output parity with conformance fixtures (issue #11 item 5;
   ADR-0015 phase 0b), completing the phase 0b contract freeze. The new
   `docs/conformance/` names, per command, the JSON members its human rendering

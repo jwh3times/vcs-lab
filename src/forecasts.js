@@ -289,6 +289,25 @@ function simulatePlanWithMergeTree(cwd, options) {
     if (!parentTree.exists || parentTree.type !== "tree") {
       return fallback("root-commit", { step: index, sourceCommit: change.commit });
     }
+    // A change before the last one that touches any `.gitattributes` makes the
+    // remaining steps merge under attributes this engine cannot see: it fixes
+    // GIT_ATTR_SOURCE to the original target tree, while the worktree
+    // simulator checks out the accumulated tree and reads the attributes the
+    // earlier steps introduced. `changedPaths` catches a nested file such as
+    // `docs/.gitattributes`; the object comparison below still covers the root
+    // file for a queue supplied without paths (ADR-0016).
+    if (index < queue.length - 1) {
+      const attributePath = (change.changedPaths ?? []).find(
+        (path) => path === ".gitattributes" || path.endsWith("/.gitattributes"),
+      );
+      if (attributePath) {
+        return fallback("attributes-changed", {
+          step: index,
+          sourceCommit: change.commit,
+          path: attributePath,
+        });
+      }
+    }
     if (
       index < queue.length - 1 &&
       (attributesAfter.exists !== attributesBefore.exists ||
@@ -297,6 +316,7 @@ function simulatePlanWithMergeTree(cwd, options) {
       return fallback("attributes-changed", {
         step: index,
         sourceCommit: change.commit,
+        path: ".gitattributes",
       });
     }
     inputs.push({ change, changeTree: changeTree.oid, parentTree: parentTree.oid });

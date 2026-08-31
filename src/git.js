@@ -1014,7 +1014,15 @@ export function rootCommits(cwd = process.cwd()) {
 /**
  * `{ commit, subject, message }` for every commit `git log` selects from
  * `revisions` (revisions, ranges, or exclusions), newest first unless
- * `reverse`. One process regardless of history length.
+ * `reverse`. With `options.paths`, each record also carries `changedPaths`,
+ * the paths that commit touched, produced by the same single process.
+ *
+ * The format begins with `%x00` so every record starts with an empty field
+ * once the output is split. `-z` gives a `--name-only` list no terminator, so
+ * without that sentinel the last file name of one commit cannot be told from
+ * the first field of the next; with it a record boundary is unambiguous,
+ * because a path is never empty. Git separates the format output from the
+ * name list with a newline, which lands at the front of the first path field.
  */
 export function commitHistory(revisions, cwd = process.cwd(), options = {}) {
   const output = readText(
@@ -1022,21 +1030,43 @@ export function commitHistory(revisions, cwd = process.cwd(), options = {}) {
       "log",
       "-z",
       ...(options.reverse ? ["--reverse"] : []),
-      "--format=%H%x00%s%x00%B",
+      ...(options.paths ? ["--name-only"] : []),
+      "--format=%x00%H%x00%s%x00%B",
       ...revisions,
     ],
     { cwd, trim: false },
   );
   const records = [];
   const fields = output.split("\0");
-  for (let index = 0; index + 2 < fields.length; index += 3) {
-    const commit = fields[index].trim();
-    if (!commit) continue;
-    records.push({
+  let index = 0;
+  while (index < fields.length) {
+    if (fields[index] !== "") {
+      index += 1;
+      continue;
+    }
+    if (index + 3 >= fields.length) break;
+    const commit = fields[index + 1].trim();
+    if (!commit) {
+      index += 1;
+      continue;
+    }
+    const record = {
       commit,
-      subject: fields[index + 1],
-      message: fields[index + 2],
-    });
+      subject: fields[index + 2],
+      message: fields[index + 3],
+    };
+    index += 4;
+    if (options.paths) {
+      const changedPaths = [];
+      while (index < fields.length && fields[index] !== "") {
+        const field = fields[index];
+        const path = field.startsWith("\n") ? field.slice(1) : field;
+        if (path) changedPaths.push(path);
+        index += 1;
+      }
+      record.changedPaths = changedPaths;
+    }
+    records.push(record);
   }
   return records;
 }

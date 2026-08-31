@@ -87,7 +87,10 @@ queue without a worktree:
 
 1. One batched object inspection resolves the target tree and, per queued
    change, its tree, its first-parent tree, whether a second parent exists,
-   and the root `.gitattributes` blob before and after the change.
+   and the root `.gitattributes` blob before and after the change. The paths
+   each change touched come from the plan, which reads them in the same
+   single `git log` process that already builds the queue, so the attribute
+   check below costs no extra Git invocation.
 2. One `git merge-tree --stdin` process is started lazily by a worker thread
    and driven synchronously through a shared buffer, exactly as the object
    session of
@@ -114,9 +117,10 @@ remains the semantic oracle, whenever:
   worktree simulator blocks as an empty pick;
 - a queued change is a merge commit (`merge-commit`) or a root commit
   (`root-commit`);
-- a queued change other than the last adds, removes, or edits the root
-  `.gitattributes` (`attributes-changed`), because a later step would merge
-  under attributes the session cannot see; or
+- a queued change other than the last adds, removes, or edits any
+  `.gitattributes`, at the root or nested (`attributes-changed`, which names
+  the triggering `path`), because a later step would merge under attributes
+  the session cannot see; or
 - the batched inspection or the session fails (`target-tree-unavailable`,
   `change-tree-unavailable`, `merge-tree-unavailable`, and `git-too-old` when
   the session process reports a Git older than 2.49, before any merge is
@@ -153,10 +157,11 @@ not anticipate surfaces as `forecast-mismatch`, never as a wrong receipt.
 The following are Git behaviors, not engine defects; the engine falls back
 or the documentation records them:
 
-- Nested `.gitattributes` files edited by a queued change are not detected;
-  only the root file is. A later step could then merge under different
-  attributes than the worktree simulator's checkout. FR-REC-06 guards the
-  application.
+- `.gitattributes` edits by a queued change are detected at the root and in
+  any subdirectory, from the changed-path list the plan already reads, so a
+  later step never merges under attributes the engine cannot see. This
+  closed a documented equivalence gap on 2026-08-31 (issue #9); before it,
+  only the root file was checked and FR-REC-06 was the sole guard.
 - The engine needs Git 2.49 (corrected from 2.45 by the 2026-08-30
   amendment below): `merge-tree --stdin` flushes each record before reading
   the next request only from 2.49, `merge-tree` accepts bare tree operands
@@ -359,9 +364,7 @@ years).
 ### Negative
 
 - A forecast that conflicts pays for the failed merge-tree attempt.
-- Nested `.gitattributes` edits inside a queue leave a documented
-  equivalence gap that only FR-REC-06 closes; Git older than 2.49 gets no
-  engine at all.
+- Git older than 2.49 gets no engine at all.
 - A third suite mode lengthens qualification.
 
 ## Rejected alternatives

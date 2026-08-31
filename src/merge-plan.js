@@ -42,8 +42,18 @@ function receiptCoverage(ref, directCommits, cwd) {
   return { receipts, commits, changeIds };
 }
 
+/**
+ * The queued source changes, each carrying the paths it touched. The paths
+ * come from the same single `git log` process that already reads this range,
+ * so they cost no extra Git invocation, and the merge-tree forecast engine
+ * uses them to detect a nested `.gitattributes` edit it would otherwise
+ * simulate under the wrong attributes (ADR-0016).
+ */
 function sourceChanges(base, source, cwd) {
-  return commitHistory([`${base}..${source}`], cwd, { reverse: true }).map((item) => ({
+  return commitHistory([`${base}..${source}`], cwd, {
+    reverse: true,
+    paths: true,
+  }).map((item) => ({
     ...item,
     changeId: extractChangeId(item.commit, item.message),
   }));
@@ -90,7 +100,7 @@ function buildMergePlanInSession(targetRef, sourceRef, cwd) {
     cwd,
   );
 
-  const changes = sourceHistory.map(({ commit, changeId, subject }) => {
+  const changes = sourceHistory.map(({ commit, changeId, subject, changedPaths }) => {
     let status = "new";
     let proof = null;
     if (direct.commits.has(commit)) {
@@ -116,6 +126,7 @@ function buildMergePlanInSession(targetRef, sourceRef, cwd) {
       subject,
       status,
       proof,
+      changedPaths: changedPaths ?? [],
     };
   });
 

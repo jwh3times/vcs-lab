@@ -54,13 +54,18 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["commit", "shortCommit", "changeId", "subject", "status", "proof", "action"],
+        "required": ["commit", "shortCommit", "changeId", "subject", "status", "proof", "action", "changedPaths"],
         "properties": {
           "commit": { "$ref": "#/$defs/oid" },
           "shortCommit": { "type": "string", "minLength": 1 },
           "changeId": { "type": "string", "minLength": 1 },
           "subject": { "type": "string" },
           "status": { "enum": ["covered", "candidate-equivalent", "new"] },
+          "changedPaths": {
+            "type": "array",
+            "description": "Paths this commit touched, read from the same git log process that builds the queue. The merge-tree forecast engine uses them to detect a nested .gitattributes edit it would otherwise simulate under the wrong attributes (ADR-0016).",
+            "items": { "type": "string", "minLength": 1 }
+          },
           "proof": { "type": ["string", "null"] },
           "action": { "enum": ["omit", "review", "replay"] }
         }

@@ -4374,6 +4374,7 @@ test("merge-tree forecasts fall back when a non-final change edits the root .git
       reason: "attributes-changed",
       step: 0,
       sourceCommit: attributes.commit,
+      path: ".gitattributes",
     },
   ]);
   assert.equal(
@@ -4407,6 +4408,78 @@ test("merge-tree forecasts fall back when a non-final change edits the root .git
     "attributes-last",
   );
   assert.deepEqual(normalizeForecast(mergeTreeLast), normalizeForecast(worktreeLast));
+  assert.equal(mergeTreeLast.engine, "merge-tree");
+  assert.deepEqual(mergeTreeLast.fallbacks, []);
+});
+
+test("merge-tree forecasts fall back when a non-final change edits a nested .gitattributes", (t) => {
+  if (skipWithoutMergeTreeEngine(t)) return;
+  // The engine fixes GIT_ATTR_SOURCE to the original target tree, while the
+  // worktree simulator checks out the accumulated tree before each pick and so
+  // reads the attributes an earlier step introduced. Detecting only the root
+  // file left a queue whose earlier step adds docs/.gitattributes predicting a
+  // different tree in the two engines (ADR-0016, issue #9).
+  const { repo } = makeRepo(t);
+  write(repo, "docs/note.md", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  write(repo, "target.txt", "target\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target moves");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "docs/.gitattributes", "*.md merge=union\n");
+  git(repo, "add", ".");
+  const attributes = JSON.parse(
+    vlab(repo, "commit", "-m", "source adds nested attributes"),
+  );
+  write(repo, "docs/note.md", "source\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source edits under those attributes");
+  git(repo, "switch", "main");
+
+  const worktree = forecastWithEngine(repo, "worktree", "forecast", "feature");
+  const mergeTree = forecastWithEngine(repo, "merge-tree", "forecast", "feature");
+  assert.equal(worktree.status, "complete");
+  assert.equal(worktree.steps.length, 2);
+  assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
+  assert.equal(mergeTree.engine, "worktree");
+  assert.deepEqual(mergeTree.fallbacks, [
+    {
+      engine: "merge-tree",
+      reason: "attributes-changed",
+      step: 0,
+      sourceCommit: attributes.commit,
+      path: "docs/.gitattributes",
+    },
+  ]);
+  assert.equal(mergeTree.predictedResultTree, worktree.predictedResultTree);
+
+  // The plan carries the paths the detection reads, from the same single
+  // git log process that already builds the queue.
+  const plan = JSON.parse(vlab(repo, "merge-plan", "feature", "--json"));
+  assert.deepEqual(
+    plan.changes.map((change) => change.changedPaths),
+    [["docs/.gitattributes"], ["docs/note.md"]],
+  );
+
+  // A nested edit in the final change needs no fallback: nothing merges after it.
+  git(repo, "switch", "-c", "nested-last", base.commit);
+  write(repo, "docs/note.md", "other\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source edits note first");
+  write(repo, "docs/.gitattributes", "*.md merge=union\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "source adds nested attributes last");
+  git(repo, "switch", "main");
+  const mergeTreeLast = forecastWithEngine(
+    repo,
+    "merge-tree",
+    "forecast",
+    "nested-last",
+  );
   assert.equal(mergeTreeLast.engine, "merge-tree");
   assert.deepEqual(mergeTreeLast.fallbacks, []);
 });
