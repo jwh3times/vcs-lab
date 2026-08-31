@@ -11,6 +11,7 @@ import {
   rootCommits,
 } from "./engine.js";
 import { sha256 } from "./ids.js";
+import { canonicalJson as profileCanonicalJson } from "./canonical-json.js";
 import { normalizeMarkdown } from "./specs.js";
 import {
   METADATA_LINEAGE_ALGORITHM,
@@ -41,6 +42,14 @@ function canonicalValue(value) {
   return value;
 }
 
+/**
+ * Legacy sorted-key serializer for record digests, record-equality
+ * comparison, and export keys. It accepts whatever JSON.stringify accepts —
+ * including the non-integer timing numbers stored in receipts — so the
+ * digests that envelopes persist stay byte-stable across releases. New
+ * hashed or signed structures must use the frozen profile in
+ * ./canonical-json.js instead (docs/canonical-json/README.md).
+ */
 export function canonicalJson(value) {
   return JSON.stringify(canonicalValue(value));
 }
@@ -103,7 +112,10 @@ export function repositoryLineage(cwd = process.cwd()) {
     objectFormat: context.objectFormat,
     rootCommits: roots,
   };
-  return { ...identity, id: `lineage_${sha256(canonicalJson(identity))}` };
+  // The identity is hashed under the frozen canonical JSON profile
+  // (vcs-lab.canonical-json/v1); for this float-free shape the bytes are
+  // identical to the legacy serializer's, so lineage IDs are unchanged.
+  return { ...identity, id: `lineage_${sha256(profileCanonicalJson(identity))}` };
 }
 
 export function lineageRelation(source, destination) {

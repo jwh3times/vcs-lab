@@ -60,9 +60,11 @@ the default on Windows since 2026-08-30, opt-in on POSIX hosts) with Windows
 and Linux differential evidence and a committed Linux benchmark baseline, and
 the Windows post-batching rerun is recorded in ADR-0013. The read-side engine
 seam that Gate A requires is implemented, unreleased
-([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md)); the
-next work is the contract catalog and canonical-JSON profile that complete
-Horizon 2 item 1. No storage layer or service is approved.
+([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md)), as
+are the schema catalog (`docs/schemas/`) and the frozen canonical-JSON
+profile (`docs/canonical-json/`); the next work is the compatibility rules
+and conformance fixtures that complete Horizon 2 item 1. No storage layer or
+service is approved.
 
 ## Horizon 1: close the current development line
 
@@ -200,8 +202,14 @@ Program phase 0b of ADR-0015 and Gate A item 1 of ADR-0014.
   that maps every `--json` command to its output contract, with
   `src/schemas.js` retained as the runtime authority and
   `test/schema-catalog.test.js` failing the suite when they disagree.
-- Freeze an RFC 8785 canonical-JSON profile with shared test vectors that
-  reserve signature and repository-identity fields.
+- **Done 2026-08-30:** the canonical JSON profile
+  (`vcs-lab.canonical-json/v1`, RFC 8785 restricted to
+  UTF-16-code-unit-sorted members and safe integers with no floats) is
+  frozen in `docs/canonical-json/` with shared test vectors that reserve the
+  `integrity`/`signatures` members and the repository-identity lineage
+  fields; `src/canonical-json.js` implements it, the repository-lineage and
+  envelope-manifest hashes compute through it with unchanged bytes, and
+  `test/canonical-json.test.js` verifies the vectors.
 - Introduce a single read-side engine seam (`src/engine.js`) with an engine
   selector, a third integration-suite mode, a differential doctor mode, and
   `engine`/`fallbacks` fields in metrics.
@@ -233,10 +241,18 @@ versioned CLI output/schema catalog is published, unreleased, in
 persisted and automation-facing record family, a README that catalogs every
 `--json` command's output contract, and `test/schema-catalog.test.js`
 keeping the documents in agreement with the runtime validators, completing
-FR-GIT-06. The remaining items of this increment, in order, are the
-canonical JSON profile with shared test vectors, the compatibility and
-unknown-version rules per record family, and the human/JSON conformance
-fixtures; the phase 1 ADR that names the Gate A item 3 budget follows them.
+FR-GIT-06. The canonical JSON profile is frozen, unreleased, in
+`docs/canonical-json/` (2026-08-30): `vcs-lab.canonical-json/v1` restricts
+RFC 8785 to UTF-16-code-unit-sorted members and safe integers, reserves the
+`integrity`/`signatures` members and the repository-identity lineage fields,
+and is implemented by `src/canonical-json.js` with shared test vectors a
+future Rust implementation must reproduce byte for byte; the
+repository-lineage and envelope-manifest hashes now compute through it with
+unchanged bytes, while record digests keep their frozen legacy
+serialization. The remaining items of this increment, in order, are the
+compatibility and unknown-version rules per record family and the
+human/JSON conformance fixtures; the phase 1 ADR that names the Gate A
+item 3 budget follows them.
 
 ### 2. Strengthen identity and proof diagnostics
 

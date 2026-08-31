@@ -12,6 +12,10 @@ the versioned record of delivered behavior.
   evidence gates, and incomplete-requirement traceability.
 - [Architecture](architecture.md) — implemented components, persisted state,
   runtime flows, invariants, failure handling, and known debt.
+- [Schema catalog](schemas/README.md) — one JSON Schema document per persisted
+  and automation-facing record family, and the CLI JSON output contracts.
+- [Canonical JSON profile](canonical-json/README.md) — the frozen RFC 8785
+  serialization profile, encoder registry, and shared test vectors.
 - [Testing](testing.md) — supported validation commands and release evidence
   policy.
 - [Architecture decision records](adr/README.md) — decisions whose constraints

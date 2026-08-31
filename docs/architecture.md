@@ -260,7 +260,12 @@ The executable JavaScript validators and named object shapes in
 JSON output contracts, are additionally published as standalone JSON Schema
 documents in the [schema catalog](schemas/README.md);
 `test/schema-catalog.test.js` fails the suite when a document and its
-validator disagree. Unknown portable record schemas are quarantined rather
+validator disagree. Repository-lineage IDs and the envelope manifest hash
+are computed under the frozen canonical JSON profile
+`vcs-lab.canonical-json/v1` (`src/canonical-json.js`, specified with shared
+test vectors in the [canonical JSON profile](canonical-json/README.md));
+record digests keep their frozen legacy serialization for byte stability.
+Unknown portable record schemas are quarantined rather
 than consumed. Schema-version changes still require migration/compatibility
 tests.
 

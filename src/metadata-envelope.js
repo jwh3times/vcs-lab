@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { sha256 } from "./ids.js";
-import { canonicalJson } from "./metadata.js";
+import { canonicalJson } from "./canonical-json.js";
 import { METADATA_ENVELOPE_SCHEMA, isOid } from "./schemas.js";
 import { VERSION } from "./version.js";
 import { CliError } from "./errors.js";
@@ -25,10 +25,31 @@ function validRef(ref) {
   );
 }
 
+/**
+ * The manifest hash covers the canonical-JSON bytes
+ * (vcs-lab.canonical-json/v1) of the manifest without its reserved
+ * `integrity` and `signatures` members, so a future detached signature can
+ * cover exactly the hashed payload. A manifest the profile cannot represent
+ * (for example one carrying non-integer numbers) fails closed instead of
+ * being hashed approximately. For every manifest this project has produced
+ * the bytes are identical to the legacy serializer's, so stored manifest
+ * hashes remain valid.
+ */
 function manifestHash(value) {
   const copy = structuredClone(value);
   delete copy.integrity;
-  return sha256(canonicalJson(copy));
+  delete copy.signatures;
+  try {
+    return sha256(canonicalJson(copy));
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new CliError(
+        "Metadata envelope manifest is not representable in the canonical JSON profile.",
+        { details: error.message },
+      );
+    }
+    throw error;
+  }
 }
 
 export function buildEnvelopeManifest(snapshot, payload, refs) {

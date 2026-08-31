@@ -79,6 +79,9 @@ have a catalog document, records produced by the real CLI must satisfy their
 documents, and a note record the runtime validator rejects for a missing
 field must be rejected by its document too. A new or changed record family is
 not complete until its catalog document passes these checks.
+`test/canonical-json.test.js` verifies the frozen canonical-JSON profile
+against the shared vectors in `docs/canonical-json/vectors.json`; a future
+native implementation must pass the same vector file byte for byte.
 
 Run the maintained demonstrations when changing their workflows:
 

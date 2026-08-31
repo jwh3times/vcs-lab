@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Freeze the canonical JSON profile `vcs-lab.canonical-json/v1` (issue #11
+  item 3; ADR-0015 phase 0b): RFC 8785 restricted to
+  UTF-16-code-unit-sorted members and safe integers — non-integer numbers,
+  negative zero, unsafe integers, and non-JSON values are refused rather
+  than approximated. The profile specification, the encoder registry, and
+  the shared cross-implementation test vectors (which reserve the
+  `integrity` and `signatures` members and the repository-identity lineage
+  fields) live in `docs/canonical-json/`; `src/canonical-json.js` implements
+  the profile and `test/canonical-json.test.js` verifies every vector. The
+  repository-lineage ID and the metadata-envelope `manifestHash` now compute
+  through the profile with byte-identical results, so existing lineage IDs,
+  digests, and envelopes remain valid; the manifest hash additionally
+  excludes the reserved `signatures` member, and an envelope manifest the
+  profile cannot represent (for example one carrying non-integer numbers) is
+  now refused instead of being hashed approximately. Record digests,
+  record-equality comparison, and export keys keep their frozen legacy
+  serialization because envelopes persist those digests.
 - Publish the versioned CLI output/schema catalog in `docs/schemas/`
   (issue #11 item 2; ADR-0015 phase 0b), completing FR-GIT-06: one standalone
   JSON Schema (draft 2020-12) document per persisted and automation-facing

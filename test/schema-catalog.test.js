@@ -15,6 +15,10 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 // written; the catalog lists it as superseded without a document.
 const SUPERSEDED_WITHOUT_DOCUMENT = new Set(["vcs-lab.forecast/v1"]);
 
+// Profile identifiers name serialization contracts documented in
+// docs/canonical-json/, not record families; they carry no schema document.
+const PROFILE_IDENTIFIERS = new Set(["vcs-lab.canonical-json/v1"]);
+
 // ---------------------------------------------------------------------------
 // Catalog loading
 // ---------------------------------------------------------------------------
@@ -171,8 +175,12 @@ test("every schema identifier used in src has exactly one catalog document", () 
     for (const match of content.matchAll(/vcs-lab\.[a-z-]+\/v\d+/g)) used.add(match[0]);
   }
   for (const id of used) {
-    if (SUPERSEDED_WITHOUT_DOCUMENT.has(id)) continue;
+    if (SUPERSEDED_WITHOUT_DOCUMENT.has(id) || PROFILE_IDENTIFIERS.has(id)) continue;
     assert.ok(documents.has(id), `schema '${id}' is used in src/ but has no document in docs/schemas/`);
+  }
+  for (const id of PROFILE_IDENTIFIERS) {
+    assert.ok(used.has(id), `profile identifier '${id}' is no longer referenced; drop it from the allowlist`);
+    assert.ok(!documents.has(id), `profile identifier '${id}' unexpectedly has a schema document`);
   }
   for (const id of documents.keys()) {
     assert.ok(used.has(id), `document '${id}' names a schema no src/ module uses`);
