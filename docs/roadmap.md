@@ -167,10 +167,22 @@ current `vlab` path:
 2. **Done 2026-08-29:** the Windows post-batching rerun of
    `vcs-lab.repository-scale-benchmark/v1` is recorded in ADR-0013's Windows
    post-batching evidence section.
-3. Optionally enable commit-graph, multi-pack index, and fsmonitor in
-   `vlab init`, and derive sparse-checkout cones from workspace focus, with
-   workspace-creation and materialized-bytes phases added to a v2 benchmark
-   profile.
+3. **Partly resolved 2026-08-31 by
+   [ADR-0022](adr/0022-reject-git-read-side-maintenance-caches-on-measured-evidence.md)
+   (issue #10).** The commit-graph and multi-pack index were implemented
+   behind an opt-in `vlab init` flag, measured on this Windows host at 400 and
+   1500 trunk commits, found to move no phase beyond run-to-run variance, and
+   **reverted rather than shipped**: the measurement was the deliverable. The
+   same runs showed these commands are insensitive to history depth, so fixed
+   costs dominate and the commit-graph accelerates work that is not the
+   bottleneck. `core.fsmonitor` is rejected without implementation — it starts
+   a per-repository daemon that outlives the command, which the release gate
+   forbids. Git's best mode is therefore Git's current mode, satisfying Gate A
+   item 2 with the existing baseline. What remains open is the second half:
+   derive sparse-checkout cones from workspace focus, with workspace-creation
+   and materialized-bytes phases added to a v2 benchmark profile. That targets
+   materialization rather than reads, and is the most plausible remaining
+   source of a budget the batched Git path misses.
 
 Exit criteria: predicted and per-step trees are byte-identical between the two
 simulators on the whole suite in both session modes; the 12-change demo
