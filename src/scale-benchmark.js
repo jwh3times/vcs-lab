@@ -112,6 +112,32 @@ function measurePhase(name, sampleCount, operation) {
   };
 }
 
+/**
+ * Files and bytes present in a materialized workspace, ignoring Git's own
+ * directory. This is the "bytes materialized per workspace" the v2 profile
+ * records: on a synced or metered filesystem it is the cost a sparse cone
+ * removes, and it is what makes the cone's effect measurable rather than
+ * assumed (issue #10).
+ */
+function materializedTree(worktreePath) {
+  if (!worktreePath || !fs.existsSync(worktreePath)) return { files: 0, bytes: 0 };
+  let files = 0;
+  let bytes = 0;
+  const walk = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name === ".git") continue;
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else {
+        files += 1;
+        bytes += fs.statSync(full).size;
+      }
+    }
+  };
+  walk(worktreePath);
+  return { files, bytes };
+}
+
 function countWorktrees(repo) {
   return listWorktrees(repo).length;
 }
@@ -270,6 +296,17 @@ export function benchmarkRepositoryScale(options = {}) {
     1,
     60_000,
   );
+  // The fixture's working tree. Until v2 every history commit carried the
+  // empty tree, so a workspace materialized nothing and workspace creation
+  // could not be measured at all.
+  const areaCount = integerOption(options.areas, 10, "--areas", 1, 200);
+  const filesPerArea = integerOption(
+    options.filesPerArea,
+    60,
+    "--files-per-area",
+    1,
+    500,
+  );
   if (noteCount + resolutionCount > 5_000) {
     throw new CliError(
       "The scale benchmark is limited to 5,000 total note and resolution records.",
@@ -295,12 +332,31 @@ export function benchmarkRepositoryScale(options = {}) {
     runGit(["config", "core.autocrlf", "false"], { cwd: repo });
     const gitVersionText = gitVersion(repo).raw;
     const emptyTree = runGit(["mktree"], { cwd: repo, input: "" }).stdout;
+
+    // The fixture's working tree, spread over several directories and carried
+    // by every history commit. Until the reduced-local-v2 profile every commit
+    // held the empty tree, so a materialized workspace contained no files and
+    // workspace creation could not be measured at all (issue #10). Every file
+    // is the same size, so materialized bytes are a function of the file count
+    // and stay comparable between hosts.
+    for (let area = 0; area < areaCount; area += 1) {
+      const areaDir = path.join(repo, `area${String(area).padStart(3, "0")}`);
+      fs.mkdirSync(areaDir, { recursive: true });
+      for (let file = 0; file < filesPerArea; file += 1) {
+        fs.writeFileSync(
+          path.join(areaDir, `f${String(file).padStart(4, "0")}.txt`),
+          `${"x".repeat(1024)}` + "\n",
+        );
+      }
+    }
+    runGit(["add", "-A"], { cwd: repo });
+    const contentTree = runGit(["write-tree"], { cwd: repo }).stdout;
     const commits = [];
     let parent = null;
     for (let index = 0; index < historyDepth; index += 1) {
       parent = createCommit(
         repo,
-        emptyTree,
+        contentTree,
         parent,
         `Scale history ${index + 1}`,
         index,
@@ -399,7 +455,12 @@ export function benchmarkRepositoryScale(options = {}) {
       resolutions: resolutionCount,
       totalNoteTargets: noteCount + resolutionCount,
       totalNoteRecords: noteCount + resolutionCount,
+      areas: areaCount,
+      filesPerArea,
+      treeFiles: areaCount * filesPerArea,
     };
+    const createdFull = [];
+    const createdCone = [];
     const measurements = {
       history: measurePhase("history", sampleCount, () => ({
         commits: countCommits("refs/heads/main", repo),
@@ -439,6 +500,30 @@ export function benchmarkRepositoryScale(options = {}) {
           materializedWorktrees: status.scopes.worktreePrivate.worktreeCount,
         };
       }),
+      workspaceCreate: measurePhase("workspace-create", sampleCount, () => {
+        createWorkspace(`scale-create-${createdFull.length}`, {
+          cwd: repo,
+          from: "main",
+          path: path.join(worktreeRoot, `create-${createdFull.length}`),
+        });
+        createdFull.push(path.join(worktreeRoot, `create-${createdFull.length}`));
+        return { created: 1 };
+      }),
+      workspaceCreateCone: measurePhase("workspace-create-cone", sampleCount, () => {
+        createWorkspace(`scale-cone-${createdCone.length}`, {
+          cwd: repo,
+          from: "main",
+          path: path.join(worktreeRoot, `cone-${createdCone.length}`),
+          cone: ["area000"],
+        });
+        createdCone.push(path.join(worktreeRoot, `cone-${createdCone.length}`));
+        return { created: 1 };
+      }),
+    };
+
+    const materialization = {
+      full: materializedTree(createdFull[0]),
+      cone: materializedTree(createdCone[0]),
     };
 
     return {
@@ -471,6 +556,7 @@ export function benchmarkRepositoryScale(options = {}) {
         ),
       },
       measurements,
+      materialization,
       analysis: buildAnalysis(
         measurements,
         fixture,

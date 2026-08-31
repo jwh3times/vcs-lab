@@ -36,15 +36,18 @@ by tens of percent between runs with antivirus, sync, and cache effects.
 
 ### Baseline shape
 
-`benchmarks/baseline.json` carries schema `vcs-lab.benchmark-baseline/v1`:
+`benchmarks/baseline.json` carries schema `vcs-lab.benchmark-baseline/v2`
+(amended 2026-08-31; see below):
 
-- `profile`: the fixed reduced volume the check runs (`reduced-local-v1`:
-  100 commits, 4 workspaces, 60 notes, 12 resolutions, 3 samples, the
-  1,000 ms budget, and a 12-change forecast queue);
+- `profile`: the fixed reduced volume the check runs (`reduced-local-v2`:
+  100 commits, 4 workspaces, 60 notes, 12 resolutions, a working tree of
+  10 areas of 60 files, 3 samples, the 1,000 ms budget, and a 12-change
+  forecast queue);
 - `tolerance`: the documented limits (below);
 - `hosts.<platform>`: one entry per `process.platform` (`win32`, `linux`,
   `darwin`) with the recording date, Git and Node versions, per-phase
-  `medianMs`, `p95Ms`, and `medianProcesses` for the seven scale phases, and
+  `medianMs`, `p95Ms`, and `medianProcesses` for the nine scale phases,
+  `materialization` files and bytes for a full and a coned workspace, and
   per-mode forecast `processes`, `queries`, and `forecastMs` for
   `worktree-ordinary`, `worktree-session`, and `merge-tree-session`.
 
@@ -88,6 +91,45 @@ host re-records its own. An interrupted run removes its
 Release gate item 9 becomes active on every host that has an entry: the
 check must pass there before a release. Hosts without an entry are reported
 as skipped in the release summary.
+
+## Amendment 2026-08-31: profile v2, workspace materialization
+
+Roadmap Horizon 1.5 item 3 (issue #10) needed the benchmark to measure what a
+workspace writes to disk. It could not: every history commit in the v1 fixture
+carried the empty tree, so a materialized workspace contained no files and
+workspace creation had nothing to time.
+
+The profile becomes `reduced-local-v2` and the baseline schema
+`vcs-lab.benchmark-baseline/v2`. The fixture gains a real working tree of ten
+directories holding sixty 1 KiB files each, and two phases are added:
+
+- `workspaceCreate` — wall time and process count for `vlab workspace create`
+  against that tree;
+- `workspaceCreateCone` — the same restricted to one directory with a sparse
+  cone.
+
+The report and each host entry also carry `materialization`, the files and
+bytes present in a full and in a coned workspace. Those are compared under the
+**process rule rather than the latency rule**: the fixture is deterministic, so
+any growth in what a workspace writes is a real change rather than host noise,
+and no tolerance applies.
+
+As this decision already requires, changing the profile forces every host to
+re-record. The `win32` entry is re-recorded; the `linux` entry is dropped and
+must be re-recorded on that host, until which time the check reports it as
+skipped.
+
+One gap in the tooling was fixed to make this possible. `--record` refused to
+run against a baseline written under an older schema, so a schema bump had no
+supported migration path and would have required hand-editing a committed
+artifact. It now starts a fresh baseline for the new schema and names the host
+entries it drops, exactly as it already did for a profile change. A check still
+refuses on a schema mismatch, because comparing against a baseline of a
+different shape is meaningless.
+
+Recorded on win32 (Git 2.55.0.windows.3, Node v26.4.0): a full workspace
+materializes 600 files and 615,000 bytes in a median 481 ms; a coned workspace
+materializes 60 files and 61,500 bytes in a median 261 ms.
 
 ## Constraints
 

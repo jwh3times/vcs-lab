@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Measure workspace materialization in the benchmark, completing roadmap
+  Horizon 1.5 item 3 and with it ADR-0015 program phase 0a (issue #10;
+  ADR-0017 amended). The scale fixture committed the empty tree at every
+  history commit, so a materialized workspace held no files and workspace
+  creation could not be timed at all. The `reduced-local-v2` profile gives it
+  a real working tree of ten areas of sixty 1 KiB files, adds
+  `workspaceCreate` and `workspaceCreateCone` phases, and records
+  `materialization` files and bytes for a full and a coned workspace. Those
+  counts are compared under the process rule rather than the latency rule:
+  the fixture is deterministic, so growth in what a workspace writes is a real
+  change, not host noise. `vlab metadata benchmark` gains `--areas` and
+  `--files-per-area`.
+  - Per ADR-0017 a profile change forces every host to re-record. The `win32`
+    entry is re-recorded under `vcs-lab.benchmark-baseline/v2`; the `linux`
+    entry is dropped and the check reports it as skipped until it is
+    re-recorded there.
+  - `npm run benchmark:record` previously refused to run against a baseline
+    written under an older schema, leaving a schema bump with no supported
+    migration path. It now starts a fresh baseline and names the host entries
+    it drops, as it already did for a profile change; a check still refuses on
+    a schema mismatch.
+
 - Add opt-in sparse-checkout cones to workspaces (issue #10, roadmap Horizon
   1.5 item 3): `vlab workspace create <name> --cone <dir,dir>` materializes
   only the named directory prefixes. Measured on the Windows host with 3000

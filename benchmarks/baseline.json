@@ -1,11 +1,13 @@
 {
-  "schema": "vcs-lab.benchmark-baseline/v1",
+  "schema": "vcs-lab.benchmark-baseline/v2",
   "profile": {
-    "name": "reduced-local-v1",
+    "name": "reduced-local-v2",
     "history": 100,
     "workspaces": 4,
     "notes": 60,
     "resolutions": 12,
+    "areas": 10,
+    "filesPerArea": 60,
     "samples": 3,
     "budgetMs": 1000,
     "forecastChanges": 12
@@ -16,110 +18,65 @@
     "processes": 0
   },
   "hosts": {
-    "linux": {
-      "recordedAt": "2026-08-30",
-      "git": "git version 2.55.0",
-      "node": "v22.23.2",
-      "phases": {
-        "history": {
-          "medianMs": 3.92,
-          "p95Ms": 4.04,
-          "medianProcesses": 1
-        },
-        "gitWorktrees": {
-          "medianMs": 2.4,
-          "p95Ms": 2.63,
-          "medianProcesses": 1
-        },
-        "workspaceRegistry": {
-          "medianMs": 0.04,
-          "p95Ms": 0.13,
-          "medianProcesses": 0
-        },
-        "workspaceStatus": {
-          "medianMs": 11.13,
-          "p95Ms": 11.58,
-          "medianProcesses": 4
-        },
-        "noteCatalog": {
-          "medianMs": 13.44,
-          "p95Ms": 21.25,
-          "medianProcesses": 2
-        },
-        "resolutionCatalog": {
-          "medianMs": 20.62,
-          "p95Ms": 22.76,
-          "medianProcesses": 6
-        },
-        "metadataStatus": {
-          "medianMs": 59.55,
-          "p95Ms": 67.78,
-          "medianProcesses": 12
-        }
-      },
-      "forecast": {
-        "worktree-ordinary": {
-          "engine": "worktree",
-          "fallbacks": 0,
-          "processes": 63,
-          "queries": 63,
-          "forecastMs": 189.11
-        },
-        "worktree-session": {
-          "engine": "worktree",
-          "fallbacks": 0,
-          "processes": 24,
-          "queries": 63,
-          "forecastMs": 175.49
-        },
-        "merge-tree-session": {
-          "engine": "merge-tree",
-          "fallbacks": 0,
-          "processes": 9,
-          "queries": 24,
-          "forecastMs": 99.52
-        }
-      }
-    },
     "win32": {
-      "recordedAt": "2026-08-29",
+      "recordedAt": "2026-08-31",
       "git": "git version 2.55.0.windows.3",
       "node": "v26.4.0",
       "phases": {
         "history": {
-          "medianMs": 60.32,
-          "p95Ms": 61.02,
+          "medianMs": 45.77,
+          "p95Ms": 49.94,
           "medianProcesses": 1
         },
         "gitWorktrees": {
-          "medianMs": 55.53,
-          "p95Ms": 56.58,
+          "medianMs": 36.5,
+          "p95Ms": 39.22,
           "medianProcesses": 1
         },
         "workspaceRegistry": {
-          "medianMs": 0.47,
-          "p95Ms": 0.52,
+          "medianMs": 0.32,
+          "p95Ms": 0.46,
           "medianProcesses": 0
         },
         "workspaceStatus": {
-          "medianMs": 205.19,
-          "p95Ms": 225.11,
+          "medianMs": 161.9,
+          "p95Ms": 325.03,
           "medianProcesses": 4
         },
         "noteCatalog": {
-          "medianMs": 106.14,
-          "p95Ms": 130.87,
+          "medianMs": 82.69,
+          "p95Ms": 96.36,
           "medianProcesses": 2
         },
         "resolutionCatalog": {
-          "medianMs": 253.7,
-          "p95Ms": 268.06,
+          "medianMs": 209.36,
+          "p95Ms": 233.5,
           "medianProcesses": 6
         },
         "metadataStatus": {
-          "medianMs": 572.54,
-          "p95Ms": 762.56,
+          "medianMs": 510.69,
+          "p95Ms": 629.75,
           "medianProcesses": 12
+        },
+        "workspaceCreate": {
+          "medianMs": 512.64,
+          "p95Ms": 531.55,
+          "medianProcesses": 2
+        },
+        "workspaceCreateCone": {
+          "medianMs": 255.61,
+          "p95Ms": 278.13,
+          "medianProcesses": 4
+        }
+      },
+      "materialization": {
+        "full": {
+          "files": 600,
+          "bytes": 615000
+        },
+        "cone": {
+          "files": 60,
+          "bytes": 61500
         }
       },
       "forecast": {
@@ -128,21 +85,21 @@
           "fallbacks": 0,
           "processes": 63,
           "queries": 63,
-          "forecastMs": 2692.45
+          "forecastMs": 2523.51
         },
         "worktree-session": {
           "engine": "worktree",
           "fallbacks": 0,
           "processes": 24,
           "queries": 63,
-          "forecastMs": 1482.12
+          "forecastMs": 1268.79
         },
         "merge-tree-session": {
           "engine": "merge-tree",
           "fallbacks": 0,
           "processes": 9,
           "queries": 24,
-          "forecastMs": 552.85
+          "forecastMs": 511.49
         }
       }
     }

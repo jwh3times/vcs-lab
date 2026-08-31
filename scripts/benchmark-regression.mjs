@@ -20,13 +20,18 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const cli = path.join(projectRoot, "bin", "vlab.js");
 export const baselinePath = path.join(projectRoot, "benchmarks", "baseline.json");
 
-export const BASELINE_SCHEMA = "vcs-lab.benchmark-baseline/v1";
+export const BASELINE_SCHEMA = "vcs-lab.benchmark-baseline/v2";
 export const PROFILE = {
-  name: "reduced-local-v1",
+  name: "reduced-local-v2",
   history: 100,
   workspaces: 4,
   notes: 60,
   resolutions: 12,
+  // The fixture's working tree. v1 committed the empty tree everywhere, so a
+  // workspace materialized nothing and creation could not be measured at all;
+  // v2 gives it a real tree a sparse cone can narrow (issue #10).
+  areas: 10,
+  filesPerArea: 60,
   samples: 3,
   budgetMs: 1000,
   forecastChanges: 12,
@@ -47,6 +52,8 @@ export const SCALE_PHASES = [
   "noteCatalog",
   "resolutionCatalog",
   "metadataStatus",
+  "workspaceCreate",
+  "workspaceCreateCone",
 ];
 const FIXTURE_PREFIX = "vcs-lab-benchmark-check-";
 const hostKey = process.platform;
@@ -136,6 +143,8 @@ function measureScale() {
       "--workspaces", String(PROFILE.workspaces),
       "--notes", String(PROFILE.notes),
       "--resolutions", String(PROFILE.resolutions),
+      "--areas", String(PROFILE.areas),
+      "--files-per-area", String(PROFILE.filesPerArea),
       "--samples", String(PROFILE.samples),
       "--budget-ms", String(PROFILE.budgetMs),
     ]);
@@ -149,7 +158,11 @@ function measureScale() {
         medianProcesses: measurement.medianProcesses,
       };
     }
-    return { environment: report.environment, phases };
+    return {
+      environment: report.environment,
+      phases,
+      materialization: report.materialization,
+    };
   } finally {
     removeFixture(root);
   }
@@ -216,11 +229,24 @@ function measureForecasts(modes) {
   }
 }
 
-function readBaseline() {
+/**
+ * Read the committed baseline. A baseline written under an older schema is a
+ * migration, not a dead end: `--record` starts a fresh baseline for the new
+ * schema and says which host entries it dropped, exactly as it already does
+ * when the profile changes. A check still refuses, because comparing against
+ * a baseline of a different shape would be meaningless.
+ */
+function readBaseline({ allowSchemaChange = false } = {}) {
   if (!fs.existsSync(baselinePath)) return null;
   const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
   if (baseline.schema !== BASELINE_SCHEMA) {
-    throw new Error(`Unsupported baseline schema '${baseline.schema}' in ${baselinePath}.`);
+    if (!allowSchemaChange) {
+      throw new Error(
+        `Unsupported baseline schema '${baseline.schema}' in ${baselinePath}. ` +
+        `This build records '${BASELINE_SCHEMA}'; re-record it with npm run benchmark:record.`,
+      );
+    }
+    return { ...baseline, schemaChangedFrom: baseline.schema };
   }
   return baseline;
 }
@@ -288,6 +314,20 @@ export function compare(entry, current, tolerance = TOLERANCE) {
     check(`forecast:${mode}`, "processes", before.processes, after.processes, "processes");
     check(`forecast:${mode}`, "forecastMs", before.forecastMs, after.forecastMs, "latency");
   }
+  // Materialized bytes are what a sparse cone exists to reduce, and the
+  // fixture is deterministic, so growth is a real change in what a workspace
+  // writes rather than host noise. Held to the process rule: no growth at all.
+  for (const arm of ["full", "cone"]) {
+    const before = entry.materialization?.[arm];
+    const after = current.materialization?.[arm];
+    if (!before || !after) {
+      skip(`materialization:${arm}`, "files");
+      skip(`materialization:${arm}`, "bytes");
+      continue;
+    }
+    check(`materialization:${arm}`, "files", before.files, after.files, "processes");
+    check(`materialization:${arm}`, "bytes", before.bytes, after.bytes, "processes");
+  }
   return findings;
 }
 
@@ -334,15 +374,25 @@ function main() {
     git: scale.environment.git,
     node: scale.environment.node,
     phases: scale.phases,
+    materialization: scale.materialization,
     forecast,
   };
 
   if (record) {
-    const existing = readBaseline();
+    const existing = readBaseline({ allowSchemaChange: true });
     const staleHosts = existing &&
-      (!sameJson(existing.profile, PROFILE) || !sameJson(existing.tolerance, TOLERANCE))
+      (existing.schemaChangedFrom ||
+        !sameJson(existing.profile, PROFILE) ||
+        !sameJson(existing.tolerance, TOLERANCE))
       ? Object.keys(existing.hosts ?? {}).filter((host) => host !== hostKey)
       : [];
+    if (existing?.schemaChangedFrom) {
+      console.error(
+        `The committed baseline uses schema '${existing.schemaChangedFrom}'; recording '${BASELINE_SCHEMA}'.`,
+      );
+      delete existing.schemaChangedFrom;
+      existing.schema = BASELINE_SCHEMA;
+    }
     const baseline = existing ?? {
       schema: BASELINE_SCHEMA,
       profile: PROFILE,

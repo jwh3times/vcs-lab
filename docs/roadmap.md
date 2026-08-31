@@ -190,10 +190,18 @@ current `vlab` path:
    467 ms. Two redundant Git processes were removed from the command at the
    same time, and it now runs at 379 ms against a 154 ms raw-Git floor.
    **Gate A item 3 is still unmet**: the one budget miss found in the whole
-   program was fixed by stock Git, which is exactly what phase 0a is for. What
-   remains of this item is the v2 benchmark profile with workspace-creation
-   and materialized-bytes phases, which ADR-0017 makes a deliberate
-   re-record step for every host.
+   program was fixed by stock Git, which is exactly what phase 0a is for.
+
+   **Item 3 is complete (2026-08-31).** The v2 benchmark profile closes it:
+   `reduced-local-v2` gives the fixture a real working tree of ten areas of
+   sixty files, where v1 committed the empty tree everywhere and a workspace
+   therefore materialized nothing. Two phases are added, `workspaceCreate` and
+   `workspaceCreateCone`, along with `materialization` files and bytes for a
+   full and a coned workspace, compared under the process rule rather than the
+   latency rule because the fixture is deterministic. Per ADR-0017 the profile
+   change forces a re-record: `win32` is recorded, and `linux` is dropped
+   until it is re-recorded there. **Horizon 1.5 is complete, and with it
+   ADR-0015 program phase 0a.**
 
 Exit criteria: predicted and per-step trees are byte-identical between the two
 simulators on the whole suite in both session modes; the 12-change demo

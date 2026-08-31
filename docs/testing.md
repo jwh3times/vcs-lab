@@ -121,7 +121,11 @@ operation by operation in any repository.
 `npm run test:benchmark` builds a reduced scale fixture and a 12-change
 forecast fixture in disposable repositories and compares their Git process
 counts and medians against this host's entry in `benchmarks/baseline.json`
-(ADR-0017). A process count above the baseline, a median above twice the
+(ADR-0017). Since the `reduced-local-v2` profile the scale fixture has a real
+working tree, so it also measures workspace creation with and without a sparse
+cone and records the files and bytes each materializes; those counts are held
+to the process rule, not the latency rule, because the fixture is
+deterministic and any growth is a real change in what a workspace writes. A process count above the baseline, a median above twice the
 baseline (or the baseline plus 5 ms, whichever is larger), or a forecast whose
 modes disagree fails the check; a host without an entry is skipped with a
 warning, and a forecast mode the host cannot run (merge-tree below Git 2.49)

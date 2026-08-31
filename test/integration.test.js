@@ -2326,6 +2326,13 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
       "2",
       "--budget-ms",
       "5000",
+      // A tiny working tree: this test is about the report's shape and its
+      // privacy guarantees, not about scale, and the default fixture would
+      // write 600 files it never looks at.
+      "--areas",
+      "2",
+      "--files-per-area",
+      "3",
       "--json",
     ),
   );
@@ -2338,6 +2345,9 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     resolutions: 8,
     totalNoteTargets: 11,
     totalNoteRecords: 11,
+    areas: 2,
+    filesPerArea: 3,
+    treeFiles: 6,
   });
   assert.equal(scale.coverage.documentationVolume.companionSchema, "vcs-lab.spec-benchmark/v2");
   assert.equal(scale.setup.expectedAbsentProbeFailures, 21);
@@ -4879,7 +4889,11 @@ test("the benchmark regression comparator flags process growth and slow medians 
       { engine: "worktree", fallbacks: 0, processes: 10, queries: 10, forecastMs: 500 },
     ]),
   );
-  const entry = { phases, forecast };
+  const materialization = {
+    full: { files: 600, bytes: 615000 },
+    cone: { files: 60, bytes: 61500 },
+  };
+  const entry = { phases, forecast, materialization };
 
   const same = compare(entry, structuredClone(entry));
   assert.ok(same.length > 0);
@@ -4890,15 +4904,27 @@ test("the benchmark regression comparator flags process growth and slow medians 
   noisy.phases[SCALE_PHASES[1]].medianMs = 201; // above twice the baseline
   noisy.phases[SCALE_PHASES[2]].medianMs = 50; // faster
   noisy.forecast["worktree-session"].processes = 11; // one more process
+  // Materialized bytes are held to the process rule: the fixture is
+  // deterministic, so any growth in what a workspace writes is a regression
+  // and a reduction is an improvement, with no tolerance band either way.
+  noisy.materialization.full.bytes = 615001; // one byte more
+  noisy.materialization.cone.bytes = 61499; // one byte fewer
   const findings = compare(entry, noisy);
   const byKey = Object.fromEntries(findings.map((item) => [`${item.subject} ${item.metric}`, item]));
   assert.equal(byKey[`scale:${SCALE_PHASES[0]} medianMs`].status, "tolerated");
   assert.equal(byKey[`scale:${SCALE_PHASES[1]} medianMs`].status, "regressed");
   assert.equal(byKey[`scale:${SCALE_PHASES[2]} medianMs`].status, "improved");
   assert.equal(byKey["forecast:worktree-session processes"].status, "regressed");
+  assert.equal(byKey["materialization:full bytes"].status, "regressed");
+  assert.equal(byKey["materialization:cone bytes"].status, "improved");
+  assert.equal(byKey["materialization:full files"].status, "unchanged");
   assert.deepEqual(
     findings.filter((item) => item.status === "regressed").map((item) => `${item.subject} ${item.metric}`),
-    [`scale:${SCALE_PHASES[1]} medianMs`, "forecast:worktree-session processes"],
+    [
+      `scale:${SCALE_PHASES[1]} medianMs`,
+      "forecast:worktree-session processes",
+      "materialization:full bytes",
+    ],
   );
 
   const partial = structuredClone(entry);
