@@ -72,6 +72,14 @@ Remove-Item Env:VLAB_ENGINE -ErrorAction SilentlyContinue
 VLAB_ENGINE=native npm test
 ```
 
+The suite includes `test/schema-catalog.test.js`, which keeps the published
+JSON Schema catalog in `docs/schemas/` in agreement with the executable
+validators in `src/schemas.js`: every schema identifier used in `src/` must
+have a catalog document, records produced by the real CLI must satisfy their
+documents, and a note record the runtime validator rejects for a missing
+field must be rejected by its document too. A new or changed record family is
+not complete until its catalog document passes these checks.
+
 Run the maintained demonstrations when changing their workflows:
 
 ```bash

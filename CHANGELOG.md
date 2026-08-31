@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Publish the versioned CLI output/schema catalog in `docs/schemas/`
+  (issue #11 item 2; ADR-0015 phase 0b), completing FR-GIT-06: one standalone
+  JSON Schema (draft 2020-12) document per persisted and automation-facing
+  record family — the note container, the seven note-record receipt families,
+  the four worktree-private journals and forecasts, the shared-local
+  workspace registry, the tracked spec manifests (v1–v3), the metadata
+  envelope, and the thirteen schema-bearing CLI output families — plus a
+  catalog README that maps every `--json` command to its output contract.
+  The executable validators in `src/schemas.js` remain the runtime
+  authority; the new `test/schema-catalog.test.js` fails the suite when the
+  catalog and the runtime disagree: every schema identifier used in `src/`
+  needs a document, records produced by the real CLI must satisfy their
+  documents, and a note record the runtime validator rejects for a missing
+  field must be rejected by its document too.
 - Route every repository read through one engine seam, `src/engine.js`
   (ADR-0019, issue #11; ADR-0015 phase 0b and ADR-0014 Gate A item 1). The
   seam catalogs 38 read operations; `src/git.js` implements each with the

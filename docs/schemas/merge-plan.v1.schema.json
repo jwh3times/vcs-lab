@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vcs-lab.merge-plan/v1",
+  "title": "Causal merge plan",
+  "description": "Source/target coverage plan (CLI output of vlab merge-plan --json; embedded as the plan of forecast and reconciliation records; src/merge-plan.js).",
+  "x-vcs-lab-scope": "cli-output",
+  "type": "object",
+  "required": [
+    "schema", "targetHead", "sourceRef", "sourceHead", "targetTree",
+    "sourceTree", "exactStateEquality", "physicalBase", "effectiveBase",
+    "reachableReceipts", "counts", "changes"
+  ],
+  "properties": {
+    "schema": { "const": "vcs-lab.merge-plan/v1" },
+    "targetHead": { "$ref": "#/$defs/oid" },
+    "sourceRef": { "type": "string", "minLength": 1 },
+    "sourceHead": { "$ref": "#/$defs/oid" },
+    "targetTree": { "$ref": "#/$defs/oid" },
+    "sourceTree": { "$ref": "#/$defs/oid" },
+    "exactStateEquality": { "type": "boolean" },
+    "physicalBase": { "$ref": "#/$defs/oid" },
+    "effectiveBase": {
+      "type": "object",
+      "required": ["commit"],
+      "properties": {
+        "commit": { "$ref": "#/$defs/oid" },
+        "reason": { "type": "string" }
+      }
+    },
+    "reachableReceipts": { "type": "array", "items": { "type": "string" } },
+    "counts": { "$ref": "#/$defs/counts" },
+    "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } }
+  },
+  "$defs": {
+    "oid": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$" },
+    "counts": {
+      "type": "object",
+      "required": ["covered", "candidate-equivalent", "new"],
+      "properties": {
+        "covered": { "type": "integer", "minimum": 0 },
+        "candidate-equivalent": { "type": "integer", "minimum": 0 },
+        "new": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "change": {
+      "type": "object",
+      "required": ["commit", "shortCommit", "changeId", "subject", "status", "proof"],
+      "properties": {
+        "commit": { "$ref": "#/$defs/oid" },
+        "shortCommit": { "type": "string", "minLength": 1 },
+        "changeId": { "type": "string", "minLength": 1 },
+        "subject": { "type": "string" },
+        "status": { "enum": ["covered", "candidate-equivalent", "new"] },
+        "proof": {
+          "type": ["string", "null"],
+          "description": "Coverage proof: 'signed-shaped-landing-receipt', 'stable-change-id', 'receipt-change-id', 'git-patch-id-heuristic', or null for new changes."
+        }
+      }
+    }
+  }
+}

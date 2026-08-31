@@ -253,11 +253,16 @@ use at the current development baseline:
 | `vcs-lab.metadata-export/v1` | Export result and process/storage metrics | `metadata-transfer.js` |
 | `vcs-lab.metadata-import-preview/v1` | Exact dry-run record/ref/object actions | `metadata-transfer.js` |
 | `vcs-lab.metadata-import/v1` | Applied/idempotent import result | `metadata-transfer.js` |
+| `vcs-lab.engine-differential/v1` | Operation-by-operation read-engine comparison | `engine.js` |
 
-Current schemas are executable JavaScript validators and named object shapes,
-not yet published as standalone JSON Schema files. Unknown portable record
-schemas are quarantined rather than consumed. Schema-version changes still
-require migration/compatibility tests.
+The executable JavaScript validators and named object shapes in
+`src/schemas.js` are the runtime authority. Every family above, and the CLI's
+JSON output contracts, are additionally published as standalone JSON Schema
+documents in the [schema catalog](schemas/README.md);
+`test/schema-catalog.test.js` fails the suite when a document and its
+validator disagree. Unknown portable record schemas are quarantined rather
+than consumed. Schema-version changes still require migration/compatibility
+tests.
 
 ## 7. Causal planning architecture
 

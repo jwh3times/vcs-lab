@@ -194,7 +194,12 @@ extend. They should precede a remote protocol or trust layer.
 
 Program phase 0b of ADR-0015 and Gate A item 1 of ADR-0014.
 
-- Create a versioned CLI output/schema catalog to complete FR-GIT-06.
+- **Done 2026-08-30:** the versioned CLI output/schema catalog in
+  `docs/schemas/` completes FR-GIT-06: one standalone JSON Schema document
+  per persisted and automation-facing record family plus a catalog README
+  that maps every `--json` command to its output contract, with
+  `src/schemas.js` retained as the runtime authority and
+  `test/schema-catalog.test.js` failing the suite when they disagree.
 - Freeze an RFC 8785 canonical-JSON profile with shared test vectors that
   reserve signature and repository-identity fields.
 - Introduce a single read-side engine seam (`src/engine.js`) with an engine
@@ -223,11 +228,15 @@ reports `engine`, per-operation `fallbacks`, and `directReads`, `vlab doctor
 --differential` compares the engines operation by operation, and
 `VLAB_ENGINE=native npm test` is the third suite mode in which a read outside
 the seam is refused. No domain module calls `runGit` for a read. The
-remaining items of this increment, in order, are the versioned CLI
-output/schema catalog with standalone JSON Schema documents, the canonical
-JSON profile with shared test vectors, the compatibility and unknown-version
-rules per record family, and the human/JSON conformance fixtures; the phase 1
-ADR that names the Gate A item 3 budget follows them.
+versioned CLI output/schema catalog is published, unreleased, in
+`docs/schemas/` (2026-08-30): standalone JSON Schema documents for every
+persisted and automation-facing record family, a README that catalogs every
+`--json` command's output contract, and `test/schema-catalog.test.js`
+keeping the documents in agreement with the runtime validators, completing
+FR-GIT-06. The remaining items of this increment, in order, are the
+canonical JSON profile with shared test vectors, the compatibility and
+unknown-version rules per record family, and the human/JSON conformance
+fixtures; the phase 1 ADR that names the Gate A item 3 budget follows them.
 
 ### 2. Strengthen identity and proof diagnostics
 
@@ -365,7 +374,7 @@ signals.
 
 | Requirement | Current state | Roadmap destination |
 | --- | --- | --- |
-| FR-GIT-06 | Partial | Horizon 2 schema and CLI contract catalog |
+| FR-GIT-06 | Complete | Horizon 2 schema and CLI contract catalog, published in `docs/schemas/` |
 | FR-ID-06, FR-ID-07 | Planned | Horizon 2 identity/proof diagnostics |
 | FR-LAND-10 | Deferred | Horizon 4 trusted coordinated landing |
 | FR-PLAN-08 | Planned | Horizons 2 and 4 portable verification |
