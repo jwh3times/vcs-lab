@@ -4873,6 +4873,130 @@ test("merge-tree forecasts fall back when a queued change is a merge commit", (t
   assert.equal(git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "main"));
 });
 
+test("a proof bundle lets a verifier recompute coverage instead of trusting it", async (t) => {
+  const { canonicalJson } = await import(
+    pathToFileURL(path.join(projectRoot, "src", "canonical-json.js")).href
+  );
+  const { repo } = makeRepo(t);
+  write(repo, "a.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature");
+  write(repo, "f1.txt", "one\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature one");
+  git(repo, "switch", "main");
+  // A hard squash absorbs the feature commit by receipt rather than ancestry,
+  // so coverage rests on evidence a verifier has to be given.
+  vlab(repo, "hard-squash", "feature", "-m", "land feature");
+  git(repo, "switch", "feature");
+  write(repo, "f2.txt", "two\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature two");
+  git(repo, "switch", "main");
+
+  const bundlePath = path.join(repo, "bundle.json");
+  fs.writeFileSync(bundlePath, vlab(repo, "proof-bundle", "feature"));
+  const bundle = JSON.parse(fs.readFileSync(bundlePath, "utf8"));
+
+  assert.equal(bundle.schema, "vcs-lab.proof-bundle/v1");
+  assert.match(bundle.repository.lineage.id, /^lineage_[0-9a-f]{64}$/);
+  const covered = bundle.changes.filter((change) => change.status === "covered");
+  const fresh = bundle.changes.filter((change) => change.status === "new");
+  assert.equal(covered.length, 1, "the squashed change is covered by receipt");
+  assert.equal(covered[0].proof, "receipt-commit");
+  assert.equal(fresh.length, 1, "the later change is new");
+  assert.ok(
+    bundle.evidence.receipts.some((receipt) =>
+      receipt.absorbedCommits.includes(covered[0].commit),
+    ),
+    "the bundle names the receipt that covers the covered change",
+  );
+
+  // 1. An untouched bundle verifies, and the evidence matches the repository.
+  const honest = JSON.parse(vlab(repo, "verify-proof", bundlePath, "--json"));
+  assert.equal(honest.ok, true);
+  assert.equal(honest.integrity.intact, true);
+  assert.equal(honest.classification.agrees, true);
+  assert.equal(honest.repository.checked, true);
+  assert.equal(honest.repository.matches, true);
+
+  const rehash = (value) => {
+    const { integrity, signatures, ...payload } = value;
+    return createHash("sha256").update(canonicalJson(payload)).digest("hex");
+  };
+
+  // 2. A doctored claim with a stale hash fails both checks.
+  const doctored = JSON.parse(JSON.stringify(bundle));
+  const target = doctored.changes.find((change) => change.status === "new");
+  target.status = "covered";
+  target.proof = "receipt-commit";
+  const doctoredPath = path.join(repo, "doctored.json");
+  fs.writeFileSync(doctoredPath, JSON.stringify(doctored));
+  const doctoredResult = vlabResult(repo, "verify-proof", doctoredPath, "--json");
+  assert.notEqual(doctoredResult.status, 0);
+  const doctoredReport = JSON.parse(doctoredResult.stdout);
+  assert.equal(doctoredReport.integrity.intact, false);
+  assert.equal(doctoredReport.classification.agrees, false);
+  assert.equal(doctoredReport.classification.disagreements[0].recomputed.status, "new");
+
+  // 3. The same doctored claim with the hash restated still fails, because the
+  //    verifier recomputes the classification rather than trusting it. This is
+  //    the property FR-PLAN-08 asks for.
+  const resigned = JSON.parse(JSON.stringify(doctored));
+  resigned.integrity = { algorithm: "sha256", bundleHash: rehash(resigned) };
+  const resignedPath = path.join(repo, "resigned.json");
+  fs.writeFileSync(resignedPath, JSON.stringify(resigned));
+  const resignedResult = vlabResult(repo, "verify-proof", resignedPath, "--json");
+  assert.notEqual(resignedResult.status, 0);
+  const resignedReport = JSON.parse(resignedResult.stdout);
+  assert.equal(resignedReport.integrity.intact, true, "the restated hash looks intact");
+  assert.equal(resignedReport.classification.agrees, false, "but the claim is still caught");
+
+  // 4. Fabricated evidence is self-consistent, so only the repository catches
+  //    it. Offline verification must not claim more than it proved.
+  const fabricated = JSON.parse(JSON.stringify(bundle));
+  const victim = fabricated.changes.find((change) => change.status === "new");
+  fabricated.evidence.receipts.push({
+    id: "land_fabricated",
+    schema: "vcs-lab.landing/v1",
+    type: "landing",
+    attachedTo: fabricated.target.head,
+    absorbedCommits: [victim.commit],
+    absorbedChanges: [victim.changeId],
+  });
+  victim.status = "covered";
+  victim.proof = "receipt-commit";
+  fabricated.integrity = { algorithm: "sha256", bundleHash: rehash(fabricated) };
+  const fabricatedPath = path.join(repo, "fabricated.json");
+  fs.writeFileSync(fabricatedPath, JSON.stringify(fabricated));
+
+  const offline = JSON.parse(vlab(repo, "verify-proof", fabricatedPath, "--offline", "--json"));
+  assert.equal(offline.ok, true, "offline verification cannot detect fabricated evidence");
+  assert.equal(offline.repository.checked, false);
+  assert.equal(offline.trust.evidenceCheckedAgainstRepository, false);
+  assert.match(offline.trust.statement, /not that the evidence is true/);
+
+  const backed = vlabResult(repo, "verify-proof", fabricatedPath, "--json");
+  assert.notEqual(backed.status, 0, "the repository comparison catches it");
+  const backedReport = JSON.parse(backed.stdout);
+  assert.equal(backedReport.repository.checked, true);
+  assert.equal(backedReport.repository.matches, false);
+  assert.equal(backedReport.ok, false);
+
+  // 5. A repository that has moved on is skipped, not failed: different heads
+  //    legitimately produce different evidence.
+  write(repo, "later.txt", "later\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "target moves on");
+  const moved = JSON.parse(vlab(repo, "verify-proof", bundlePath, "--json"));
+  assert.equal(moved.repository.checked, false);
+  assert.equal(moved.repository.reason, "target-moved");
+  assert.equal(moved.ok, true, "a moved repository does not invalidate the bundle");
+});
+
 test("the benchmark regression comparator flags process growth and slow medians but tolerates noise on fast phases", async () => {
   const { compare, SCALE_PHASES, FORECAST_MODES } = await import(
     pathToFileURL(path.join(projectRoot, "scripts", "benchmark-regression.mjs")).href

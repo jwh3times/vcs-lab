@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vcs-lab.proof-verification/v1",
+  "title": "Proof bundle verification result",
+  "description": "The result of 'vlab verify-proof <file>'. Three checks are reported separately because they establish different things: integrity detects editing, classification detects a claim that does not follow from the stated evidence, and the repository comparison detects fabricated evidence. Only the last needs a repository (FR-PLAN-08).",
+  "x-vcs-lab-scope": "cli-output",
+  "type": "object",
+  "required": ["schema", "bundleSchema", "integrity", "classification", "repository", "trust", "ok"],
+  "properties": {
+    "schema": { "const": "vcs-lab.proof-verification/v1" },
+    "bundleSchema": { "type": "string", "minLength": 1 },
+    "integrity": {
+      "type": "object",
+      "description": "Whether the bundle's own hash still matches its contents. Intact means unedited since production, not trustworthy: whoever produced it could restate the hash.",
+      "required": ["algorithm", "claimed", "computed", "intact"],
+      "properties": {
+        "algorithm": { "type": ["string", "null"] },
+        "claimed": { "type": ["string", "null"] },
+        "computed": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+        "intact": { "type": "boolean" }
+      }
+    },
+    "classification": {
+      "type": "object",
+      "description": "Re-deriving every change from the bundle's own evidence and comparing with what it claims. This is the check that does not require a repository, and it catches a doctored status or proof even when the hash was restated.",
+      "required": ["changes", "reproduced", "disagreements", "agrees"],
+      "properties": {
+        "changes": { "type": "integer", "minimum": 0 },
+        "reproduced": { "type": "integer", "minimum": 0 },
+        "agrees": { "type": "boolean" },
+        "disagreements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["commit", "changeId", "claimed", "recomputed"],
+            "properties": {
+              "commit": { "type": "string", "minLength": 1 },
+              "changeId": { "type": "string", "minLength": 1 },
+              "claimed": { "$ref": "#/$defs/verdict" },
+              "recomputed": { "$ref": "#/$defs/verdict" }
+            }
+          }
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "description": "Comparison of the bundle's evidence with a live repository, the only check that catches fabricated evidence. Skipped rather than failed when the repository has moved on, since different heads legitimately produce different evidence.",
+      "required": ["checked", "matches"],
+      "properties": {
+        "checked": { "type": "boolean" },
+        "matches": { "type": ["boolean", "null"] },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "Why the comparison was skipped: not-requested, not-a-repository, bundle-incomplete, target-moved, source-moved, or source-ref-missing."
+        },
+        "claimedTarget": { "type": "string" },
+        "repositoryTarget": { "type": "string" },
+        "claimedSource": { "type": "string" },
+        "repositorySource": { "type": "string" },
+        "sourceRef": { "type": "string" },
+        "evidenceHash": {
+          "type": "object",
+          "properties": {
+            "claimed": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+            "repository": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+          }
+        }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "required": ["evidenceCheckedAgainstRepository", "statement"],
+      "properties": {
+        "evidenceCheckedAgainstRepository": { "type": "boolean" },
+        "statement": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "True when the hash is intact, every classification was reproduced, and the repository comparison did not contradict the evidence. A skipped repository comparison does not fail the result; it narrows what was proven, which the trust statement says."
+    }
+  },
+  "$defs": {
+    "verdict": {
+      "type": "object",
+      "required": ["status", "proof"],
+      "properties": {
+        "status": { "type": "string", "minLength": 1 },
+        "proof": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

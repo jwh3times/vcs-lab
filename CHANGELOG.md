@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Add portable coverage proof bundles and an independent verifier
+  (FR-PLAN-08, roadmap Horizon 2 item 2). `vlab proof-bundle <source>` emits
+  `vcs-lab.proof-bundle/v1`: the merge plan together with the evidence its
+  classification rests on — the target's commits and change IDs, the reachable
+  accepted receipts with what each absorbs, and the advisory patch-equivalent
+  set — hashed under the canonical JSON profile frozen in v0.11.0. A covered
+  change is now traceable to the receipt that covered it, which the plan's
+  bare `proof` string could never express.
+  - `vlab verify-proof <file>` re-derives every change with its own copy of
+    the proof lattice and compares the result with what the bundle claims,
+    then checks that evidence against the repository unless `--offline` is
+    passed. It exits non-zero when the bundle does not verify.
+  - The three checks establish different things and are reported separately.
+    Integrity catches editing. Classification catches a doctored `status` or
+    `proof` **even when the bundle hash has been restated**, because the
+    verdict must follow from the stated evidence. Only the repository
+    comparison catches fabricated evidence — a bundle can state receipts that
+    never existed — so offline verification says exactly that rather than
+    implying more than it proved.
+  - The verifier deliberately does not import the planner's classification
+    branch. A verifier sharing the planner's code would prove only that the
+    code is self-consistent.
+
 - Rename the `signed-shaped-landing-receipt` coverage proof to
   `receipt-commit` (roadmap Horizon 2 item 2; FR-PLAN-05). The old label
   printed the word *signed* in every plan for a record that nothing

@@ -327,7 +327,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-PLAN-05 | P0 | Coverage shall be limited to receipts reachable from the target, not arbitrary repository metadata. | Implemented | Receipt scan filters by target reachability. |
 | FR-PLAN-06 | P1 | Planning shall be deterministic for fixed Git objects and metadata refs. | Implemented | Forecast fingerprint and integration tests detect changes. |
 | FR-PLAN-07 | P1 | Branch length shall not cause one process launch per commit in common planning paths. | Implemented | Target and source histories are read through bounded log operations. |
-| FR-PLAN-08 | P2 | Plans shall expose a versioned portable proof bundle suitable for a remote verifier. | Planned | Independent verifier reproduces classification without trusting CLI prose. |
+| FR-PLAN-08 | P2 | Plans shall expose a versioned portable proof bundle suitable for a remote verifier. | Implemented | `vlab proof-bundle` emits `vcs-lab.proof-bundle/v1` carrying the coverage evidence, not only the verdict; `vlab verify-proof` re-derives every classification from that evidence with its own copy of the lattice, and compares the evidence against the repository when it has one. Integration coverage proves a doctored claim is caught even when the bundle hash is restated, and that fabricated evidence is caught by the repository comparison. |
 
 ### 9.5 Forecasting and reconciliation
 

@@ -330,8 +330,18 @@ complete outcome.
   proof value, so this is an additive change inside each version rather than a
   bump; records written earlier keep the old value and readers pass it through
   (`docs/schemas/compatibility.md` section 2.1).
-- Define a portable proof bundle and independent classification verifier for
-  FR-PLAN-08 after the schema catalog is stable.
+- **Done 2026-08-31.** `vlab proof-bundle <source>` emits
+  `vcs-lab.proof-bundle/v1`: the merge plan together with the evidence its
+  classification rests on — target commits and change IDs, the reachable
+  accepted receipts with what each absorbs, and the advisory patch-equivalent
+  set — hashed under the canonical JSON profile. `vlab verify-proof <file>`
+  re-derives every change with its own copy of the proof lattice and compares
+  the result with what the bundle claims, then checks the evidence against the
+  repository unless `--offline`. The three checks establish different things
+  and are reported separately: integrity catches editing, classification
+  catches a claim that does not follow from the stated evidence even when the
+  hash has been restated, and only the repository comparison catches
+  fabricated evidence.
 
 ### 3. Exercise failure and hostile-input boundaries
 

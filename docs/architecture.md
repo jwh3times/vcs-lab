@@ -318,6 +318,29 @@ value -- it is carried and displayed -- so the old value stays legal wherever a
 record written by an earlier build still holds it, and readers pass it through
 unchanged (see the [compatibility contract](schemas/compatibility.md)).
 
+### 7.1.1 Portable proof bundles
+
+`vlab proof-bundle <source>` emits `vcs-lab.proof-bundle/v1`: the plan plus the
+evidence the lattice was evaluated against, so a third party can recompute the
+classification rather than trust it (FR-PLAN-08). Each covered change becomes
+traceable to the receipt that covered it, which the plan's bare `proof` string
+cannot express.
+
+`vlab verify-proof <file>` runs three checks and reports them separately,
+because they establish different things:
+
+| Check | Catches | Needs a repository |
+| --- | --- | --- |
+| `integrity` | editing after production | no |
+| `classification` | a `status` or `proof` that does not follow from the stated evidence, even when the hash was restated | no |
+| `repository` | fabricated evidence — receipts the repository does not contain | yes |
+
+The verifier applies its own copy of the lattice (`PROOF_RULES` in
+`src/proof-bundle.js`) rather than importing the planner's branch: a verifier
+sharing the planner's code would prove only that the code is self-consistent.
+A repository that has moved on is reported as skipped rather than failed,
+since different heads legitimately produce different evidence.
+
 ### 7.2 Reachability rule
 
 Only receipts attached to commits reachable from the target participate in

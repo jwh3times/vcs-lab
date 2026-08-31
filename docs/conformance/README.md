@@ -70,7 +70,8 @@ each is recorded in `fixtures.json` so a change to any of them is visible.
 `commit`, `merge`, `compact-merge`, `hard-squash`, `cherry-pick`,
 `reconcile --abort`, `rebase --abort`, `workspace create`, `workspace list`,
 `workspace checkpoint`, `workspace move`, `workspace archive`,
-`workspace restore`, `workspace repair`, `workspace prune`, `spec show`,
+`workspace restore`, `workspace repair`, `workspace prune`, `proof-bundle`,
+`spec show`,
 `spec benchmark`, and `doctor` print their record as JSON whatever the flags.
 FR-GIT-06 is satisfied trivially — the JSON *is* the output — but the
 [schema catalog](../schemas/README.md) should not be read as promising text

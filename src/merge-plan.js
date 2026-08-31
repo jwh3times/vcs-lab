@@ -163,6 +163,44 @@ export function buildMergePlan(sourceRef, cwd = process.cwd()) {
   return buildMergePlanBetween("HEAD", sourceRef, cwd);
 }
 
+/**
+ * The raw evidence a coverage classification rests on, for the portable proof
+ * bundle (FR-PLAN-08). The planner reduces these sets to one `proof` string
+ * per change; a remote verifier needs the sets themselves, so it can re-derive
+ * the classification instead of trusting the string.
+ *
+ * Receipts are reported with their identity and the claims that matter, so a
+ * covered change is traceable to the receipt that covered it rather than only
+ * to the kind of evidence involved.
+ */
+export function coverageEvidence(sourceRef, cwd = process.cwd()) {
+  return withGitObjectSession(cwd, () => {
+    const [targetHead, sourceHead] = resolveObjectIds(
+      ["HEAD^{commit}", `${sourceRef}^{commit}`],
+      cwd,
+    );
+    const physicalBase = mergeBase(targetHead, sourceHead, cwd);
+    const direct = directChangeCoverage(targetHead, cwd);
+    const receipt = receiptCoverage(targetHead, direct.commits, cwd);
+    const candidates = patchCandidates(targetHead, sourceHead, physicalBase, cwd);
+    return {
+      targetCommits: [...direct.commits].sort(),
+      targetChangeIds: [...direct.changeIds].sort(),
+      receipts: receipt.receipts
+        .map((record) => ({
+          id: record.id,
+          schema: record.schema,
+          type: record.type,
+          attachedTo: record.attachedTo ?? null,
+          absorbedCommits: [...(record.absorbedCommits ?? [])].sort(),
+          absorbedChanges: [...(record.absorbedChanges ?? [])].sort(),
+        }))
+        .sort((left, right) => String(left.id).localeCompare(String(right.id))),
+      patchEquivalentCommits: [...candidates].sort(),
+    };
+  });
+}
+
 export function buildMergePlanBetween(targetRef, sourceRef, cwd = process.cwd()) {
   return withGitObjectSession(cwd, () =>
     buildMergePlanInSession(targetRef, sourceRef, cwd),

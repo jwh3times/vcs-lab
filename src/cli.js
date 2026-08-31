@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
@@ -9,6 +10,11 @@ import {
   reconciliationStatus,
 } from "./operations.js";
 import { buildMergePlan, formatMergePlan } from "./merge-plan.js";
+import {
+  buildProofBundle,
+  verifyAgainstRepository,
+  verifyProofBundle,
+} from "./proof-bundle.js";
 import { buildRebasePlan, formatRebasePlan } from "./rebase-plan.js";
 import {
   forecastRebase,
@@ -89,6 +95,8 @@ Usage:
   vlab compact-merge <source> [-m <message>]
   vlab hard-squash <source> [-m <message>]
   vlab merge-plan <source> [--json]
+  vlab proof-bundle <source>
+  vlab verify-proof <file> [--offline] [--json]
   vlab rebase-plan <onto> [<source>] [--json]
   vlab rebase-forecast <onto> [<source>] [--accept-candidates] [--json]
   vlab rebase <onto> [--accept-candidates] [--use-forecast <id>] [--json]
@@ -181,6 +189,37 @@ function print(value, json = false) {
   } else {
     console.log(value);
   }
+}
+
+function formatProofVerification(result) {
+  const lines = [
+    "Proof bundle verification",
+    `bundle       ${result.bundleSchema}`,
+    `integrity    ${result.integrity.intact ? "intact" : "BROKEN"} (${result.integrity.algorithm ?? "unknown"})`,
+    `changes      ${result.classification.reproduced}/${result.classification.changes} reproduced from the evidence the bundle states`,
+    `evidence     ${
+      result.repository.checked
+        ? result.repository.matches
+          ? "matches this repository"
+          : "DOES NOT MATCH this repository"
+        : `not checked against a repository (${result.repository.reason})`
+    }`,
+  ];
+  for (const item of result.classification.disagreements) {
+    lines.push(
+      `  ! ${short(item.commit)} ${item.changeId}: claimed ` +
+      `${item.claimed.status}/${item.claimed.proof ?? "none"}, recomputed ` +
+      `${item.recomputed.status}/${item.recomputed.proof ?? "none"}`,
+    );
+  }
+  lines.push(
+    "",
+    result.ok
+      ? "The classification follows from the evidence the bundle states."
+      : "The bundle does not verify.",
+    result.trust.statement,
+  );
+  return lines.join("\n");
 }
 
 /**
@@ -978,6 +1017,42 @@ export async function main(rawArgs) {
       if (options.compact) mode = "compact";
       const receipt = land(source, mode, { message: options.message });
       print(receipt, options.json);
+      return;
+    }
+    case "proof-bundle": {
+      const source = requireValue(positionals[0], "vlab proof-bundle <source>");
+      // Always JSON: the bundle exists to be handed to another tool, and a
+      // human rendering of it would be the very prose a verifier must not
+      // trust (FR-PLAN-08).
+      print(buildProofBundle(source), true);
+      return;
+    }
+    case "verify-proof": {
+      const file = requireValue(positionals[0], "vlab verify-proof <file>");
+      let bundle;
+      try {
+        bundle = JSON.parse(fs.readFileSync(path.resolve(file), "utf8"));
+      } catch (error) {
+        if (error?.code === "ENOENT") {
+          throw new CliError(`Proof bundle not found: ${file}`);
+        }
+        throw new CliError(`Proof bundle '${file}' is not valid JSON.`);
+      }
+      // Check the evidence against this repository unless asked not to. A
+      // verifier holding only the file can still run with --offline; the
+      // difference is reported rather than hidden, because only the
+      // repository-backed check can catch fabricated evidence.
+      let repository = null;
+      if (!options.offline) {
+        try {
+          repository = verifyAgainstRepository(bundle);
+        } catch {
+          repository = { checked: false, reason: "not-a-repository", matches: null };
+        }
+      }
+      const result = verifyProofBundle(bundle, repository);
+      print(options.json ? result : formatProofVerification(result), options.json);
+      if (!result.ok) process.exitCode = 1;
       return;
     }
     case "merge-plan": {

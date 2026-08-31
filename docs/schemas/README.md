@@ -99,6 +99,8 @@ automation can dispatch on them, but they are not persisted by vcs-lab.
 | Schema | Document |
 | --- | --- |
 | `vcs-lab.merge-plan/v1` | [merge-plan.v1.schema.json](merge-plan.v1.schema.json) |
+| `vcs-lab.proof-bundle/v1` | [proof-bundle.v1.schema.json](proof-bundle.v1.schema.json) |
+| `vcs-lab.proof-verification/v1` | [proof-verification.v1.schema.json](proof-verification.v1.schema.json) |
 | `vcs-lab.rebase-plan/v1` | [rebase-plan.v1.schema.json](rebase-plan.v1.schema.json) |
 | `vcs-lab.checkpoint/v1` | [checkpoint.v1.schema.json](checkpoint.v1.schema.json) |
 | `vcs-lab.workspace-prune/v1` | [workspace-prune.v1.schema.json](workspace-prune.v1.schema.json) |
@@ -132,6 +134,8 @@ rendering at all.
 | --- | --- |
 | `vlab commit` | Projection `{commit, changeId, message}` |
 | `vlab merge-plan` | `vcs-lab.merge-plan/v1` |
+| `vlab proof-bundle` | `vcs-lab.proof-bundle/v1`; always JSON, since the bundle exists to be handed to another tool |
+| `vlab verify-proof` | `vcs-lab.proof-verification/v1`; exits non-zero when the bundle does not verify
 | `vlab rebase-plan` | `vcs-lab.rebase-plan/v1` |
 | `vlab rebase-forecast` | `vcs-lab.rebase-forecast/v1` |
 | `vlab rebase`, `vlab rebase --continue` | Projection `{operationId, plan, receipt}` with `plan` a `vcs-lab.rebase-plan/v1` and `receipt` a `vcs-lab.rebase/v1` |

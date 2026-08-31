@@ -611,6 +611,13 @@
         "doctor"
       ],
       "reason": "A diagnostic report for tooling; it is JSON by design and is where the build identity lives."
+    },
+    {
+      "argv": [
+        "proof-bundle",
+        "plan-source"
+      ],
+      "reason": "The bundle exists to be handed to another tool; a human rendering of it would be the very prose a verifier must not trust (FR-PLAN-08)."
     }
   ],
   "textOnlyCommands": [
