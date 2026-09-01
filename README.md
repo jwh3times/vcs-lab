@@ -183,6 +183,20 @@ git log --graph --oneline --decorate --branches --tags --remotes
 
 `vlab receipts` is human-readable by default; use `vlab receipts --json` for the complete machine-readable records.
 
+### Authorship provenance
+
+`vlab commit` can declare who produced a change, and the declaration survives the rewrites that destroy ordinary Git attribution:
+
+```bash
+vlab commit -m "Add the parser" --generated-by claude-opus-5 --reviewed-by "Jerry Holland"
+VLAB_AGENT=claude-opus-5 vlab commit -m "Add the tests"   # an agent harness sets this once
+vlab provenance HEAD            # or: vlab provenance main --all
+```
+
+After a hard squash, `git blame` attributes every absorbed line to the landing commit and the original authorship is gone. The landing receipt already names the absorbed commits, so vcs-lab carries their declared provenance onto the landing as the union of their actors, marked `carried` and naming its sources.
+
+Provenance is **declared, never inferred**. Nothing examines content to guess who produced it, no existing trailer is read as a role, and a commit with no declaration reports nothing rather than falling back to the Git author. The record is an unauthenticated claim by whoever ran the command, not detection and not proof; signing it is a separate, unimplemented layer (FR-TRUST-02).
+
 The planner uses three statuses:
 
 - `=` proven covered by ancestry, stable identity, or a receipt;
@@ -552,6 +566,7 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab workspace ...` | Worktree-backed lifecycle, checkpoints, and committed/checkpoint forecasts |
 | `vlab spec ...` | Incremental indexing, block merge planning, explicit resolution, and corpus benchmarks |
 | `vlab receipts` | Inspect causal records as text or JSON |
+| `vlab provenance` | Read declared authorship provenance, carried across rewrites |
 | `vlab metadata ...` | Inventory, validate, transfer, and benchmark accepted metadata facts and scan paths |
 | `vlab doctor --benchmark` | Sample ordinary Git latency and persistent object-session reuse |
 

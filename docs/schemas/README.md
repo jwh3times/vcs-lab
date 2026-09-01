@@ -60,6 +60,7 @@ output is text, which is JSON, and which members the two must agree on.
 | `vcs-lab.rebase-application/v1` | [rebase-application.v1.schema.json](rebase-application.v1.schema.json) | Origin-to-rewritten-commit mapping receipt |
 | `vcs-lab.rebase/v1` | [rebase.v1.schema.json](rebase.v1.schema.json) | Completed causal rebase receipt |
 | `vcs-lab.resolution/v1` | [resolution.v1.schema.json](resolution.v1.schema.json) | Exact resolution result and provenance |
+| `vcs-lab.provenance/v1` | [provenance.v1.schema.json](provenance.v1.schema.json) | Declared authorship provenance, carried across rewrites |
 
 ### Worktree-private (`.git/vcs-lab/` of one worktree)
 
@@ -151,6 +152,7 @@ rendering at all.
 | `vlab resolve apply` | Projection `{operationId, applied: [{path, resolution}]}` |
 | `vlab resolve reject` | Projection `{operationId, rejected: [{path, candidates}]}` |
 | `vlab resolve list` | Array of `vcs-lab.resolution/v1` with `attachedTo`, `discoveredRef`, and `commit` projections added |
+| `vlab provenance [<rev>] [--all]` | `{ revision, inspected, entries[] }`; each entry projects one `vcs-lab.provenance/v1` record with the commit subject added |
 | `vlab cherry-pick` | `vcs-lab.application/v1`, or the no-op projection `{noOp, reason, originCommit, originChangeId, targetBefore}` |
 | `vlab receipts` | Array of note records (any note-record family above) with `attachedTo` added |
 | `vlab metadata status` | `vcs-lab.metadata-status/v1` |

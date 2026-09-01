@@ -23,6 +23,7 @@ import {
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
 import { faultPoint } from "./faults.js";
+import { carryProvenanceSafely, declareProvenance } from "./provenance.js";
 import { buildMergePlan } from "./merge-plan.js";
 import { CliError } from "./errors.js";
 import {
@@ -128,6 +129,13 @@ export function cherryPick(value, options = {}) {
     createdAt: new Date().toISOString(),
   };
   appendNote(appliedCommit, application, cwd);
+  // A cherry-pick is a rewrite that produces new content from a known origin,
+  // so the origin's declared provenance carries onto the result. The recorded
+  // origin/applied correspondence is what makes this exact rather than a diff
+  // heuristic (FR-ID-08).
+  // Side effect only: `application` is a `vcs-lab.application/v1` document and
+  // the carried provenance is a separate record on the same commit.
+  carryProvenanceSafely([originCommit], appliedCommit, appliedChangeId, cwd);
   return application;
 }
 
@@ -275,6 +283,12 @@ function finalizeReconciliation(operation, cwd) {
       publishResolution(outcome, application, cwd);
     }
     appendNote(application.appliedCommit, application, cwd);
+    carryProvenanceSafely(
+      [application.originCommit],
+      application.appliedCommit,
+      application.appliedChangeId,
+      cwd,
+    );
     faultPoint("reconcile:mid-publish");
   }
   faultPoint("reconcile:before-receipt");
@@ -806,5 +820,14 @@ export function createCommit(message, options = {}) {
   args.push("-m", `${message}\n\nChange-Id: ${changeId}`);
   runGit(args, { cwd });
   const commit = currentHead(cwd);
-  return { commit, changeId, message: commitMessage(commit, cwd) };
+  // Declared provenance is attached after the commit exists, because the
+  // record names the commit it describes. Nothing is written when nothing was
+  // declared (FR-ID-08).
+  const provenance = declareProvenance(commit, changeId, options.actors ?? [], cwd);
+  return {
+    commit,
+    changeId,
+    message: commitMessage(commit, cwd),
+    ...(provenance ? { provenance } : {}),
+  };
 }

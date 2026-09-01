@@ -11,6 +11,7 @@ import {
 } from "./engine.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
+import { carryProvenanceSafely } from "./provenance.js";
 
 function landingInputs(sourceRef, cwd) {
   const targetBefore = currentHead(cwd);
@@ -85,5 +86,15 @@ export function land(sourceRef, mode, options = {}) {
     createdAt: new Date().toISOString(),
   };
   appendNote(landingCommit, receipt, cwd);
+  // The case Git cannot represent. A squash landing collapses many commits
+  // into one, and `git blame` on the result attributes every line to the
+  // landing commit, so who produced the absorbed work is gone. The landing
+  // receipt already names the absorbed commits, so their declared provenance
+  // carries onto the landing as the union of their actors (FR-ID-08). It is a
+  // claim about the landing as a whole, not about any line in it.
+  // The carried record is its own note record, not a member of the receipt:
+  // the receipt is a `vcs-lab.landing/v1` document and must stay exactly that.
+  // `vlab provenance <rev>` is where the result is read back.
+  carryProvenanceSafely(inputs.absorbedCommits, landingCommit, null, cwd);
   return receipt;
 }

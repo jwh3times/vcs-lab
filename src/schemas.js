@@ -2,6 +2,13 @@ import { CliError } from "./errors.js";
 import { sha256 } from "./ids.js";
 
 export const NOTE_CONTAINER_SCHEMA = "vcs-lab.note/v1";
+
+/**
+ * The closed provenance role vocabulary, duplicated here as a validation
+ * authority so `src/schemas.js` does not import a domain module. `src/provenance.js`
+ * owns the descriptions; `test/schema-catalog.test.js` keeps the two in step.
+ */
+export const PROVENANCE_ROLE_NAMES = new Set(["authored", "generated", "reviewed"]);
 export const METADATA_STATUS_SCHEMA = "vcs-lab.metadata-status/v1";
 export const METADATA_VALIDATION_SCHEMA = "vcs-lab.metadata-validation/v1";
 export const METADATA_ENVELOPE_SCHEMA = "vcs-lab.metadata-envelope/v1";
@@ -68,6 +75,14 @@ export const RECORD_FAMILIES = new Map([
     store: "refs/notes/vcs-lab note containers",
   }],
   ["vcs-lab.rebase", {
+    scope: "note-record",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "quarantine",
+    store: "refs/notes/vcs-lab note containers",
+  }],
+  ["vcs-lab.provenance", {
     scope: "note-record",
     registered: [1],
     readable: [1],
@@ -179,6 +194,12 @@ export const RESOURCE_BOUNDS = Object.freeze({
   envelopeBundleBytes: 2 * 1024 * 1024 * 1024,
   /** Records one metadata envelope may declare. */
   envelopeRecords: 1_000_000,
+  /**
+   * Actors one provenance record may carry. A landing's provenance is the
+   * union of every absorbed commit's actors, so this bounds what a long branch
+   * can accumulate before the claim stops being reviewable by a person.
+   */
+  provenanceActors: 64,
 });
 
 /**
@@ -389,6 +410,41 @@ export function validateNoteRecord(record, objectFormat = "sha1") {
     requireStringArray(record, "absorbedChanges", errors);
     fieldError(errors, Array.isArray(record.applied), "applied", "array");
     attachmentMatches(record, "resultCommit", errors);
+  } else if (schema === "vcs-lab.provenance/v1") {
+    validateCommonRecord(record, "provenance", objectFormat, errors);
+    requireOid(record, "commit", objectFormat, errors);
+    fieldError(errors, ["declared", "carried"].includes(record.origin), "origin", "declared or carried");
+    requireOidArray(record, "carriedFrom", objectFormat, errors);
+    fieldError(
+      errors,
+      record.changeId === null || (typeof record.changeId === "string" && record.changeId.length > 0),
+      "changeId",
+      "non-empty string or null",
+    );
+    fieldError(
+      errors,
+      Array.isArray(record.actors) &&
+        record.actors.length > 0 &&
+        record.actors.every(
+          (actor) =>
+            actor && typeof actor === "object" &&
+            PROVENANCE_ROLE_NAMES.has(actor.role) &&
+            typeof actor.actor === "string" && actor.actor.length > 0,
+        ),
+      "actors",
+      `non-empty array of {role, actor} with role in ${[...PROVENANCE_ROLE_NAMES].join("|")}`,
+    );
+    // A declared record has no sources; a carried one must name at least one,
+    // or it is asserting a rewrite carried a claim from nowhere.
+    fieldError(
+      errors,
+      record.origin === "carried"
+        ? Array.isArray(record.carriedFrom) && record.carriedFrom.length > 0
+        : Array.isArray(record.carriedFrom) && record.carriedFrom.length === 0,
+      "carriedFrom",
+      record.origin === "carried" ? "at least one source commit" : "empty for a declared record",
+    );
+    attachmentMatches(record, "commit", errors);
   } else if (schema === "vcs-lab.rebase-application/v1") {
     validateCommonRecord(record, "rebase-application", objectFormat, errors);
     for (const field of ["originCommit", "appliedCommit", "targetBefore"]) {
@@ -492,6 +548,9 @@ export function referencedObjectsForRecord(record) {
       add(application.resultTree, "tree", "applications.resultTree");
     }
     for (const field of ["sourceTree", "ontoTree", "resultTree"]) add(record[field], "tree", field);
+  } else if (record.schema === "vcs-lab.provenance/v1") {
+    add(record.commit, "commit", "commit");
+    for (const oid of record.carriedFrom ?? []) add(oid, "commit", "carriedFrom");
   } else if (record.schema === "vcs-lab.resolution/v1") {
     add(record.resolutionCommit, "commit", "resolutionCommit");
     for (const field of ["base", "ours", "theirs"]) add(record[field]?.blob, "blob", `${field}.blob`);

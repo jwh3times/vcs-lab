@@ -123,6 +123,28 @@ all three transports**, session, fallback, and no session at all, because a
 fallback that returned different data would be worse than one that failed. The
 override is inert unless it parses as a positive integer, which is itself
 asserted, since it shrinks a safety bound.
+`test/provenance.test.js` covers declared authorship provenance (FR-ID-08).
+The tests that carry the requirement are the ones that follow a declaration
+through a rewrite and then check what stock Git has left: after a hard squash,
+`git blame` attributes every absorbed line to the landing author and the
+landing commit's author is whoever ran the landing, while the carried record
+still names the actors of both absorbed commits. Cherry-pick, reconciliation,
+and causal rebase are covered the same way, each asserting that the record
+landed on the *new* commit and names the origin it came from. The rewrites
+carry the claim exactly rather than heuristically because every application and
+landing path already records which origin commits produced which result; that
+recorded correspondence is the mechanism, not a diff.
+
+Three properties guard the discipline rather than the feature. **Silence stays
+silence**: an undeclared commit carries no record, because an empty one would
+turn "nobody said" into a claim. **Provenance is declared, never inferred**
+(FR-TRUST-04): a commit carrying an ordinary `Co-Authored-By` trailer produces
+no record, since reading the ecosystem's existing agent trailer as a
+`generated` role would be the most tempting available inference and is still a
+guess; nor does the command fall back to the Git author, because "who committed
+this" and "who produced this" are different claims. And **a carried record says
+that it is carried**, never presenting itself as a fresh declaration.
+
 `test/object-format.test.js` runs the same workflows in a SHA-256 repository,
 where every object id is 64 characters instead of 40, so any comparison that
 assumed a fixed width fails. It also pins the proof bundle's sharpest

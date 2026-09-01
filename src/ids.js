@@ -21,6 +21,7 @@ export const ID_NAMESPACES = Object.freeze({
   rebase_forecast: "a stored rebase forecast",
   resolution: "a recorded conflict resolution",
   ws: "a workspace registry entry",
+  prov: "a declared authorship provenance record",
   artifact: "a specification artifact",
 });
 

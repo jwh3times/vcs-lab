@@ -46,6 +46,8 @@ import {
   describeReadEngines,
   gitVersion,
   historyGraph,
+  reachableCommits,
+  resolveRevision,
   runDifferential,
   treeId,
 } from "./engine.js";
@@ -69,6 +71,12 @@ import {
   readSpecManifest,
 } from "./specs.js";
 import { listNoteRecords } from "./notes.js";
+import {
+  AGENT_ENV,
+  declaredActors,
+  formatProvenance,
+  provenanceFor,
+} from "./provenance.js";
 import { auditIdentity } from "./identity-audit.js";
 import { CliError } from "./errors.js";
 import { VERSION } from "./version.js";
@@ -115,6 +123,9 @@ Usage:
   vlab resolve list [--json]
   vlab cherry-pick <commit-or-change-id> [--fork] [--repeat] [--json]
   vlab graph
+  vlab commit ... [--authored-by <actor>] [--generated-by <actor>]
+                 [--reviewed-by <actor>]     declare provenance (repeatable)
+  vlab provenance [<rev>] [--all] [--json]
   vlab receipts [--json]
   vlab audit identity [--json]
   vlab metadata status [--json]
@@ -162,14 +173,23 @@ Global diagnostics:
 function parseArgs(args) {
   const positionals = [];
   const options = {};
+  // Declared provenance can name several actors on one commit (FR-ID-08), so
+  // these accumulate instead of the last one winning.
+  const repeatableFlags = new Set(["--authored-by", "--generated-by", "--reviewed-by"]);
   const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--cone", "--label", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks", "--history", "--workspaces", "--notes", "--resolutions", "--budget-ms", "--areas", "--files-per-area"]);
   for (let index = 0; index < args.length; index += 1) {
     const item = args[index];
-    if (valueFlags.has(item)) {
+    if (valueFlags.has(item) || repeatableFlags.has(item)) {
       const value = args[index + 1];
       if (value === undefined) throw new CliError(`${item} requires a value.`);
       const key = item === "-m" ? "message" : item.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-      options[key] = value;
+      // A repeatable flag always yields an array, even for one occurrence, so
+      // a caller never has to test which shape it got.
+      if (repeatableFlags.has(item)) {
+        options[key] = [...(options[key] ?? []), value];
+      } else {
+        options[key] = value;
+      }
       index += 1;
     } else if (item.startsWith("--")) {
       options[item.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = true;
@@ -1022,6 +1042,7 @@ export async function main(rawArgs) {
       const result = createCommit(message, {
         all: options.all,
         allowEmpty: options.allowEmpty,
+        actors: declaredActors(options),
       });
       print(result, options.json);
       return;
@@ -1235,6 +1256,39 @@ export async function main(rawArgs) {
       const result = auditIdentity();
       print(options.json ? result : formatIdentityAudit(result), options.json);
       if (result.summary.errors > 0) process.exitCode = 1;
+      return;
+    }
+    case "provenance": {
+      // Reads the declared record; it never derives one. A commit with no
+      // record reports nothing rather than falling back to the Git author,
+      // because "who committed this" is a different claim from "who produced
+      // this" and conflating them is the inference FR-TRUST-04 forbids.
+      const revision = positionals[0] ?? "HEAD";
+      const commits = options.all
+        ? reachableCommits(revision)
+        : [resolveRevision(revision)];
+      const found = provenanceFor(commits);
+      const entries = [];
+      for (const commit of commits) {
+        for (const record of found.get(commit) ?? []) {
+          entries.push({
+            commit,
+            subject: commitSubject(commit),
+            id: record.id,
+            changeId: record.changeId ?? null,
+            actors: record.actors ?? [],
+            origin: record.origin,
+            carriedFrom: record.carriedFrom ?? [],
+            createdAt: record.createdAt ?? null,
+          });
+        }
+      }
+      print(
+        options.json
+          ? { revision, inspected: commits.length, entries }
+          : formatProvenance(entries),
+        options.json,
+      );
       return;
     }
     case "receipts": {

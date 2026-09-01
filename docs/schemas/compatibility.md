@@ -48,6 +48,7 @@ version in `also read` is migrated forward as section 3 describes.
 | `vcs-lab.reconciliation` | note-record | v6 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.rebase-application` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.rebase` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
+| `vcs-lab.provenance` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.resolution` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.reconciliation-operation` | private | v4 | — | refuse | `<git dir>/vcs-lab/reconciliation.json` |
 | `vcs-lab.rebase-operation` | private | v1 | — | refuse | `<git dir>/vcs-lab/rebase.json` |
@@ -159,6 +160,7 @@ tracked, or imported input refuses the command.
 | `envelopeManifestBytes` | 16777216 | `manifest.json` of a metadata envelope | Refuse |
 | `envelopeBundleBytes` | 2147483648 | The `objects.bundle` size an envelope declares | Refuse |
 | `envelopeRecords` | 1000000 | Records one envelope declares | Refuse |
+| `provenanceActors` | 64 | Actors in one `vcs-lab.provenance/v1` record | Refuse the write; a landing's provenance is the union of every absorbed commit's actors, so this bounds what one branch can accumulate before the claim stops being reviewable by a person |
 
 `readJson` in `src/store.js` is the single reader for every worktree-private and
 shared-local document, which is why `localStateBytes` is enforced there and

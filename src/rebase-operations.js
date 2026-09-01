@@ -23,6 +23,7 @@ import {
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
 import { faultPoint } from "./faults.js";
+import { carryProvenanceSafely } from "./provenance.js";
 import {
   cherryPickHead,
   mergeMessagePath,
@@ -527,6 +528,12 @@ function finalizeRebase(operation, cwd) {
       publishResolution(outcome, application, cwd);
     }
     appendNote(application.appliedCommit, application, cwd);
+    carryProvenanceSafely(
+      [application.originCommit],
+      application.appliedCommit,
+      application.appliedChangeId,
+      cwd,
+    );
     faultPoint("rebase:mid-publish");
   }
   faultPoint("rebase:before-receipt");

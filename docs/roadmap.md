@@ -465,6 +465,45 @@ until a storage/protocol contract justifies them.
 - Require every adapter to define canonical bytes, entities, identity,
   deterministic rules, blockers, migrations, and sparse storage behavior.
 
+### Authorship provenance
+
+Git records authorship at commit granularity and reconstructs line attribution
+heuristically, so attribution degrades through exactly the operations this tool
+exists to handle: rebase, cherry-pick, and squash landing. FR-ID-08 and
+FR-TRUST-04 make declared provenance a causal record that survives those
+rewrites the way a logical identity does.
+
+Two disciplines are settled before any of it is built. Provenance is
+**declared, never inferred** — no command may guess whether content was
+model-generated, and the claim is the recording actor's, not the tool's, which
+is the FR-TRUST-01 discipline applied to a second kind of claim. And the gap
+this addresses is **capture, not storage**: attribution that was never recorded
+at write time cannot be recovered by any substrate, so the requirement covers
+carrying a declaration faithfully rather than reconstructing one.
+
+**Commit-level provenance is implemented, unreleased (2026-09-01).**
+`vlab commit --authored-by/--generated-by/--reviewed-by` and the `VLAB_AGENT`
+environment variable declare `vcs-lab.provenance/v1`; the record is carried onto
+the result of a cherry-pick, reconciliation, causal rebase, and squash landing,
+marked `carried` and naming the commits it came from. The carry is exact rather
+than heuristic because those paths already record which origin commits produced
+which result — the same recorded correspondence that makes coverage provable
+makes attribution portable, which is the clearest evidence yet that the causal
+model is the right home for this. `vlab provenance [<rev>] [--all]` reads it
+back. The suite pins the case Git cannot answer: after a hard squash `git blame`
+attributes every absorbed line to the landing author, while the carried record
+still names the actors of both absorbed commits.
+
+The open design question is anchoring granularity (product question 11).
+Commit-level attribution is delivered with the existing receipt machinery and
+survives rewrite through the same identity rules. Sub-commit attribution needs
+a stable anchor below commit granularity, which neither Git nor the current
+model has, and which
+[ADR-0023](adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
+names as the first serious candidate for a model concept the content substrate
+cannot express. Commit-level provenance should be delivered and used before
+sub-commit anchoring is designed.
+
 ### Lower-confidence resolution experiments
 
 FR-RES-07 may be explored only as a visibly separate confidence tier with
@@ -543,6 +582,7 @@ signals.
 | --- | --- | --- |
 | FR-GIT-06 | Complete | Horizon 2 schema and CLI contract catalog, published in `docs/schemas/` |
 | FR-ID-06, FR-ID-07 | Planned | Horizon 2 identity/proof diagnostics |
+| FR-ID-08, FR-TRUST-04 | Implemented for commit granularity, unreleased | Horizon 3 authorship provenance; sub-commit anchoring is open product question 11 |
 | FR-LAND-10 | Deferred | Horizon 4 trusted coordinated landing |
 | FR-PLAN-08 | Planned | Horizons 2 and 4 portable verification |
 | FR-RES-07 | Planned | Horizon 3 isolated lower-confidence experiments |

@@ -108,7 +108,16 @@ function scenario() {
   vlab(repo, "compact-merge", "topic", "-m", "Land topic");
   git(repo, "switch", "-c", "pick-source", baseCommit);
   write(repo, "d.txt", "delta\n");
-  commit(repo, "Pick source change");
+  // Declared authorship provenance, so the conformance repository carries
+  // both a declaration and the record the cherry-pick below carries from it
+  // (FR-ID-08). Declared here rather than earlier so the record sorts after
+  // the reconciliation application the receipts fixture indexes at /0.
+  git(repo, "add", "-A");
+  vlab(
+    repo, "commit", "-m", "Pick source change",
+    "--generated-by", "conformance-agent",
+    "--reviewed-by", "Conformance Reviewer",
+  );
   const pickCommit = git(repo, "rev-parse", "HEAD");
   git(repo, "switch", "main");
   vlab(repo, "cherry-pick", pickCommit);

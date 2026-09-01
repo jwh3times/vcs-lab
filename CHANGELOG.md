@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- Record authorship provenance as a causal fact and carry it across the
+  rewrites that destroy ordinary Git attribution (FR-ID-08, FR-TRUST-04;
+  [ADR-0023](docs/adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)).
+  `vlab commit` gains repeatable `--authored-by`, `--generated-by`, and
+  `--reviewed-by` flags, and reads `VLAB_AGENT` so an agent harness declares
+  once instead of per commit. `vlab provenance [<rev>] [--all]` reads the
+  records back. The new family is `vcs-lab.provenance/v1`, published in
+  `docs/schemas/` with a `provenanceActors` bound of 64.
+  - **The point is what survives a squash.** After a hard squash `git blame`
+    attributes every absorbed line to the landing commit and the landing
+    author is whoever ran the landing, so the original attribution is gone.
+    The landing receipt already names the absorbed commits, so their declared
+    provenance is carried onto the landing as the union of their actors,
+    marked `carried` and naming its sources. Cherry-pick, reconciliation, and
+    causal rebase carry it the same way.
+  - The carry is **exact rather than heuristic**: every application and landing
+    path already records which origin commits produced which result, so the
+    claim follows a recorded correspondence instead of a recomputed diff. The
+    machinery that makes coverage provable is what makes attribution portable.
+  - **Declared, never inferred.** Nothing examines content to decide who
+    produced it, and no existing trailer is read as a role — mapping
+    `Co-Authored-By` onto the vocabulary would be the most tempting available
+    inference and is still a guess, since a co-author is not necessarily a
+    machine. A commit with no declaration reports nothing rather than falling
+    back to the Git author, because "who committed this" and "who produced
+    this" are different claims. The record is an unauthenticated claim by
+    whoever ran the command; signing it is FR-TRUST-02 and does not exist.
+  - Silence stays silence: nothing declared writes no record, because an empty
+    one would turn "nobody said" into a claim. The role vocabulary is closed
+    (`authored`, `generated`, `reviewed`) so a consumer never has to guess what
+    a role meant, and the role carries the human/machine distinction rather
+    than a `kind` field inferred from an actor's name.
+
 - Pin the object session's response-buffer bound with a regression test, adding
   a test-only `VLAB_TEST_SESSION_BUFFER_BYTES` override to `src/git.js`.
   Overflowing the real 64 MiB content buffer needs a blob of roughly 48 MiB,

@@ -262,6 +262,7 @@ ADR that explains why.
 | Application | A realization of a source change in a particular target context | Application receipt |
 | Landing | Integration event that absorbs a set of source revisions | Merge/squash commit plus landing receipt |
 | Causal edge | Evidence that a target includes or applied source work despite missing physical ancestry | Git parent or receipt relation |
+| Authorship provenance | Declared claim about which actor produced a change and in what role (human-authored, agent-generated, agent-generated and human-reviewed) | Commit trailers today; a versioned causal record under FR-ID-08 |
 | Forecast | Non-mutating simulation pinned to exact inputs and decisions | Worktree-private forecast record |
 | Reconciliation | Application of only work not proven covered | Worktree journal plus final receipt |
 | Resolution | Exact result for an ordered base/target/source conflict signature | Resolution record plus retained result blob |
@@ -300,6 +301,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-ID-05 | P1 | Commits without a `Change-Id` shall remain addressable without inventing an unverifiable stable identity. | Implemented | Fallback identity is `git:<commit-oid>`. |
 | FR-ID-06 | P2 | Identity collision and duplicate-origin diagnostics shall be available repository-wide. | Implemented | `vlab audit identity` scans every commit reachable from any ref and every causal record, and reports commits claiming more than one `Change-Id`, commits sharing a `Change-Id` with no identity-preserving application record linking them, applied commits with more than one claimed origin, and records that break the FR-ID-02 and FR-ID-03 identity invariants. |
 | FR-ID-07 | P2 | The protocol shall specify namespace, entropy, and cross-repository import behavior for logical IDs. | Implemented | `vcs-lab.logical-id/v1` in [docs/identity](identity/README.md) freezes the form, the closed namespace set, the 48-bit entropy with its birthday bound, and the import rule that a repeated identifier with a different digest is a refused conflict rather than a merge. `ID_NAMESPACES` and `parseLogicalId` in `src/ids.js` are the executable authority, and collision tests cover the form, the closed namespace set, and same-millisecond minting. |
+| FR-ID-08 | P2 | Declared authorship provenance shall be recorded as a versioned causal record and preserved across the same rewrites that preserve logical identity. | Implemented for commit granularity | A rebase, cherry-pick, or squash landing of an agent-authored change carries its declared provenance into the result, and a plan can state the provenance of the work it is about. |
 
 ### 9.3 Branching, landing, merge, rebase, and squash recovery
 
@@ -419,6 +421,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-TRUST-01 | P0 | Local receipt presence shall never be described as cryptographic proof or authorization. | Implemented principle | User-facing docs distinguish causal evidence from trust. |
 | FR-TRUST-02 | P2 | Records may later be signed by actors whose keys and authorization scope are explicit. | Deferred | Signature envelope, key rotation, replay protection, and policy model are specified and tested. |
 | FR-TRUST-03 | P2 | A trusted landing service may attest policy and atomically publish Git and causal refs. | Deferred | Service design retains offline/local inspection and Git compatibility. |
+| FR-TRUST-04 | P0 | Declared authorship provenance shall be presented as an unauthenticated claim by the recording actor, never as detection or proof of how content was produced. | Implemented principle | No command infers whether content was model-generated; human-readable and JSON output distinguish a declared claim from a verified one. |
 
 ## 10. Non-functional requirements
 
@@ -576,6 +579,7 @@ stable IDs, or auditability.
 | Invocation-scoped Git object session | Complete with lazy startup and fallback | Equality/count/failure/worktree tests plus 10 direct, 20 redirected, three full current-Node, and one full Node 20 forced-session qualification runs |
 | Repository-scale evidence | Synthetic representative profile implemented; selected batching implemented | Trendable semantic/process/timing measurements selected workspace-status and resolution-catalog batching; the rerun shows one process per workspace and six for the resolution catalog; no index or service is yet justified |
 | Metadata integrity and portability | Experimental but complete for accepted shared facts | Inventory/validation plus deterministic envelope and two-clone idempotence tests |
+| Authorship provenance | Implemented for commit granularity | `vcs-lab.provenance/v1` declared at commit time and carried through cherry-pick, reconciliation, causal rebase, and squash landing; parity and never-inferred tests in `test/provenance.test.js`. Sub-commit anchoring is open product question 11 |
 | Cryptographic trust/server policy | Not implemented | Explicit non-goal |
 | Native store/protocol | Not implemented | Exit criteria not yet satisfied |
 
@@ -830,6 +834,13 @@ These questions are intentionally unresolved:
    deterministic adapters?
 10. How much causal history can be compacted without weakening audit or
     invalidating old plans?
+11. At what granularity can authorship provenance be anchored so that it
+    survives the rewrites vcs-lab already supports — commit, logical change,
+    heading section, or hunk — and what anchor remains stable when a squash
+    landing collapses many commits into one tree?
+12. Should authorship provenance ever be authenticated by the producing agent
+    or its host, or does it remain a declared claim like a receipt, defended by
+    audit rather than by signature?
 
 ## 18. Definition of product success
 
