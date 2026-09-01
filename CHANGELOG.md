@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Freeze the logical identity protocol `vcs-lab.logical-id/v1` (FR-ID-07,
+  roadmap Horizon 2 item 2) in `docs/identity/`, with `ID_NAMESPACES`,
+  `ID_ENTROPY_BITS`, and `parseLogicalId` in `src/ids.js` as the executable
+  authority. The specification covers the identifier form
+  (`<namespace>_<9-character base36 clock><12 hex digits>`), the closed
+  namespace set, the 48 bits of entropy, and the cross-repository import rule.
+  - **Entropy is specified together with what it does not buy.** The clock
+    partitions the random space rather than ordering identifiers, and must
+    never be read as a timestamp for a decision. Accidental collision needs
+    roughly 2^24 identifiers minted inside one millisecond; deliberate
+    collision is trivial at any entropy, because a `Change-Id` is a line of
+    text anyone with repository access can write. Identifiers coordinate work;
+    they do not authenticate it, and `vlab audit identity` is the defence.
+  - **Cross-repository import behaviour is now stated rather than implied.**
+    Identifiers are globally scoped and are never rewritten on import. A
+    record whose identifier already exists locally with an equal digest is a
+    no-op, and one with a differing digest is a conflict that refuses the
+    whole import rather than merging or picking a winner — the one situation
+    no automatic rule can resolve without destroying a claim.
+  - `parseLogicalId` reports the `git:<oid>` fallback of FR-ID-05 as a commit
+    fallback identity rather than as malformed, keeping the minted and derived
+    identity forms distinguishable.
+
 - Add `vlab audit identity`, a repository-wide logical identity audit
   (FR-ID-06, roadmap Horizon 2 item 2), emitting
   `vcs-lab.identity-audit/v1` and exiting non-zero when it finds anything. It

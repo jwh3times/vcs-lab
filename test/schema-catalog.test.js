@@ -15,9 +15,13 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 // written; the catalog lists it as superseded without a document.
 const SUPERSEDED_WITHOUT_DOCUMENT = new Set(["vcs-lab.forecast/v1"]);
 
-// Profile identifiers name serialization contracts documented in
-// docs/canonical-json/, not record families; they carry no schema document.
-const PROFILE_IDENTIFIERS = new Set(["vcs-lab.canonical-json/v1"]);
+// Profile identifiers name contracts documented elsewhere -- the serialization
+// profile in docs/canonical-json/, the identifier protocol in docs/identity/ --
+// rather than record families, so they carry no schema document.
+const PROFILE_IDENTIFIERS = new Set([
+  "vcs-lab.canonical-json/v1",
+  "vcs-lab.logical-id/v1",
+]);
 
 // ---------------------------------------------------------------------------
 // Catalog loading

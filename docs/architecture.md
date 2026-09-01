@@ -934,6 +934,17 @@ from branches, tags, and remote-tracking refs. Equal roots identify the same
 lineage; any shared root identifies an ordinary fork. Unrelated and
 history-filtered histories fail closed.
 
+### 15.2.1 Logical identity is not authentication
+
+Logical identifiers are specified by `vcs-lab.logical-id/v1`
+([docs/identity](identity/README.md)): a closed namespace set, a millisecond
+clock that partitions rather than orders, and 48 random bits. Accidental
+collision is negligible at that entropy; deliberate collision is trivial and
+would remain so at any entropy, because a `Change-Id` is a line of text in a
+commit message. Identifiers coordinate work across clones; they do not
+authenticate it, and `vlab audit identity` (FR-ID-06) is what detects a copied
+or forged one.
+
 ### 15.3 Trust limitation
 
 Current receipts are integrity-linked to Git object IDs but locally writable by

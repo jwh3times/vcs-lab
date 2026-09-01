@@ -329,8 +329,15 @@ complete outcome.
   different `Change-Id` trailers (planning reads only the first), applied
   commits with more than one claimed origin, and records that break the
   FR-ID-02 and FR-ID-03 invariants.
-- Specify Change-ID namespace, entropy, and cross-repository import behavior for
-  FR-ID-07 before IDs participate in any trust decision.
+- **Done 2026-08-31.** `vcs-lab.logical-id/v1` (`docs/identity/`) freezes the
+  identifier form, the closed namespace set, the 48-bit entropy, and the
+  cross-repository import rule: identifiers are globally scoped and never
+  rewritten, so a repeated identifier carrying a different digest is a
+  refused conflict rather than a merge. The specification states plainly that
+  accidental collision is negligible while deliberate collision is trivial —
+  a `Change-Id` is a line of text anyone with repository access can write — so
+  identifiers coordinate work rather than authenticate it, and the FR-ID-06
+  audit is the defence rather than the entropy.
 - **Done 2026-08-31.** The historical `signed-shaped-landing-receipt` proof
   label is replaced by `receipt-commit`, which names what the evidence is: a
   reachable receipt lists the exact commit, pairing with `receipt-change-id`

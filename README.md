@@ -45,6 +45,9 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 - [Human/JSON conformance](docs/conformance/README.md) pins which command
   output is text, which is JSON, and which members the two renderings must
   agree on.
+- [Logical identity protocol](docs/identity/README.md) freezes the identifier
+  form, namespace set, and entropy, and states plainly that identifiers
+  coordinate work rather than authenticate it.
 - [Canonical JSON profile](docs/canonical-json/README.md) freezes the
   byte-exact serialization and hashing rules (an RFC 8785 profile) with
   shared cross-implementation test vectors.

@@ -19,6 +19,8 @@ the versioned record of delivered behavior.
   version this build does not know, and the resource bounds on every record.
 - [Human/JSON conformance](conformance/README.md) — which command output is
   text, which is JSON, and which members the two renderings must agree on.
+- [Logical identity protocol](identity/README.md) — the identifier form,
+  namespace set, entropy, and cross-repository import rule.
 - [Canonical JSON profile](canonical-json/README.md) — the frozen RFC 8785
   serialization profile, encoder registry, and shared test vectors.
 - [Testing](testing.md) — supported validation commands and release evidence

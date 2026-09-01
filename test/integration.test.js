@@ -4873,6 +4873,86 @@ test("merge-tree forecasts fall back when a queued change is a merge commit", (t
   assert.equal(git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "main"));
 });
 
+test("logical identifiers follow the versioned protocol and do not collide", async () => {
+  const ids = await import(
+    pathToFileURL(path.join(projectRoot, "src", "ids.js")).href
+  );
+  const {
+    ID_ENTROPY_BITS,
+    ID_NAMESPACES,
+    LOGICAL_ID_PROFILE,
+    isLogicalId,
+    newId,
+    parseLogicalId,
+  } = ids;
+
+  assert.equal(LOGICAL_ID_PROFILE, "vcs-lab.logical-id/v1");
+  assert.equal(ID_ENTROPY_BITS, 48);
+
+  // Form: every namespace mints something the parser accepts and splits the
+  // same way, including the namespaces that contain underscores, which a
+  // split-on-first-underscore parser would get wrong.
+  for (const namespace of Object.keys(ID_NAMESPACES)) {
+    const id = newId(namespace);
+    const parsed = parseLogicalId(id);
+    assert.equal(parsed.valid, true, `${namespace} must mint a valid identifier`);
+    assert.equal(parsed.namespace, namespace, `${namespace} must round-trip`);
+    assert.equal(parsed.minted.length, 9);
+    assert.equal(parsed.random.length, 12);
+    assert.match(parsed.random, /^[0-9a-f]{12}$/);
+    assert.equal(isLogicalId(id, namespace), true);
+    assert.equal(isLogicalId(id, "ch"), namespace === "ch");
+  }
+  assert.ok(
+    Object.keys(ID_NAMESPACES).some((namespace) => namespace.includes("_")),
+    "the underscore case must actually be exercised",
+  );
+
+  // The namespace set is closed, and the derived identity forms are reported
+  // as what they are rather than as malformed.
+  assert.deepEqual(parseLogicalId("git:0123456789abcdef"), {
+    valid: false,
+    reason: "commit-fallback-identity",
+  });
+  assert.equal(parseLogicalId("bogus_0mthy2bwb66595f2dcc62").reason, "unknown-namespace");
+  assert.equal(parseLogicalId("ch_short").reason, "malformed");
+  assert.equal(parseLogicalId("ch_0mthy2bwb66595f2dcc6Z").reason, "malformed");
+  assert.equal(parseLogicalId("").reason, "not-a-string");
+  assert.equal(parseLogicalId(null).reason, "not-a-string");
+  assert.equal(isLogicalId(`rsig_${"a".repeat(64)}`), false, "signatures are derived, not minted");
+
+  // Collision behaviour. Minting many identifiers as fast as possible puts a
+  // large share of them inside the same millisecond, which is the only window
+  // in which two can collide at all.
+  const COUNT = 20_000;
+  const minted = new Set();
+  const randoms = new Set();
+  const clocks = new Set();
+  for (let index = 0; index < COUNT; index += 1) {
+    const id = newId("ch");
+    minted.add(id);
+    const parsed = parseLogicalId(id);
+    randoms.add(parsed.random);
+    clocks.add(parsed.minted);
+  }
+  assert.equal(minted.size, COUNT, "no two minted identifiers may be equal");
+  assert.equal(randoms.size, COUNT, "the random half alone must not repeat at this scale");
+  assert.ok(
+    clocks.size < COUNT,
+    "the test must actually exercise same-millisecond minting, or it proves nothing",
+  );
+
+  // The clock partitions but does not order: it is not a sort key, and the
+  // protocol says so. What must hold is that it is a plausible base36 clock.
+  const now = Date.now();
+  const sample = parseLogicalId(newId("ch"));
+  const decoded = parseInt(sample.minted, 36);
+  assert.ok(
+    Math.abs(decoded - now) < 60_000,
+    "the minted half decodes to the current millisecond clock",
+  );
+});
+
 test("the identity audit separates preserved identity from a real collision", (t) => {
   const { repo } = makeRepo(t);
   write(repo, "a.txt", "base\n");
