@@ -361,6 +361,9 @@ complete outcome.
 
 ### 3. Exercise failure and hostile-input boundaries
 
+Tracked by [GitHub issue #14](https://github.com/jwh3times/vcs-lab/issues/14),
+which carries the evidence and the one remaining piece.
+
 - **Done 2026-08-31.** `VLAB_TEST_FAULT` (`src/faults.js`) turns named points
   on the mutating paths into a hard `process.exit`, so an interruption is
   reproducible rather than a flaky signal race, and
@@ -404,7 +407,8 @@ complete outcome.
   and OneDrive/path-edge cases. This is the one piece of this item that a
   Windows host cannot produce; it needs the Docker route and pairs with the
   Linux benchmark re-record of
-  [issue #13](https://github.com/jwh3times/vcs-lab/issues/13).
+  [issue #13](https://github.com/jwh3times/vcs-lab/issues/13). The ADR-0020
+  bounded-buffer limits that need large fixtures are tracked with it.
 
 Exit criteria for this horizon are published schemas, deterministic audit
 output, migration/conformance coverage, and fault tests showing that no partial
