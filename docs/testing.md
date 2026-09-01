@@ -111,6 +111,18 @@ or the operation could neither continue nor be abandoned. The same file also
 covers out-of-band Git: a `cherry-pick --continue`, `--skip`, or `--abort`
 driven behind vlab's back during a paused operation must leave the resume
 refusing, publishing nothing, and still recoverable through vlab's own abort.
+The same file pins the object session's response-buffer bound. Overflowing
+the real 64 MiB content buffer needs a blob of roughly 48 MiB, far too large to
+build on every suite run, so `VLAB_TEST_SESSION_BUFFER_BYTES` shrinks the
+buffer to meet a small fixture. What is asserted is not the threshold but the
+behaviour at it: an overflowing response is replaced by a `response-too-large`
+envelope, the session is disabled for the rest of the invocation — hence
+exactly one fallback per command, not one per request — and the read falls
+through to an ordinary Git process. **The answer must be byte-identical across
+all three transports**, session, fallback, and no session at all, because a
+fallback that returned different data would be worse than one that failed. The
+override is inert unless it parses as a positive integer, which is itself
+asserted, since it shrinks a safety bound.
 `test/object-format.test.js` runs the same workflows in a SHA-256 repository,
 where every object id is 64 characters instead of 40, so any comparison that
 assumed a fixed width fails. It also pins the proof bundle's sharpest

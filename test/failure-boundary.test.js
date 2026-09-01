@@ -571,3 +571,105 @@ test("an interrupted abort can be completed by running it again", () => {
     );
   }
 });
+
+/**
+ * A reconciled repository, so a receipt exists on the notes ref and the plan
+ * has to read note blobs through the object session to classify the change.
+ * That read is the one carrying object *contents*, which is what the large
+ * response buffer exists for.
+ */
+function makeReconciled() {
+  const repo = makeReconcilable();
+  vlab(repo, "reconcile", "feature", "--json");
+  return repo;
+}
+
+test("a session response too large for its buffer falls back without changing the answer", () => {
+  // Overflowing the real 64 MiB content buffer needs a blob of roughly 48 MiB,
+  // which is far too large to build on every suite run. The behaviour worth
+  // pinning is not the threshold but what happens at it, so
+  // VLAB_TEST_SESSION_BUFFER_BYTES shrinks the buffer to meet a small fixture.
+  const repo = makeReconciled();
+
+  const plan = (env) => {
+    const result = vlabResult(repo, ["merge-plan", "feature", "--json"], {
+      VLAB_GIT_SESSION: "1",
+      VLAB_TRACE: "1",
+      ...env,
+    });
+    assert.equal(result.status, 0, "an overflowing response is a transport event, not an error");
+    return { json: result.stdout, trace: result.stderr };
+  };
+
+  const fallbacks = (trace) =>
+    trace.split("\n").filter((line) => line.includes("session unavailable")).length;
+
+  const served = plan({});
+  const overflowed = plan({ VLAB_TEST_SESSION_BUFFER_BYTES: "2048" });
+
+  // The fixture must actually exercise both sides, or the comparison below
+  // proves nothing.
+  assert.equal(fallbacks(served.trace), 0, "the default buffer serves the response");
+  assert.match(
+    served.trace,
+    /cat-file-session/,
+    "the fixture must really use the session when the buffer is large enough",
+  );
+  assert.equal(
+    fallbacks(overflowed.trace),
+    1,
+    "the shrunken buffer overflows, and does so exactly once: the first failure " +
+      "disables the session for the rest of the invocation",
+  );
+  assert.match(
+    overflowed.trace,
+    /Git object-session response exceeded its shared buffer/,
+    "the fallback names its cause rather than failing silently",
+  );
+
+  // The property that actually matters. A fallback that returned different
+  // data would be far worse than one that failed, because the plan would be
+  // wrong rather than absent.
+  assert.equal(
+    overflowed.json,
+    served.json,
+    "the fallback answer is byte-identical to the session answer",
+  );
+
+  // And identical to the answer with no session at all, so neither transport
+  // is quietly authoritative.
+  const withoutSession = vlabResult(repo, ["merge-plan", "feature", "--json"], {
+    VLAB_GIT_SESSION: "0",
+  });
+  assert.equal(withoutSession.status, 0);
+  assert.equal(
+    withoutSession.stdout,
+    served.json,
+    "session and process transports agree on the plan",
+  );
+
+  // The plan is a real one, not an empty answer that would match trivially.
+  const parsed = JSON.parse(served.json);
+  assert.equal(parsed.counts.covered, 1);
+  assert.equal(parsed.changes[0].proof, "receipt-commit");
+});
+
+test("the session buffer override is inert unless it names a positive integer", () => {
+  // The override shrinks a safety bound, so it must be impossible to trip
+  // accidentally: an empty, malformed, zero, or negative value has to leave the
+  // real buffer in place rather than fall back to something small.
+  const repo = makeReconciled();
+  for (const value of ["", "0", "-1", "not-a-number", "1e6", "2048.5"]) {
+    const result = vlabResult(repo, ["merge-plan", "feature", "--json"], {
+      VLAB_GIT_SESSION: "1",
+      VLAB_TRACE: "1",
+      VLAB_TEST_SESSION_BUFFER_BYTES: value,
+    });
+    assert.equal(result.status, 0, `${JSON.stringify(value)}: the command still succeeds`);
+    assert.doesNotMatch(
+      result.stderr,
+      /session unavailable/,
+      `${JSON.stringify(value)} must not shrink the buffer`,
+    );
+  }
+});

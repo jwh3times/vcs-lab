@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Pin the object session's response-buffer bound with a regression test, adding
+  a test-only `VLAB_TEST_SESSION_BUFFER_BYTES` override to `src/git.js`.
+  Overflowing the real 64 MiB content buffer needs a blob of roughly 48 MiB,
+  far too large to build on every suite run, and the behaviour worth pinning is
+  the fallback rather than the threshold. The override is inert unless it parses
+  as a positive integer, which the suite asserts, since it shrinks a safety
+  bound.
+  - What is now guaranteed: an oversized response is replaced by a
+    `response-too-large` envelope, the session is disabled, the read falls
+    through to an ordinary Git process, and **the answer is byte-identical
+    across the session, the fallback, and no session at all**. A fallback that
+    returned different data would be worse than one that failed, because the
+    plan would be wrong rather than absent.
+  - The fallback disables the session for the rest of the invocation, so there
+    is exactly one fallback per command rather than one per request. That was
+    already true; it is now asserted rather than assumed.
+
 - Re-record the `linux` benchmark baseline under the `reduced-local-v2`
   profile, restoring both hosts to `benchmarks/baseline.json`. The entry was
   dropped when the profile changed, per ADR-0017. Recorded in an Ubuntu 24.04

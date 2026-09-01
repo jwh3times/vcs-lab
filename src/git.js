@@ -14,6 +14,24 @@ const SESSION_TIMEOUT_MS = 60_000;
 let nextSessionId = 1;
 
 /**
+ * Size of the shared response buffer for one session request. An `info`
+ * response carries only headers; a `contents` response carries the objects
+ * base64-encoded, so it gets a far larger buffer.
+ *
+ * Test hook: `VLAB_TEST_SESSION_BUFFER_BYTES` shrinks the buffer so the
+ * overflow path can be exercised with a small fixture. Overflowing the real
+ * content buffer needs a blob of roughly 48 MiB, which is too large to build
+ * on every suite run, and the behaviour worth pinning is the fallback rather
+ * than the threshold. The override is inert unless it parses as a positive
+ * integer, so it cannot shrink a buffer in ordinary use.
+ */
+function sessionResponseBytes(command) {
+  const override = Number(process.env.VLAB_TEST_SESSION_BUFFER_BYTES);
+  if (Number.isInteger(override) && override > 0) return override;
+  return command === "info" ? SESSION_INFO_BUFFER_BYTES : SESSION_CONTENT_BUFFER_BYTES;
+}
+
+/**
  * Marks a `runGit` call as one of this module's own read implementations.
  * The symbol is private, so a read that reaches `runGit` without it comes
  * from outside the engine seam (`src/engine.js`) and is counted as a direct
@@ -487,10 +505,7 @@ class GitObjectSession {
       missingIndexes.push(index);
       missingExpressions.push(expressions[index]);
     });
-    const responseBytes = command === "info"
-      ? SESSION_INFO_BUFFER_BYTES
-      : SESSION_CONTENT_BUFFER_BYTES;
-    const shared = new SharedArrayBuffer(16 + responseBytes);
+    const shared = new SharedArrayBuffer(16 + sessionResponseBytes(command));
     const header = new Int32Array(shared, 0, 4);
     const started = performance.now();
     const worker = this.startWorker();

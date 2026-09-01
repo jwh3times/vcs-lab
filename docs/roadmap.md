@@ -420,8 +420,12 @@ which carries the evidence and the one remaining piece.
   than assumed. **Remaining: OneDrive path edges**, which are a Windows concern
   a container cannot reach — the suites run their fixtures in the OS temp
   directory, so no run so far has placed a repository inside a synced folder.
-  The ADR-0020 bounded-buffer limits that need large fixtures are tracked with
-  it.
+  **Done 2026-09-01** for the bounded-buffer limit: `src/git.js` gained a
+  test-only `VLAB_TEST_SESSION_BUFFER_BYTES` override so a small fixture meets
+  the object session's response buffer, and `test/failure-boundary.test.js`
+  pins that an overflow falls back to ordinary Git processes with a
+  byte-identical answer across all three transports. Verified by mutation: with
+  the fallback removed the test fails.
 
 Exit criteria for this horizon are published schemas, deterministic audit
 output, migration/conformance coverage, and fault tests showing that no partial
