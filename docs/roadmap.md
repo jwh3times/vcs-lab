@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Baseline | v0.11.0 released |
+| Baseline | v0.12.0 released |
 | Status | Maintained execution guide |
 | Last reviewed | 2026-08-31 |
 | Planning horizon | Next bounded increment through the phased native-core program |
@@ -39,7 +39,14 @@ accumulated since v0.9.0; v0.11.0 releases the whole of ADR-0015 program
 phase 0b — the read-side engine seam, the versioned schema catalog, the
 frozen canonical-JSON profile, the per-family compatibility and
 resource-bound contract, and the human/JSON conformance fixtures — together
-with the merge-tree engine’s nested `.gitattributes` fix. On 2026-08-28
+with the merge-tree engine’s nested `.gitattributes` fix. v0.12.0 releases
+the Horizon 2 identity, proof, and boundary work accumulated since: the
+repository-wide identity audit and the frozen `vcs-lab.logical-id/v1`
+protocol, portable coverage proof bundles with an independent verifier, the
+hostile-input and fault-injection suites with their deterministic
+`VLAB_TEST_FAULT` hook, SHA-256 object-format coverage, and declared
+authorship provenance carried across the rewrites that destroy ordinary Git
+attribution. On 2026-08-28
 [ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
 split the native implementation gate and
 [ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) adopted a

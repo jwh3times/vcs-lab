@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
 
 - Record authorship provenance as a causal fact and carry it across the
   rewrites that destroy ordinary Git attribution (FR-ID-08, FR-TRUST-04;
