@@ -205,7 +205,24 @@ counts and medians against this host's entry in `benchmarks/baseline.json`
 working tree, so it also measures workspace creation with and without a sparse
 cone and records the files and bytes each materializes; those counts are held
 to the process rule, not the latency rule, because the fixture is
-deterministic and any growth is a real change in what a workspace writes. A process count above the baseline, a median above twice the
+deterministic and any growth is a real change in what a workspace writes.
+
+Since the `reduced-local-v3` profile it also measures the **publication loop**
+(issue #15): a six-change reconciliation with declared provenance, recording
+every Git process the whole `vlab reconcile` invocation starts and how many
+records it publishes. That is the one stretch whose work scales with the number
+of changes, and until v3 nothing covered it — a per-application `git notes list`
+was added there and passed the entire suite, all five suite modes, and this
+check. The count comes from the `VLAB_TRACE=1` trace rather than from the
+receipt, because the receipt's `timings.git` block covers the application phase
+only: the receipt is built before publication runs, so it cannot report its own
+publication cost. Provenance is declared on the fixture so the carry path
+actually runs; with none in the repository that path returns before its loop,
+which is exactly how the original regression hid. Both figures are held to the
+process rule, and `records` is a semantic guard: if it moves, the phase has
+stopped measuring what it claims to.
+
+A process count above the baseline, a median above twice the
 baseline (or the baseline plus 5 ms, whichever is larger), or a forecast whose
 modes disagree fails the check; a host without an entry is skipped with a
 warning, and a forecast mode the host cannot run (merge-tree below Git 2.49)

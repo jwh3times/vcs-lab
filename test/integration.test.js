@@ -5222,7 +5222,11 @@ test("the benchmark regression comparator flags process growth and slow medians 
     full: { files: 600, bytes: 615000 },
     cone: { files: 60, bytes: 61500 },
   };
-  const entry = { phases, forecast, materialization };
+  // The publication loop (issue #15), held to the process rule like
+  // materialization: a fixed queue in a deterministic fixture, so growth in
+  // what publishing a change costs is a regression rather than host noise.
+  const publication = { changes: 6, processes: 41, records: 19, elapsedMs: 300 };
+  const entry = { phases, forecast, materialization, publication };
 
   const same = compare(entry, structuredClone(entry));
   assert.ok(same.length > 0);
@@ -5238,6 +5242,7 @@ test("the benchmark regression comparator flags process growth and slow medians 
   // and a reduction is an improvement, with no tolerance band either way.
   noisy.materialization.full.bytes = 615001; // one byte more
   noisy.materialization.cone.bytes = 61499; // one byte fewer
+  noisy.publication.processes = 47; // the per-application read, restored
   const findings = compare(entry, noisy);
   const byKey = Object.fromEntries(findings.map((item) => [`${item.subject} ${item.metric}`, item]));
   assert.equal(byKey[`scale:${SCALE_PHASES[0]} medianMs`].status, "tolerated");
@@ -5247,11 +5252,18 @@ test("the benchmark regression comparator flags process growth and slow medians 
   assert.equal(byKey["materialization:full bytes"].status, "regressed");
   assert.equal(byKey["materialization:cone bytes"].status, "improved");
   assert.equal(byKey["materialization:full files"].status, "unchanged");
+  assert.equal(byKey["publication processes"].status, "regressed");
+  assert.equal(
+    byKey["publication records"].status,
+    "unchanged",
+    "a cost regression must not look like a change in what was published",
+  );
   assert.deepEqual(
     findings.filter((item) => item.status === "regressed").map((item) => `${item.subject} ${item.metric}`),
     [
       `scale:${SCALE_PHASES[1]} medianMs`,
       "forecast:worktree-session processes",
+      "publication processes",
       "materialization:full bytes",
     ],
   );

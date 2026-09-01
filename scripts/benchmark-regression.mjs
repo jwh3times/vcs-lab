@@ -22,7 +22,7 @@ export const baselinePath = path.join(projectRoot, "benchmarks", "baseline.json"
 
 export const BASELINE_SCHEMA = "vcs-lab.benchmark-baseline/v2";
 export const PROFILE = {
-  name: "reduced-local-v2",
+  name: "reduced-local-v3",
   history: 100,
   workspaces: 4,
   notes: 60,
@@ -35,6 +35,13 @@ export const PROFILE = {
   samples: 3,
   budgetMs: 1000,
   forecastChanges: 12,
+  // The publication queue (issue #15). Publication is the one stretch where
+  // work scales with the number of changes — each application publishes its
+  // own record, its resolutions, and the provenance carried onto it — and
+  // until v3 no phase covered it, so a per-change Git process could be added
+  // with nothing to notice. Six is enough for per-change growth to show
+  // against the fixed cost around it.
+  publishChanges: 6,
 };
 export const TOLERANCE = { latencyRatio: 2, latencyFloorMs: 5, processes: 0 };
 /** The merge-tree engine floor is the CLI's (`src/git.js`): `merge-tree --stdin` flushes records only from Git 2.49. */
@@ -72,6 +79,22 @@ function run(command, commandArgs, cwd, env = {}) {
     );
   }
   return result.stdout;
+}
+
+/** Like `run`, but keeps stderr, where the Git trace is written. */
+function runCapture(command, commandArgs, cwd, env = {}) {
+  const result = spawnSync(command, commandArgs, {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `${command} ${commandArgs.join(" ")} failed with status ${result.status}`,
+    );
+  }
+  return result;
 }
 
 function vlabJson(cwd, commandArgs, env = {}) {
@@ -230,6 +253,84 @@ function measureForecasts(modes) {
 }
 
 /**
+ * Measure a whole `vlab reconcile` invocation over a fixed queue (issue #15).
+ *
+ * This is the gap the other phases leave. Every scale phase is a read, and the
+ * forecast phases simulate without publishing, so nothing measured the
+ * publication loop — the one stretch whose work scales with the number of
+ * changes, since each application publishes its own record, its resolutions,
+ * and the provenance carried onto it. A per-change Git process was added there
+ * and passed the whole suite, all five suite modes, and this very check.
+ *
+ * Counted from the trace rather than from the receipt on purpose: the receipt's
+ * `timings.git` block covers the application phase only, because the receipt is
+ * built before publication runs. The trace is the only place the whole cost of
+ * the command appears, and FR-PERF-07 makes its shape a contract.
+ *
+ * Provenance is declared on the source commits so the carry path actually runs.
+ * With none in the repository it returns before its loop, and a regression
+ * inside it would be invisible — which is exactly how the original one hid.
+ */
+function measurePublication() {
+  const { root, repo } = makeRepo();
+  try {
+    fs.writeFileSync(path.join(repo, "base.txt"), "base\n");
+    run("git", ["add", "-A"], repo);
+    run("git", ["commit", "-q", "-m", "base"], repo);
+    run(process.execPath, [cli, "init"], repo);
+
+    run("git", ["switch", "-q", "-c", "feature"], repo);
+    for (let index = 1; index <= PROFILE.publishChanges; index += 1) {
+      // Distinct files, so the queue applies cleanly and the phase measures
+      // publication rather than conflict handling.
+      fs.writeFileSync(path.join(repo, `change-${index}.txt`), `${index}\n`);
+      run("git", ["add", "-A"], repo);
+      run(
+        process.execPath,
+        [cli, "commit", "-m", `publish ${index}`],
+        repo,
+        { VLAB_AGENT: "benchmark-agent" },
+      );
+    }
+    run("git", ["switch", "-q", "main"], repo);
+    fs.writeFileSync(path.join(repo, "target.txt"), "target\n");
+    run("git", ["add", "-A"], repo);
+    run("git", ["commit", "-q", "-m", "target moves"], repo);
+
+    const reconciled = runCapture(
+      process.execPath,
+      [cli, "reconcile", "feature", "--json"],
+      repo,
+      { VLAB_TRACE: "1" },
+    );
+    const receipt = JSON.parse(reconciled.stdout).receipt;
+    const applied = receipt.applied?.length ?? 0;
+    if (applied !== PROFILE.publishChanges) {
+      throw new Error(
+        `The publication phase applied ${applied} changes, not ${PROFILE.publishChanges}; `
+        + "the fixture is not measuring what it claims to.",
+      );
+    }
+
+    // Every process the invocation started, persistent sessions included.
+    const processes =
+      (reconciled.stderr.match(/\(new (?:persistent )?process\)/g) ?? []).length;
+    const records = JSON.parse(
+      run(process.execPath, [cli, "receipts", "--json"], repo),
+    ).length;
+
+    return {
+      changes: PROFILE.publishChanges,
+      processes,
+      records,
+      elapsedMs: round(receipt.timings?.elapsedWallMs ?? 0),
+    };
+  } finally {
+    removeFixture(root);
+  }
+}
+
+/**
  * Read the committed baseline. A baseline written under an older schema is a
  * migration, not a dead end: `--record` starts a fresh baseline for the new
  * schema and says which host entries it dropped, exactly as it already does
@@ -314,6 +415,18 @@ export function compare(entry, current, tolerance = TOLERANCE) {
     check(`forecast:${mode}`, "processes", before.processes, after.processes, "processes");
     check(`forecast:${mode}`, "forecastMs", before.forecastMs, after.forecastMs, "latency");
   }
+  // The publication loop (issue #15). Held to the process rule: the fixture
+  // is deterministic and the queue is fixed, so any growth is a real change in
+  // what publishing a change costs, not host noise. `records` is a semantic
+  // guard rather than a performance one — if it moves, the phase stopped
+  // measuring what it claims to.
+  if (!entry.publication || !current.publication) {
+    skip("publication", "processes");
+    skip("publication", "records");
+  } else {
+    check("publication", "processes", entry.publication.processes, current.publication.processes, "processes");
+    check("publication", "records", entry.publication.records, current.publication.records, "processes");
+  }
   // Materialized bytes are what a sparse cone exists to reduce, and the
   // fixture is deterministic, so growth is a real change in what a workspace
   // writes rather than host noise. Held to the process rule: no growth at all.
@@ -363,9 +476,11 @@ function main() {
 
   let scale;
   let forecast;
+  let publication;
   try {
     scale = measureScale();
     forecast = measureForecasts(modes);
+    publication = measurePublication();
   } finally {
     removeAllFixtures();
   }
@@ -376,6 +491,7 @@ function main() {
     phases: scale.phases,
     materialization: scale.materialization,
     forecast,
+    publication,
   };
 
   if (record) {

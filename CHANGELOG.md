@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- Measure the publication loop in the benchmark (issue #15; ADR-0017 profile
+  `reduced-local-v3`). Every existing phase measured a read, and the forecast
+  phases simulate without publishing, so nothing covered the one stretch whose
+  work scales with the number of changes — each application publishes its own
+  record, its resolutions, and the provenance carried onto it.
+  - **The gap was found the expensive way.** A per-application `git notes list`
+    was added there with authorship provenance and passed the entire suite, all
+    five suite modes, and this very check; a six-change reconciliation went from
+    15 Git processes to 21. It was caught by reading a `VLAB_TRACE=1` trace by
+    hand, which is not a control.
+  - The new `publication` block records the processes a whole `vlab reconcile`
+    invocation starts over a fixed six-change queue, and the records it
+    publishes. Both are held to the process rule, since the fixture is
+    deterministic; `records` is a semantic guard rather than a performance one.
+  - Counted from the trace, not the receipt, because **the receipt cannot see
+    its own publication cost**: `timings.git` covers the application phase only,
+    since the receipt is built before publication runs. Worth knowing on its own
+    — a caller reading those metrics is not being told the whole story.
+  - Provenance is declared on the fixture so the carry path actually runs. With
+    none in the repository that path returns before its loop, which is exactly
+    how the original regression hid.
+  - Verified by mutation: restoring the per-application read takes the phase
+    from 41 processes to 47 and the check reports a regression, while `records`
+    stays at 19 — a cost change, not a behavioural one.
+  - **The first phase whose process count differs between hosts**: 41 on
+    Windows, 56 on Linux, with identical records. The publication phase runs
+    each host's *default* transport, and under FR-PERF-08 Windows defaults to
+    the batched object session while POSIX does not. Forcing the session on
+    Linux gives exactly 41 — measured, not assumed. Measuring the default is
+    deliberate: the figure worth defending is what the command costs a user on
+    that host.
+  - Per ADR-0017 the profile change forces a re-record on every host; both
+    `win32` and `linux` are recorded.
+
 - Give failures a versioned, machine-readable envelope
   ([ADR-0021](docs/adr/0021-give-failures-a-versioned-machine-readable-envelope.md),
   issue #12), completing the failure half of FR-GIT-06. `--json` previously had

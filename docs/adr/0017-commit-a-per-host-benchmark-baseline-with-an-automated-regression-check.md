@@ -39,10 +39,10 @@ by tens of percent between runs with antivirus, sync, and cache effects.
 `benchmarks/baseline.json` carries schema `vcs-lab.benchmark-baseline/v2`
 (amended 2026-08-31; see below):
 
-- `profile`: the fixed reduced volume the check runs (`reduced-local-v2`:
+- `profile`: the fixed reduced volume the check runs (`reduced-local-v3`:
   100 commits, 4 workspaces, 60 notes, 12 resolutions, a working tree of
-  10 areas of 60 files, 3 samples, the 1,000 ms budget, and a 12-change
-  forecast queue);
+  10 areas of 60 files, 3 samples, the 1,000 ms budget, a 12-change forecast
+  queue, and a 6-change publication queue);
 - `tolerance`: the documented limits (below);
 - `hosts.<platform>`: one entry per `process.platform` (`win32`, `linux`,
   `darwin`) with the recording date, Git and Node versions, per-phase
@@ -91,6 +91,73 @@ host re-records its own. An interrupted run removes its
 Release gate item 9 becomes active on every host that has an entry: the
 check must pass there before a release. Hosts without an entry are reported
 as skipped in the release summary.
+
+## Amendment 2026-09-01: profile v3, the publication loop
+
+Every phase in v2 measured a read, and the forecast phases simulate without
+publishing, so the benchmark had no coverage of the **publication loop** — the
+one stretch whose work scales with the number of changes, since each
+application publishes its own record, its resolutions, and the provenance
+carried onto it.
+
+The gap was found the expensive way (issue #15). A per-application `git notes
+list` was added there with authorship provenance and passed the entire suite,
+all five suite modes, and this check; a six-change reconciliation went from 15
+Git processes to 21, about 30 ms each on this host, and nothing noticed. It was
+caught by reading a `VLAB_TRACE=1` trace by hand.
+
+The profile becomes `reduced-local-v3` and gains `publishChanges: 6`. Each host
+entry carries a `publication` block: the queue size, the **processes the whole
+`vlab reconcile` invocation started**, the records it published, and its
+elapsed time. Processes and records are compared under the **process rule**,
+like `materialization`: the fixture is deterministic and the queue is fixed, so
+any growth is a real change in what publishing a change costs. `records` is a
+semantic guard rather than a performance one — if it moves, the phase has
+stopped measuring what it claims to.
+
+Two choices in that phase are deliberate.
+
+**The count comes from the trace, not from the receipt.** The reconciliation
+receipt's `timings.git` block covers the application phase only, because the
+receipt is built before publication runs. The trace is the only place the whole
+cost of the command appears, and FR-PERF-07 already makes its shape a contract.
+That the receipt cannot see its own publication cost is worth stating plainly:
+a caller reading metrics is not being told the whole story, and closing that
+would mean a new version of the receipt family.
+
+**Provenance is declared on the fixture's source commits**, so the carry path
+actually runs. With no provenance in a repository that path returns before its
+loop, and a regression inside it would be invisible — which is precisely how
+the original one hid.
+
+Verified by mutation: restoring the per-application read takes the phase from
+41 processes to 47 and the check reports a regression, while `records` stays at
+19, so the signal is a cost change rather than a behavioural one.
+
+As this decision already requires, changing the profile forces every host to
+re-record. The `win32` entry is re-recorded; the `linux` entry is dropped and
+must be re-recorded on that host, until which time the check reports it as
+skipped.
+
+Recorded on win32 (Git 2.55.0.windows.3, Node v26.4.0): a six-change
+reconciliation with declared provenance costs 41 Git processes and publishes 19
+records — six applications, six declared and six carried provenance records,
+and one reconciliation receipt. On linux (Git 2.55.0, Node v22.23.2, Ubuntu
+24.04) the same fixture publishes the same 19 records in **56** processes.
+
+**This is the first phase whose process count differs between hosts**, and the
+difference is understood rather than tolerated. Every other phase runs an
+identical transport on both, but the publication phase runs each host's
+*default*: under FR-PERF-08 Windows defaults to the batched object session and
+POSIX does not, so Windows serves many object reads through one persistent
+process where Linux starts one per read. Forcing the session on Linux
+(`VLAB_GIT_SESSION=1`) gives exactly 41, the Windows figure, which was measured
+rather than assumed. The semantic figure — 19 records — matches on both, as the
+cross-host equality of every other phase does.
+
+Measuring the default rather than a pinned transport is deliberate: the number
+worth defending against regression is what the command actually costs a user on
+that host, and the equality check that matters is the one on records.
 
 ## Amendment 2026-08-31: profile v2, workspace materialization
 
