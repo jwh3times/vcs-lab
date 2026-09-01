@@ -406,20 +406,20 @@ which carries the evidence and the one remaining piece.
   through its own abort. The rebase refusal names the disagreement between
   Git's pending pick and the journal rather than failing generically.
 - Add representative Windows and POSIX runs, including large-object fallback
-  and OneDrive/path-edge cases. This is the one piece of this item that a
-  **Done 2026-09-01** for the POSIX runs and the large-object fallback, in an
-  Ubuntu 24.04 container matching the previous Linux toolchain (Git 2.55.0,
-  Node v22.23.2): all five suite modes green, and the SHA-256 tests ran rather
-  than self-skipping. The large-object fallback is exercised and correct — a
-  `cat-file` content response larger than the 64 MiB session buffer is
-  replaced by a `response-too-large` envelope, the session is disabled, and the
-  read falls back to an ordinary Git process with the right bytes, announced
-  under `VLAB_TRACE=1`. Note the fallback disables the session for the rest of
-  the invocation, so one oversized blob costs that command its batching; that
-  is a deliberate fail-safe rather than a defect, but it is now measured rather
-  than assumed. **Remaining: OneDrive path edges**, which are a Windows concern
-  a container cannot reach — the suites run their fixtures in the OS temp
-  directory, so no run so far has placed a repository inside a synced folder.
+  and OneDrive/path-edge cases. **Done 2026-09-01** for the POSIX runs and the
+  large-object fallback, in an Ubuntu 24.04 container matching the previous
+  Linux toolchain (Git 2.55.0, Node v22.23.2): all five suite modes green, and
+  the SHA-256 tests ran rather than self-skipping. The large-object fallback is
+  exercised and correct — a `cat-file` content response larger than the 64 MiB
+  session buffer is replaced by a `response-too-large` envelope, the session is
+  disabled, and the read falls back to an ordinary Git process with the right
+  bytes, announced under `VLAB_TRACE=1`. Note the fallback disables the session
+  for the rest of the invocation, so one oversized blob costs that command its
+  batching; that is a deliberate fail-safe rather than a defect, but it is now
+  measured rather than assumed. **Remaining: OneDrive path edges**, which are a
+  Windows concern a container cannot reach — the suites run their fixtures in
+  the OS temp directory, so no run so far has placed a repository inside a
+  synced folder.
   **Done 2026-09-01** for the bounded-buffer limit: `src/git.js` gained a
   test-only `VLAB_TEST_SESSION_BUFFER_BYTES` override so a small fixture meets
   the object session's response buffer, and `test/failure-boundary.test.js`
