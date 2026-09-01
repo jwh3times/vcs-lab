@@ -89,6 +89,17 @@ JSON-only must not, and the commands declared JSON-only or text-only must stay
 that way. Adding a line to a human renderer that surfaces a JSON-only member,
 or removing one that surfaces a required member, fails the suite; update the
 fixture file in the same commit.
+`test/hostile-input.test.js` drives malformed notes, envelopes, tracked
+manifests, identifiers, and object expressions through the real CLI and holds
+each to one property: a non-zero exit, a `vlab:` domain diagnostic rather than
+a leaked JavaScript runtime error, and **no ref moved**. The runtime-error
+check matters because the error boundary prints any failure as `vlab: <message>`,
+so an exit code alone cannot tell a refusal from a crash.
+`test/failure-boundary.test.js` interrupts the reconciliation publication path
+at named fault points with `VLAB_TEST_FAULT` and asserts what survives: the
+journal is always recoverable, no record is ever duplicated, `--continue`
+refuses rather than republishing, and an abort restores the head and leaves no
+*effective* coverage even when receipts were already published.
 `test/schema-compatibility.test.js` keeps the published compatibility contract
 in `docs/schemas/compatibility.md` in agreement with `RECORD_FAMILIES` and
 `RESOURCE_BOUNDS` in `src/schemas.js`, and exercises each disposition against

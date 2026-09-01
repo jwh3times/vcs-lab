@@ -953,6 +953,35 @@ not signatures or authorization. The proof label `receipt-commit` names what
 that evidence is; the historical `signed-shaped-landing-receipt` it replaced
 never denoted a verified signature and did not change this boundary.
 
+### 15.4 What survives an interrupted publication
+
+Publication is the one stretch of a reconciliation that is not a single atomic
+act: several notes and refs move in sequence. `src/faults.js` names the points
+where an interruption would be most damaging, and
+`test/failure-boundary.test.js` stops the process at each. What survives:
+
+| Interrupted at | Published | Journal | Recovery |
+| --- | --- | --- | --- |
+| before publication | nothing | present | `--continue` or `--abort` |
+| mid publication | some application receipts | present | `--continue` refuses; `--abort` |
+| before the reconciliation receipt | all application receipts | present | as above |
+| before clearing the journal | every receipt | present | as above |
+
+Two properties hold at every point. **No record is ever duplicated**: a
+`--continue` after an interrupted publication refuses rather than replaying
+the loop over records that already exist. And **no unsafe coverage survives an
+abort**: the abort restores the starting commit but does not rewrite the notes
+ref, so receipts published before the interruption remain on disk, attached to
+commits the abort made unreachable. They carry no weight, because the
+reachability rule of §7.2 admits only receipts reachable from the target, so
+the plan reports the change as new and a proof bundle admits zero receipts as
+evidence.
+
+The consequence worth knowing is that an interrupted-then-aborted operation
+leaves inert records behind. They are not a correctness problem and
+`metadata validate` does not report them, which is consistent with how any
+history rewrite orphans records; they are also not collected.
+
 ## 16. Failure handling
 
 | Failure | Behavior |
@@ -1014,7 +1043,10 @@ and test process termination at every boundary.
 - cryptographic signatures and actor identity;
 - authorization/policy evaluation;
 - metadata quarantine and conflict resolution across remotes;
-- malicious repository fuzzing and path-edge-case coverage;
+- malicious repository fuzzing beyond the malformed-input battery in
+  `test/hostile-input.test.js` (adversarial object graphs, hostile
+  `.gitattributes`, symlink and case-folding path edges, SHA-256
+  repositories);
 - a security model for any future resident service.
 
 ## 18. Observability and benchmarks

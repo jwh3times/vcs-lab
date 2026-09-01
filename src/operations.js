@@ -22,6 +22,7 @@ import {
 } from "./engine.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
+import { faultPoint } from "./faults.js";
 import { buildMergePlan } from "./merge-plan.js";
 import { CliError } from "./errors.js";
 import {
@@ -263,13 +264,21 @@ function finalizeReconciliation(operation, cwd) {
     createdAt: new Date().toISOString(),
   };
 
+  // Publication is the one stretch that is not a single atomic act: several
+  // notes and refs move in sequence. These are the points where an
+  // interruption would be most damaging, named so the failure-boundary tests
+  // can stop the process at each and inspect what survived (Horizon 2 item 3).
+  faultPoint("reconcile:before-publish");
   for (const application of operation.applied) {
     for (const outcome of application.resolutions ?? []) {
       publishResolution(outcome, application, cwd);
     }
     appendNote(application.appliedCommit, application, cwd);
+    faultPoint("reconcile:mid-publish");
   }
+  faultPoint("reconcile:before-receipt");
   appendNote(attachedTo, receipt, cwd);
+  faultPoint("reconcile:before-clear");
   clearReconciliationState(cwd);
   return { operationId: operation.id, plan: operation.plan, receipt };
 }

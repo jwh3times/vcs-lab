@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- Begin the failure and hostile-input boundaries of roadmap Horizon 2 item 3
+  with two new suites and a deterministic fault-injection hook.
+  - `test/hostile-input.test.js` drives malformed notes, tampered metadata
+    envelopes, unreadable tracked manifests, traversing identifiers, and
+    newline-bearing object expressions through the real CLI, holding each to
+    one property: a non-zero exit, a `vlab:` domain diagnostic rather than a
+    leaked JavaScript runtime error, and **no ref moved**. The runtime-error
+    check earns its place because the error boundary prints every failure as
+    `vlab: <message>`, so an exit code alone cannot distinguish a considered
+    refusal from a crash.
+  - `src/faults.js` adds `VLAB_TEST_FAULT`, which turns named points on the
+    reconciliation publication path into a hard `process.exit`. It is inert
+    unless the variable names a point exactly, and it exits rather than throws
+    on purpose: throwing would run the cleanup a real interruption never gets
+    to run, and the whole question is what the repository looks like when
+    cleanup did not happen.
+  - `test/failure-boundary.test.js` interrupts publication at each point and
+    pins what survives. The journal is always recoverable, **no record is ever
+    duplicated**, and `--continue` refuses rather than replaying publication
+    over records that already exist.
+  - It also pins the case worth knowing about: interrupting after the receipts
+    are published and then aborting restores the starting commit but leaves
+    those receipts on the notes ref, attached to commits the abort made
+    unreachable. They carry no weight — the plan reports the change as new and
+    a proof bundle admits zero receipts as evidence — because the reachability
+    rule admits only receipts reachable from the target. Inert records are
+    left behind rather than collected, which is now documented rather than
+    discovered.
+  - An out-of-band `git cherry-pick --abort` during a paused reconciliation is
+    covered too: the continue refuses, publishes nothing, and the operation
+    stays recoverable through `vlab reconcile --abort`.
+
 - Freeze the logical identity protocol `vcs-lab.logical-id/v1` (FR-ID-07,
   roadmap Horizon 2 item 2) in `docs/identity/`, with `ID_NAMESPACES`,
   `ID_ENTROPY_BITS`, and `parseLogicalId` in `src/ids.js` as the executable

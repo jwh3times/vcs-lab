@@ -361,12 +361,22 @@ complete outcome.
 
 ### 3. Exercise failure and hostile-input boundaries
 
-- Add systematic kill/fault injection between each Git mutation, journal write,
-  ref publication, and cleanup edge.
-- Fuzz malformed notes, manifests, envelopes, ref names, paths, object formats,
-  and bounded-buffer limits using disposable repositories.
-- Verify exact recovery or fail-closed diagnostics for out-of-band Git
-  continue/skip/abort actions.
+- **Started 2026-08-31.** `VLAB_TEST_FAULT` (`src/faults.js`) turns named
+  points on the reconciliation publication path into a hard `process.exit`, so
+  an interruption is reproducible rather than a flaky signal race, and
+  `test/failure-boundary.test.js` asserts what survives each one. Remaining:
+  the same treatment for the rebase publication path, journal writes, and
+  cleanup edges.
+- **Started 2026-08-31.** `test/hostile-input.test.js` covers malformed notes,
+  envelopes, tracked manifests, identifiers, and object expressions, holding
+  each to a non-zero exit, a domain diagnostic rather than a leaked runtime
+  error, and an unmoved ref. Remaining: SHA-256 repositories, adversarial
+  object graphs, and the bounded-buffer limits that need large fixtures.
+- **Started 2026-08-31.** A `git cherry-pick --abort` behind vlab's back
+  during a paused reconciliation is covered: the continue refuses, publishes
+  nothing, and the operation stays recoverable through `vlab reconcile
+  --abort`. Remaining: out-of-band `--continue` and `--skip`, and the rebase
+  equivalents.
 - Add representative Windows and POSIX runs, including large-object fallback
   and OneDrive/path-edge cases.
 
