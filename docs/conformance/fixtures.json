@@ -580,6 +580,64 @@
           "reason": "The signature algorithm is versioned inside the signature's own contract."
         }
       ]
+    },
+    {
+      "name": "audit-identity",
+      "argv": [
+        "audit",
+        "identity"
+      ],
+      "stage": "clean",
+      "mode": "reread",
+      "note": "The repository-wide identity audit. A clean scenario reports no findings, so the required members are the scan scope and the counts a reader acts on.",
+      "required": [
+        {
+          "pointer": "/repository/root",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/scanned/commits",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/scanned/changeIds",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/scanned/applicationRecords",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/summary/collisions",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/summary/conflictingTrailers",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/summary/ambiguousOrigins",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/summary/errors",
+          "rule": "exact"
+        }
+      ],
+      "jsonOnly": [
+        {
+          "pointer": "/schema",
+          "reason": "Machine dispatch key."
+        },
+        {
+          "pointer": "/repository/objectFormat",
+          "reason": "The object format is reported by vlab doctor and metadata status; the audit line names the repository, not its storage format."
+        },
+        {
+          "pointer": "/scanned/causalRecords",
+          "reason": "The total record count is scan context; the reader is shown the application records the audit actually reasons over."
+        }
+      ]
     }
   ],
   "jsonOnlyCommands": [

@@ -318,8 +318,17 @@ complete outcome.
 
 ### 2. Strengthen identity and proof diagnostics
 
-- Add repository-wide Change-ID collision and duplicate-origin-chain audits
-  for FR-ID-06.
+- **Done 2026-08-31.** `vlab audit identity` emits
+  `vcs-lab.identity-audit/v1` over every commit reachable from any ref and
+  every causal record, not one plan's reachable set. It separates preserved
+  identity from collision by union-finding commits over *identity-preserving*
+  application edges only: a cherry-pick or rebase that keeps the logical ID
+  links its commits, a `contextual-fork` deliberately does not, so commits
+  sharing an ID across unlinked groups are a real collision rather than the
+  intended behaviour of FR-ID-02. It also reports commits carrying several
+  different `Change-Id` trailers (planning reads only the first), applied
+  commits with more than one claimed origin, and records that break the
+  FR-ID-02 and FR-ID-03 invariants.
 - Specify Change-ID namespace, entropy, and cross-repository import behavior for
   FR-ID-07 before IDs participate in any trust decision.
 - **Done 2026-08-31.** The historical `signed-shaped-landing-receipt` proof

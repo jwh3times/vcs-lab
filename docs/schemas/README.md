@@ -99,6 +99,7 @@ automation can dispatch on them, but they are not persisted by vcs-lab.
 | Schema | Document |
 | --- | --- |
 | `vcs-lab.merge-plan/v1` | [merge-plan.v1.schema.json](merge-plan.v1.schema.json) |
+| `vcs-lab.identity-audit/v1` | [identity-audit.v1.schema.json](identity-audit.v1.schema.json) |
 | `vcs-lab.proof-bundle/v1` | [proof-bundle.v1.schema.json](proof-bundle.v1.schema.json) |
 | `vcs-lab.proof-verification/v1` | [proof-verification.v1.schema.json](proof-verification.v1.schema.json) |
 | `vcs-lab.rebase-plan/v1` | [rebase-plan.v1.schema.json](rebase-plan.v1.schema.json) |
@@ -134,6 +135,7 @@ rendering at all.
 | --- | --- |
 | `vlab commit` | Projection `{commit, changeId, message}` |
 | `vlab merge-plan` | `vcs-lab.merge-plan/v1` |
+| `vlab audit identity` | `vcs-lab.identity-audit/v1`; exits non-zero when findings are reported |
 | `vlab proof-bundle` | `vcs-lab.proof-bundle/v1`; always JSON, since the bundle exists to be handed to another tool |
 | `vlab verify-proof` | `vcs-lab.proof-verification/v1`; exits non-zero when the bundle does not verify
 | `vlab rebase-plan` | `vcs-lab.rebase-plan/v1` |

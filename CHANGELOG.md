@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Add `vlab audit identity`, a repository-wide logical identity audit
+  (FR-ID-06, roadmap Horizon 2 item 2), emitting
+  `vcs-lab.identity-audit/v1` and exiting non-zero when it finds anything. It
+  scans every commit reachable from any ref and every causal record, rather
+  than one plan's reachable set: a collision a given plan cannot see is still
+  a collision.
+  - **Distinguishing a collision from preserved identity is the substance.**
+    Commits legitimately share a `Change-Id` when a cherry-pick or rebase
+    preserved it (FR-ID-02), so the audit unions commits over
+    *identity-preserving* application edges only — a `contextual-fork`
+    deliberately changes the identity and therefore does not link its
+    endpoints. Commits sharing an ID across unlinked groups are reported, and
+    the finding names the groups so the stray one is visible.
+  - Also reported: a commit message carrying several different `Change-Id`
+    trailers, where planning silently reads only the first; an applied commit
+    claimed by application records naming different origins; a fork that kept
+    its origin identity (FR-ID-03); and a non-fork application that changed
+    it (FR-ID-02).
+
 - Add portable coverage proof bundles and an independent verifier
   (FR-PLAN-08, roadmap Horizon 2 item 2). `vlab proof-bundle <source>` emits
   `vcs-lab.proof-bundle/v1`: the merge plan together with the evidence its

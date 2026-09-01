@@ -4873,6 +4873,115 @@ test("merge-tree forecasts fall back when a queued change is a merge commit", (t
   assert.equal(git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", "main"));
 });
 
+test("the identity audit separates preserved identity from a real collision", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "a.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  git(repo, "switch", "-c", "feature", base.commit);
+  write(repo, "f.txt", "feature\n");
+  git(repo, "add", ".");
+  const feature = JSON.parse(vlab(repo, "commit", "-m", "feature"));
+  git(repo, "switch", "main");
+  // A cherry-pick preserves the logical ID (FR-ID-02), so two commits now
+  // carry one Change-Id legitimately. The audit must not call that a collision.
+  vlab(repo, "cherry-pick", feature.commit);
+
+  const clean = JSON.parse(vlab(repo, "audit", "identity", "--json"));
+  assert.equal(clean.schema, "vcs-lab.identity-audit/v1");
+  assert.equal(clean.summary.clean, true, "preserved identity is not a collision");
+  assert.equal(clean.summary.collisions, 0);
+  assert.ok(clean.scanned.commits >= 3);
+  assert.equal(clean.scanned.applicationRecords, 1);
+
+  // A commit that copies an existing Change-Id with no derivation recorded is
+  // a genuine collision: the sharing is not backed by an application record.
+  git(repo, "switch", "-c", "stray", base.commit);
+  write(repo, "stray.txt", "stray\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-q", "-m", `stray work\n\nChange-Id: ${feature.changeId}`);
+  // And a commit claiming two identities at once, where planning silently
+  // reads only the first.
+  write(repo, "two.txt", "two\n");
+  git(repo, "add", ".");
+  git(
+    repo,
+    "commit",
+    "-q",
+    "-m",
+    "two identities\n\nChange-Id: ch_first0000000000000000\nChange-Id: ch_second000000000000000",
+  );
+  git(repo, "switch", "main");
+
+  const dirty = vlabResult(repo, "audit", "identity", "--json");
+  assert.notEqual(dirty.status, 0, "findings set a non-zero exit code");
+  const report = JSON.parse(dirty.stdout);
+  assert.equal(report.summary.clean, false);
+
+  const collision = report.findings.find((item) => item.code === "change-id-collision");
+  assert.ok(collision, "the copied Change-Id is reported");
+  assert.equal(collision.changeId, feature.changeId);
+  assert.equal(
+    collision.unlinkedGroups.length,
+    2,
+    "the linked pair and the stray commit are separate groups",
+  );
+  assert.equal(collision.commits.length, 3);
+
+  const trailer = report.findings.find(
+    (item) => item.code === "conflicting-change-id-trailer",
+  );
+  assert.ok(trailer, "the double trailer is reported");
+  assert.deepEqual(trailer.changeIds.sort(), [
+    "ch_first0000000000000000",
+    "ch_second000000000000000",
+  ]);
+
+  // An applied commit claimed by two application records with different
+  // origins leaves its provenance ambiguous.
+  const noteList = git(repo, "notes", "--ref=vcs-lab", "list").split(/\r?\n/).filter(Boolean);
+  let injected = false;
+  for (const line of noteList) {
+    const [noteOid, target] = line.split(" ");
+    const note = JSON.parse(git(repo, "cat-file", "blob", noteOid));
+    const application = note.records.find((record) => record.type === "application");
+    if (!application) continue;
+    // A different origin commit *and* a different origin identity, while the
+    // applied identity stays as it was. That is ambiguous provenance and, for
+    // a non-fork application, an FR-ID-02 violation: identity must be
+    // preserved unless the relation says the change deliberately diverged.
+    note.records.push({
+      ...application,
+      id: "apply_conflicting000000",
+      originCommit: base.commit,
+      originChangeId: "ch_other0000000000000000",
+    });
+    execFileSync("git", ["notes", "--ref=vcs-lab", "add", "-f", "-F", "-", target], {
+      cwd: repo,
+      input: `${JSON.stringify(note, null, 2)}\n`,
+      encoding: "utf8",
+    });
+    injected = true;
+    break;
+  }
+  assert.ok(injected, "the fixture must contain an application record to conflict with");
+
+  const ambiguous = JSON.parse(vlabResult(repo, "audit", "identity", "--json").stdout);
+  const origin = ambiguous.findings.find((item) => item.code === "ambiguous-origin");
+  assert.ok(origin, "two origins for one applied commit are reported");
+  assert.equal(origin.origins.length, 2);
+  assert.equal(ambiguous.summary.ambiguousOrigins, 1);
+
+  // The injected record also violates FR-ID-02: it is not a fork, yet it
+  // changes the Change-Id. The audit checks that invariant too.
+  assert.ok(
+    ambiguous.findings.some((item) => item.code === "identity-not-preserved"),
+    "a non-fork application that changes the identity is reported",
+  );
+});
+
 test("a proof bundle lets a verifier recompute coverage instead of trusting it", async (t) => {
   const { canonicalJson } = await import(
     pathToFileURL(path.join(projectRoot, "src", "canonical-json.js")).href

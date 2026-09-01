@@ -69,6 +69,7 @@ import {
   readSpecManifest,
 } from "./specs.js";
 import { listNoteRecords } from "./notes.js";
+import { auditIdentity } from "./identity-audit.js";
 import { CliError } from "./errors.js";
 import { VERSION } from "./version.js";
 import {
@@ -115,6 +116,7 @@ Usage:
   vlab cherry-pick <commit-or-change-id> [--fork] [--repeat] [--json]
   vlab graph
   vlab receipts [--json]
+  vlab audit identity [--json]
   vlab metadata status [--json]
   vlab metadata validate [--strict] [--json]
   vlab metadata export <directory> [--json]
@@ -189,6 +191,28 @@ function print(value, json = false) {
   } else {
     console.log(value);
   }
+}
+
+function formatIdentityAudit(result) {
+  const lines = [
+    "Identity audit",
+    `repository   ${result.repository.root}`,
+    `scanned      ${result.scanned.commits} commits, ${result.scanned.changeIds} change IDs, ${result.scanned.applicationRecords} application records`,
+    `collisions   ${result.summary.collisions}`,
+    `trailers     ${result.summary.conflictingTrailers} commits claiming more than one identity`,
+    `origins      ${result.summary.ambiguousOrigins} commits with more than one claimed origin`,
+    `findings     ${result.summary.errors} errors, ${result.summary.warnings} warnings`,
+  ];
+  for (const item of result.findings) {
+    lines.push(`  ${item.severity === "error" ? "!" : "?"} ${item.code}: ${item.message}`);
+  }
+  lines.push(
+    "",
+    result.summary.clean
+      ? "No identity collisions or ambiguous origins were found."
+      : "Review the findings above; logical identity is not unambiguous in this repository.",
+  );
+  return lines.join("\n");
 }
 
 function formatProofVerification(result) {
@@ -1201,6 +1225,16 @@ export async function main(rawArgs) {
       const graph = historyGraph();
       const records = listNoteRecords();
       print(`Project history\n${graph}\n\nCausal edges\n${formatCausalEdges(records)}`);
+      return;
+    }
+    case "audit": {
+      const subcommand = positionals[0];
+      if (subcommand !== "identity") {
+        throw new CliError("Unknown audit command. Use identity.");
+      }
+      const result = auditIdentity();
+      print(options.json ? result : formatIdentityAudit(result), options.json);
+      if (result.summary.errors > 0) process.exitCode = 1;
       return;
     }
     case "receipts": {
