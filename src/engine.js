@@ -188,6 +188,7 @@ export function assertClean(cwd = process.cwd()) {
   const status = porcelainStatus(cwd);
   if (status) {
     throw new CliError("The worktree must be clean for this operation.", {
+      code: "dirty-worktree",
       details: status,
     });
   }
@@ -358,7 +359,8 @@ export function runDifferential(cwd = process.cwd()) {
   for (const item of operations) counts[item.status] += 1;
   if (operations.length !== READ_OPERATIONS.length ||
       operations.some((item) => !READ_OPERATIONS.includes(item.operation))) {
-    throw new CliError("The differential probes do not cover the operation catalog exactly.");
+    throw new CliError("The differential probes do not cover the operation catalog exactly.",
+      { code: "internal-invariant" });
   }
   return {
     schema: "vcs-lab.engine-differential/v1",

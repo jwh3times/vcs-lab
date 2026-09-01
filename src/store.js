@@ -52,6 +52,7 @@ export function readJson(filePath, fallback) {
     return JSON.parse(raw);
   } catch {
     throw new CliError(`Local state file '${filePath}' is not valid JSON.`, {
+      code: "malformed-input",
       details: "Recover or remove the file; vcs-lab will not guess its contents.",
     });
   }

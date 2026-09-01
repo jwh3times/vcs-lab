@@ -65,6 +65,7 @@ export function readEngine() {
   if (READ_ENGINES.includes(value)) return value;
   throw new CliError(
     `Unknown engine '${value}'. Use one of: ${READ_ENGINES.join(", ")}.`,
+      { code: "usage-invalid-option-value" },
   );
 }
 
@@ -73,6 +74,7 @@ export function withReadEngine(engine, callback) {
   if (!READ_ENGINES.includes(engine)) {
     throw new CliError(
       `Unknown engine '${engine}'. Use one of: ${READ_ENGINES.join(", ")}.`,
+        { code: "usage-invalid-option-value" },
     );
   }
   const previous = readEngineOverride;
@@ -294,6 +296,7 @@ export function runGit(args, options = {}) {
     if (readEngine() === "native") {
       throw new CliError(
         `git ${command} was read outside the engine seam; every Git read must be an operation of src/engine.js.`,
+          { code: "internal-invariant" },
       );
     }
   }
@@ -318,7 +321,8 @@ export function runGit(args, options = {}) {
   });
 
   if (result.error) {
-    throw new CliError(`Could not run git: ${result.error.message}`);
+    throw new CliError(`Could not run git: ${result.error.message}`,
+      { code: "git-unavailable" });
   }
 
   const durationMs = performance.now() - startedAt;
@@ -365,6 +369,7 @@ export function runGit(args, options = {}) {
 
   if (result.status !== 0 && !allowFailure) {
     throw new CliError(`git ${args.join(" ")} failed`, {
+      code: "git-command-failed",
       details: output,
       exitCode: result.status || 1,
     });
@@ -383,7 +388,8 @@ export function runGit(args, options = {}) {
 function validateObjectExpressions(expressions) {
   for (const expression of expressions) {
     if (String(expression).includes("\n") || String(expression).includes("\r")) {
-      throw new CliError("Git object expressions cannot contain newlines.");
+      throw new CliError("Git object expressions cannot contain newlines.",
+        { code: "unsafe-input" });
     }
   }
 }
@@ -418,7 +424,8 @@ class GitObjectSession {
   startWorker() {
     if (this.worker) return this.worker;
     if (this.closed) {
-      throw new CliError("The Git object session is already closed.");
+      throw new CliError("The Git object session is already closed.",
+        { code: "session-unavailable" });
     }
     sessionDiagnostic("worker-create-start", {
       sessionId: this.sessionId,
@@ -456,7 +463,8 @@ class GitObjectSession {
 
   request(command, expressions) {
     if (this.closed) {
-      throw new CliError("The Git object session is already closed.");
+      throw new CliError("The Git object session is already closed.",
+        { code: "session-unavailable" });
     }
     validateObjectExpressions(expressions);
     const requestId = this.nextRequestId++;
@@ -568,7 +576,8 @@ class GitObjectSession {
         processStarted,
         cacheHit: false,
       });
-      throw new CliError("Timed out waiting for the Git object session.");
+      throw new CliError("Timed out waiting for the Git object session.",
+        { code: "session-unavailable" });
     }
     const length = Atomics.load(header, 1);
     const payload = Buffer.from(new Uint8Array(shared, 16, length)).toString("utf8");
@@ -582,7 +591,8 @@ class GitObjectSession {
         command,
         responseLength: payload.length,
       });
-      throw new CliError("The Git object session returned malformed data.");
+      throw new CliError("The Git object session returned malformed data.",
+        { code: "session-unavailable" });
     }
     sessionDiagnostic("response-received", {
       sessionId: this.sessionId,
@@ -614,7 +624,8 @@ class GitObjectSession {
         command,
         error: response.error ?? "unknown session error",
       });
-      throw new CliError(`Git object session failed: ${response.error}`);
+      throw new CliError(`Git object session failed: ${response.error}`,
+        { code: "session-unavailable" });
     }
     for (let index = 0; index < response.results.length; index += 1) {
       const resultIndex = missingIndexes[index];
@@ -782,7 +793,8 @@ export function readGitBlob(blob, cwd = process.cwd()) {
   if (sessionResult) {
     const object = sessionResult[0];
     if (!object.exists || object.type !== "blob") {
-      throw new CliError(`Git object '${blob}' is not a blob.`);
+      throw new CliError(`Git object '${blob}' is not a blob.`,
+        { code: "revision-not-resolved" });
     }
     return object.content;
   }
@@ -796,7 +808,8 @@ export function readGitBlob(blob, cwd = process.cwd()) {
 function readBatchLine(buffer, offset) {
   const newline = buffer.indexOf(0x0a, offset);
   if (newline < 0) {
-    throw new CliError("Git returned a truncated cat-file batch response.");
+    throw new CliError("Git returned a truncated cat-file batch response.",
+      { code: "git-response-malformed" });
   }
   return {
     line: buffer.subarray(offset, newline).toString("utf8"),
@@ -838,12 +851,14 @@ export function readGitObjects(expressions, cwd = process.cwd()) {
     }
     const match = header.line.match(/^([0-9a-f]+) (\S+) (\d+)$/);
     if (!match) {
-      throw new CliError(`Unexpected git cat-file batch header: ${header.line}`);
+      throw new CliError(`Unexpected git cat-file batch header: ${header.line}`,
+        { code: "git-response-malformed" });
     }
     const size = Number(match[3]);
     const end = offset + size;
     if (end >= response.length || response[end] !== 0x0a) {
-      throw new CliError("Git returned a malformed cat-file batch object.");
+      throw new CliError("Git returned a malformed cat-file batch object.",
+        { code: "git-response-malformed" });
     }
     results.push({
       expression,
@@ -885,7 +900,8 @@ export function inspectGitObjects(expressions, cwd = process.cwd()) {
   const lines = output.split("\n");
   if (lines.at(-1) === "") lines.pop();
   if (lines.length !== expressions.length) {
-    throw new CliError("Git did not classify every requested object expression.");
+    throw new CliError("Git did not classify every requested object expression.",
+      { code: "git-response-malformed" });
   }
   return expressions.map((expression, index) => {
     const line = lines[index];
@@ -894,7 +910,8 @@ export function inspectGitObjects(expressions, cwd = process.cwd()) {
     }
     const match = line.match(/^([0-9a-f]+) (\S+) (\d+)$/);
     if (!match) {
-      throw new CliError(`Unexpected git cat-file batch-check line: ${line}`);
+      throw new CliError(`Unexpected git cat-file batch-check line: ${line}`,
+        { code: "git-response-malformed" });
     }
     return {
       expression,
@@ -926,7 +943,8 @@ export function repoContext(cwd = process.cwd()) {
     { cwd },
   ).split(/\r?\n/);
   if (!root || !gitDirRaw || !commonDirRaw || !["sha1", "sha256"].includes(objectFormat)) {
-    throw new CliError("Git did not return a complete repository context.");
+    throw new CliError("Git did not return a complete repository context.",
+      { code: "git-response-malformed" });
   }
   const context = {
     root: path.resolve(root),
@@ -943,7 +961,8 @@ export function resolveRevision(revision, cwd = process.cwd()) {
   if (sessionResult) {
     const object = sessionResult[0];
     if (!object.exists || object.type !== "commit") {
-      throw new CliError(`Git revision '${revision}' did not resolve to a commit.`);
+      throw new CliError(`Git revision '${revision}' did not resolve to a commit.`,
+        { code: "revision-not-resolved" });
     }
     return object.oid;
   }
@@ -956,14 +975,16 @@ export function resolveObjectIds(expressions, cwd = process.cwd()) {
   if (sessionResult) {
     const objects = sessionResult;
     if (objects.some((object) => !object.exists)) {
-      throw new CliError("Git did not resolve every requested object expression.");
+      throw new CliError("Git did not resolve every requested object expression.",
+        { code: "revision-not-resolved" });
     }
     return objects.map((object) => object.oid);
   }
   const output = readText(["rev-parse", ...expressions], { cwd });
   const ids = output.split(/\r?\n/).filter(Boolean);
   if (ids.length !== expressions.length) {
-    throw new CliError("Git did not resolve every requested object expression.");
+    throw new CliError("Git did not resolve every requested object expression.",
+      { code: "revision-not-resolved" });
   }
   return ids;
 }
@@ -973,7 +994,8 @@ export function treeId(revision, cwd = process.cwd()) {
   if (sessionResult) {
     const object = sessionResult[0];
     if (!object.exists || object.type !== "tree") {
-      throw new CliError(`Git revision '${revision}' did not resolve to a tree.`);
+      throw new CliError(`Git revision '${revision}' did not resolve to a tree.`,
+        { code: "revision-not-resolved" });
     }
     return object.oid;
   }
@@ -1091,7 +1113,8 @@ export function commitMessage(commit, cwd = process.cwd()) {
   if (sessionResult) {
     const object = sessionResult[0];
     if (!object.exists || object.type !== "commit") {
-      throw new CliError(`Git revision '${commit}' did not resolve to a commit.`);
+      throw new CliError(`Git revision '${commit}' did not resolve to a commit.`,
+        { code: "revision-not-resolved" });
     }
     const raw = object.content.toString("utf8");
     const separator = raw.indexOf("\n\n");
@@ -1162,6 +1185,7 @@ export function listRefs(pattern, cwd = process.cwd()) {
   );
   if (!scan.ok) {
     throw new CliError(`Could not scan refs under '${pattern}'.`, {
+      code: "git-command-failed",
       details: scan.stderr,
     });
   }
@@ -1506,6 +1530,7 @@ export function forecastEngine() {
   if (FORECAST_ENGINES.includes(value)) return value;
   throw new CliError(
     `Unknown forecast engine '${value}'. Use one of: ${FORECAST_ENGINES.join(", ")}.`,
+      { code: "usage-invalid-option-value" },
   );
 }
 
@@ -1571,7 +1596,8 @@ export class MergeTreeSession {
   startWorker() {
     if (this.worker) return this.worker;
     if (this.closed) {
-      throw new CliError("The merge-tree session is already closed.");
+      throw new CliError("The merge-tree session is already closed.",
+        { code: "session-unavailable" });
     }
     const worker = new Worker(
       new URL("./merge-tree-session-worker.js", import.meta.url),
@@ -1606,11 +1632,13 @@ export class MergeTreeSession {
    */
   merge(base, ours, theirs) {
     if (this.closed) {
-      throw new CliError("The merge-tree session is already closed.");
+      throw new CliError("The merge-tree session is already closed.",
+        { code: "session-unavailable" });
     }
     for (const oid of [base, ours, theirs]) {
       if (!OBJECT_ID_PATTERN.test(String(oid))) {
-        throw new CliError("Merge-tree session arguments must be full object IDs.");
+        throw new CliError("Merge-tree session arguments must be full object IDs.",
+          { code: "session-unavailable" });
       }
     }
     const shared = new SharedArrayBuffer(16 + MERGE_TREE_RESPONSE_BYTES);
@@ -1636,7 +1664,8 @@ export class MergeTreeSession {
     };
     if (wait === "timed-out") {
       record(false);
-      throw new CliError("Timed out waiting for the Git merge-tree session.");
+      throw new CliError("Timed out waiting for the Git merge-tree session.",
+        { code: "session-unavailable" });
     }
     const length = Atomics.load(header, 1);
     const payload = Buffer.from(new Uint8Array(shared, 16, length)).toString("utf8");
@@ -1645,12 +1674,14 @@ export class MergeTreeSession {
       response = JSON.parse(payload);
     } catch {
       record(false);
-      throw new CliError("The Git merge-tree session returned malformed data.");
+      throw new CliError("The Git merge-tree session returned malformed data.",
+        { code: "session-unavailable" });
     }
     record(Boolean(response.ok));
     if (response.gitVersion) this.gitVersion = response.gitVersion;
     if (!response.ok) {
-      const failure = new CliError(`Git merge-tree session failed: ${response.error}`);
+      const failure = new CliError(`Git merge-tree session failed: ${response.error}`,
+        { code: "session-unavailable" });
       failure.sessionFailure = response.sessionFailure ?? null;
       failure.gitVersion = response.gitVersion ?? null;
       throw failure;

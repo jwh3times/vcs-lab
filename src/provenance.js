@@ -48,12 +48,14 @@ function normalizeActors(actors) {
       throw new CliError(
         `'${role}' is not a provenance role.`,
         {
+          code: "invalid-identifier",
           details: `Roles are: ${Object.keys(PROVENANCE_ROLES).join(", ")}.`,
         },
       );
     }
     if (actor === "") {
-      throw new CliError(`The '${role}' provenance role needs an actor name.`);
+      throw new CliError(`The '${role}' provenance role needs an actor name.`,
+        { code: "invalid-identifier" });
     }
     // Deduplicate on the pair, so declaring the same actor twice in one
     // command and carrying the same actor from two absorbed commits both
@@ -102,6 +104,7 @@ function provenanceRecord(commit, changeId, actors, origin, carriedFrom) {
       `A provenance record would carry ${actors.length} actors, over the ` +
       `provenanceActors bound of ${RESOURCE_BOUNDS.provenanceActors}.`,
       {
+        code: "resource-bound-exceeded",
         details:
           "Provenance carried through a landing is the union of the absorbed " +
           "commits' actors; see docs/schemas/compatibility.md.",

@@ -11,7 +11,7 @@ export function readPendingOperation(cwd = process.cwd()) {
   if (reconciliation && rebase) {
     throw new CliError(
       "This worktree contains both reconciliation and rebase journals.",
-      { details: "Do not mutate the worktree; inspect and recover one journal explicitly." },
+      { code: "git-operation-active", details: "Do not mutate the worktree; inspect and recover one journal explicitly." },
     );
   }
   return reconciliation ?? rebase;
@@ -26,5 +26,6 @@ export function writePendingOperation(operation, cwd = process.cwd()) {
   }
   throw new CliError(
     `Cannot persist unknown pending operation schema '${operation?.schema ?? "(missing)"}'.`,
+      { code: "unknown-schema-version" },
   );
 }

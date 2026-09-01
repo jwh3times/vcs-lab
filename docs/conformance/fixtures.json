@@ -765,5 +765,49 @@
       ],
       "reason": "The command inventory. Automation cannot enumerate commands from JSON; a known limitation, not a state gap."
     }
+  ],
+  "failureCommands": [
+    {
+      "name": "unresolved-revision",
+      "argv": [
+        "merge-plan",
+        "no-such-ref",
+        "--json"
+      ],
+      "stage": "clean",
+      "code": "revision-not-resolved",
+      "reason": "A reference that is not there is the most ordinary failure there is, and it must not be classified as a Git defect."
+    },
+    {
+      "name": "missing-argument",
+      "argv": [
+        "cherry-pick",
+        "--json"
+      ],
+      "stage": "clean",
+      "code": "usage-missing-argument",
+      "reason": "The caller left out a required argument; the response is to supply it."
+    },
+    {
+      "name": "unknown-command",
+      "argv": [
+        "no-such-command",
+        "--json"
+      ],
+      "stage": "clean",
+      "code": "usage-unknown-command",
+      "reason": "Dispatch reaches the per-command options before it rejects the name, so even this failure honours --json."
+    },
+    {
+      "name": "operation-already-pending",
+      "argv": [
+        "reconcile",
+        "second",
+        "--json"
+      ],
+      "stage": "paused",
+      "code": "operation-in-progress",
+      "reason": "Starting a second operation while one is paused is refused, and a caller must be able to tell that apart from the conflict that paused it."
+    }
   ]
 }

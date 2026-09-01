@@ -24,7 +24,8 @@ import { readJson, writeJson } from "./store.js";
 
 function rebaseForecastPath(id, cwd) {
   if (!/^rebase_forecast_[a-z0-9]+$/.test(String(id ?? ""))) {
-    throw new CliError(`Invalid rebase forecast ID '${id}'.`);
+    throw new CliError(`Invalid rebase forecast ID '${id}'.`,
+      { code: "invalid-identifier" });
   }
   return path.join(
     repoContext(cwd).gitDir,
@@ -37,7 +38,8 @@ function rebaseForecastPath(id, cwd) {
 export function readRebaseForecast(id, cwd = process.cwd()) {
   const forecast = readJson(rebaseForecastPath(id, cwd), null);
   if (!forecast) {
-    throw new CliError(`Rebase forecast '${id}' was not found in this worktree.`);
+    throw new CliError(`Rebase forecast '${id}' was not found in this worktree.`,
+      { code: "not-found" });
   }
   return forecast;
 }
@@ -57,6 +59,7 @@ export function rebaseForecastForPlan(id, plan, cwd = process.cwd()) {
   ) {
     throw new CliError(
       `Rebase forecast '${id}' is not a complete application approval.`,
+        { code: "operation-state-invalid" },
     );
   }
   if (
@@ -68,6 +71,7 @@ export function rebaseForecastForPlan(id, plan, cwd = process.cwd()) {
     forecast.plan?.fingerprint !== plan.fingerprint
   ) {
     throw new CliError(`Rebase forecast '${id}' is stale.`, {
+      code: "stale-forecast",
       details:
         "The source, onto target, or causal metadata changed. Generate and review a new rebase forecast.",
     });
@@ -91,6 +95,7 @@ export function rebaseForecastForPlan(id, plan, cwd = process.cwd()) {
   ) {
     throw new CliError(
       `Rebase forecast '${id}' does not approve the current heuristic candidates.`,
+        { code: "stale-forecast" },
     );
   }
   return forecast;
@@ -175,6 +180,7 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
   if (readReconciliationState(cwd) || readRebaseState(cwd)) {
     throw new CliError(
       "Finish or abort the current VCS Lab operation before forecasting a rebase.",
+        { code: "operation-in-progress" },
     );
   }
 
@@ -217,6 +223,7 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     endGitMetrics(gitMetrics);
     throw new CliError(
       "Rebase forecasting unexpectedly changed the caller worktree.",
+        { code: "internal-invariant" },
     );
   }
   phases.invariantCheckMs = performance.now() - invariantStarted;

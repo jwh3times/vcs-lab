@@ -132,10 +132,12 @@ function readRecordsFromNoteRef(ref, attachment, cwd) {
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new CliError(`Cannot merge malformed existing note on '${attachment}'.`);
+    throw new CliError(`Cannot merge malformed existing note on '${attachment}'.`,
+      { code: "malformed-input" });
   }
   if (parsed?.schema !== "vcs-lab.note/v1" || !Array.isArray(parsed.records)) {
-    throw new CliError(`Cannot merge unsupported existing note on '${attachment}'.`);
+    throw new CliError(`Cannot merge unsupported existing note on '${attachment}'.`,
+      { code: "unknown-schema-version" });
   }
   return parsed.records;
 }
@@ -152,7 +154,8 @@ function combineNoteEntries(existingRef, incomingEntries, cwd) {
       const key = record.id ?? `anonymous:${sha256(canonicalJson(record))}`;
       const prior = byId.get(key);
       if (prior && canonicalJson(prior) !== canonicalJson(record)) {
-        throw new CliError(`Metadata record '${record.id ?? key}' conflicts during note merge.`);
+        throw new CliError(`Metadata record '${record.id ?? key}' conflicts during note merge.`,
+          { code: "identity-conflict" });
       }
       if (!prior) byId.set(key, record);
     }
@@ -180,7 +183,8 @@ export function exportMetadata(envelopePath, options = {}) {
   const context = repoContext(cwd);
   const directory = path.resolve(cwd, envelopePath);
   if (fs.existsSync(directory)) {
-    throw new CliError(`Metadata export path already exists: '${directory}'.`);
+    throw new CliError(`Metadata export path already exists: '${directory}'.`,
+      { code: "already-exists" });
   }
   const metrics = beginGitMetrics("metadata-export");
   const snapshot = metadataSnapshot({ cwd: context.root });
@@ -293,7 +297,8 @@ function inspectEnvelopePayload(envelope) {
     });
     const actualRecords = snapshot.portableRecords.map(manifestRecordSummary);
     if (canonicalJson(actualRecords) !== canonicalJson(envelope.manifest.records)) {
-      throw new CliError("Metadata envelope record inventory does not match its Git payload.");
+      throw new CliError("Metadata envelope record inventory does not match its Git payload.",
+        { code: "malformed-input" });
     }
     const payloadObjectProblems = destinationObjectProblems(
       snapshot.portableRecords,
@@ -306,7 +311,8 @@ function inspectEnvelopePayload(envelope) {
     );
     const refs = envelope.manifest.refs.map((entry) => {
       if (refTarget(entry.ref, temporary.repo) !== entry.oid) {
-        throw new CliError(`Metadata envelope ref '${entry.ref}' does not match its manifest.`);
+        throw new CliError(`Metadata envelope ref '${entry.ref}' does not match its manifest.`,
+          { code: "malformed-input" });
       }
       return entry;
     });
@@ -367,6 +373,7 @@ function importPreview(envelope, incoming, cwd) {
   if (envelope.manifest.repository.objectFormat !== context.objectFormat) {
     throw new CliError(
       `Envelope object format '${envelope.manifest.repository.objectFormat}' is incompatible with '${context.objectFormat}'.`,
+        { code: "unsupported-repository-shape" },
     );
   }
   const destinationLineage = repositoryLineage(cwd);
@@ -374,6 +381,7 @@ function importPreview(envelope, incoming, cwd) {
   if (!['same', 'fork'].includes(relation)) {
     throw new CliError(
       `Metadata envelope lineage is ${relation}; v1 import requires a shared root commit.`,
+        { code: "unsupported-repository-shape" },
     );
   }
   const destination = metadataSnapshot({ cwd });
@@ -447,7 +455,8 @@ function stageEnvelopeRefs(envelope, cwd) {
   }));
   for (const entry of staged) {
     if (refExists(entry.stageRef, cwd)) {
-      throw new CliError(`Import staging ref already exists: '${entry.stageRef}'.`);
+      throw new CliError(`Import staging ref already exists: '${entry.stageRef}'.`,
+        { code: "already-exists" });
     }
   }
   runGit(
@@ -459,7 +468,8 @@ function stageEnvelopeRefs(envelope, cwd) {
     // carries the unpeeled object ID, and a retention ref may legitimately
     // name an annotated tag of its retention commit.
     if (refTarget(entry.stageRef, cwd) !== entry.oid) {
-      throw new CliError(`Staged metadata ref '${entry.ref}' changed during import.`);
+      throw new CliError(`Staged metadata ref '${entry.ref}' changed during import.`,
+        { code: "stale-input" });
     }
   }
   return staged;
@@ -471,7 +481,8 @@ function deleteStagedRefs(staged, cwd) {
 
 function applyImport(envelope, incoming, preview, cwd) {
   if (!preview.summary.applicable) {
-    throw new CliError("Metadata import has conflicts; no destination refs were changed.");
+    throw new CliError("Metadata import has conflicts; no destination refs were changed.",
+      { code: "conflict-blocked" });
   }
   if (!envelope.bundlePath || incoming.refs.length === 0) {
     return { ...preview, schema: "vcs-lab.metadata-import/v1", applied: true, changed: false };
@@ -503,7 +514,8 @@ function applyImport(envelope, incoming, preview, cwd) {
       if (current === null) {
         commands.push(`create ${entry.ref} ${entry.oid}`);
       } else if (current !== entry.oid) {
-        throw new CliError(`Resolution ref '${entry.ref}' changed or conflicts during import.`);
+        throw new CliError(`Resolution ref '${entry.ref}' changed or conflicts during import.`,
+          { code: "stale-input" });
       }
     }
     for (const entry of staged) commands.push(`delete ${entry.stageRef} ${entry.oid}`);
@@ -524,7 +536,8 @@ function applyImport(envelope, incoming, preview, cwd) {
 export function importMetadata(envelopePath, options = {}) {
   const cwd = options.cwd ?? process.cwd();
   if (Boolean(options.dryRun) === Boolean(options.apply)) {
-    throw new CliError("Choose exactly one of --dry-run or --apply for metadata import.");
+    throw new CliError("Choose exactly one of --dry-run or --apply for metadata import.",
+      { code: "usage-conflicting-options" });
   }
   const metrics = beginGitMetrics("metadata-import");
   try {

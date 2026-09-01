@@ -69,6 +69,7 @@ function listResolutionRefs(cwd) {
     entries = listRefs(RESOLUTION_REFS, cwd);
   } catch (error) {
     throw new CliError("Could not scan resolution retention refs.", {
+      code: "git-command-failed",
       details: error.details,
     });
   }
@@ -253,7 +254,8 @@ export function publishResolution(outcome, application, cwd = process.cwd()) {
 function currentResolutionOperation(cwd) {
   const operation = readPendingOperation(cwd);
   if (!operation?.current?.conflicts?.length) {
-    throw new CliError("No reusable conflict resolutions are pending in this worktree.");
+    throw new CliError("No reusable conflict resolutions are pending in this worktree.",
+      { code: "nothing-pending" });
   }
   return operation;
 }
@@ -264,13 +266,15 @@ function selectConflicts(operation, filePath, all) {
     const match = operation.current.conflicts.find(
       (conflict) => conflict.path === filePath,
     );
-    if (!match) throw new CliError(`'${filePath}' is not a current conflict path.`);
+    if (!match) throw new CliError(`'${filePath}' is not a current conflict path.`,
+      { code: "no-match" });
     return [match];
   }
   if (operation.current.conflicts.length === 1) {
     return [operation.current.conflicts[0]];
   }
-  throw new CliError("Choose a conflict path or pass --all.");
+  throw new CliError("Choose a conflict path or pass --all.",
+    { code: "ambiguous-match" });
 }
 
 function chooseCandidate(conflict, resolutionId) {
@@ -279,17 +283,19 @@ function chooseCandidate(conflict, resolutionId) {
     if (!match) {
       throw new CliError(
         `Resolution '${resolutionId}' is not a candidate for '${conflict.path}'.`,
+          { code: "no-match" },
       );
     }
     return match;
   }
   if (conflict.candidates.length === 0) {
-    throw new CliError(`No prior resolution matches '${conflict.path}'.`);
+    throw new CliError(`No prior resolution matches '${conflict.path}'.`,
+      { code: "no-match" });
   }
   if (conflict.candidates.length > 1) {
     throw new CliError(
       `Multiple resolutions match '${conflict.path}'.`,
-      { details: "Choose one with --resolution <id>." },
+      { code: "ambiguous-match", details: "Choose one with --resolution <id>." },
     );
   }
   return conflict.candidates[0];
@@ -304,6 +310,7 @@ export function materializeResolutionCandidate(conflict, candidate, cwd) {
   if (!["100644", "100755"].includes(candidate.resultMode)) {
     throw new CliError(
       `Resolution mode '${candidate.resultMode}' is not supported by this prototype.`,
+        { code: "unsupported-feature" },
     );
   }
   fs.mkdirSync(path.dirname(absolute), { recursive: true });
@@ -348,7 +355,8 @@ export function rejectResolution(options = {}) {
   const rejected = [];
   for (const { conflict, candidate } of choices) {
     if (conflict.candidates.length === 0) {
-      throw new CliError(`No prior resolution matches '${conflict.path}'.`);
+      throw new CliError(`No prior resolution matches '${conflict.path}'.`,
+        { code: "no-match" });
     }
     conflict.decisionOverride = "rejected";
     conflict.selectedResolutionId = candidate?.id ?? null;

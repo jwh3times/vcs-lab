@@ -3002,7 +3002,11 @@ test("workspace forecasts keep live drafts isolated and can pin an immutable sou
     "--json",
   );
   assert.notEqual(staleApproval.status, 0);
-  assert.match(staleApproval.stderr, /source workspace head/i);
+  // A --json failure is the ADR-0021 envelope on stdout, so staleness is now
+  // readable as a code as well as prose.
+  const staleEnvelope = JSON.parse(staleApproval.stdout);
+  assert.equal(staleEnvelope.code, "stale-forecast");
+  assert.match(staleEnvelope.message, /source workspace head/i);
   assert.equal(git(overlayTargetPath, "status", "--porcelain=v1"), "");
   const staleCheckpoint = vlabResult(
     repo,
@@ -3240,7 +3244,13 @@ test("metadata envelope round-trips accepted facts between clones idempotently",
     "--json",
   );
   assert.notEqual(tampered.status, 0);
-  assert.match(tampered.stderr, /payload integrity check failed/i);
+  const tamperedRefusal = JSON.parse(tampered.stdout);
+  assert.equal(
+    tamperedRefusal.code,
+    "integrity-check-failed",
+    "a tampered payload is classified as an integrity failure, not a parse error",
+  );
+  assert.match(tamperedRefusal.message, /payload integrity check failed/i);
 
   const unrelated = path.join(parent, "unrelated");
   fs.mkdirSync(unrelated);
@@ -3259,7 +3269,13 @@ test("metadata envelope round-trips accepted facts between clones idempotently",
     "--json",
   );
   assert.notEqual(unrelatedPreview.status, 0);
-  assert.match(unrelatedPreview.stderr, /requires a shared root commit/i);
+  const unrelatedRefusal = JSON.parse(unrelatedPreview.stdout);
+  assert.equal(
+    unrelatedRefusal.code,
+    "unsupported-repository-shape",
+    "an unrelated lineage is refused as a shape this import does not support",
+  );
+  assert.match(unrelatedRefusal.message, /requires a shared root commit/i);
 
   const destination = path.join(parent, "destination");
   git(parent, "clone", "--no-local", repo, destination);

@@ -261,6 +261,16 @@ test("the fixture file declares a versioned, well-formed contract", () => {
       assert.ok(omission.reason, `${entry.name} ${omission.pointer}: an omission needs a reason`);
     }
   }
+  const failureNames = new Set();
+  assert.ok(Array.isArray(fixtures.failureCommands) && fixtures.failureCommands.length > 0);
+  for (const entry of fixtures.failureCommands) {
+    assert.ok(entry.name && !failureNames.has(entry.name), `failure fixture name '${entry.name}'`);
+    failureNames.add(entry.name);
+    assert.ok(Array.isArray(entry.argv) && entry.argv.includes("--json"), `${entry.name}: argv`);
+    assert.ok(["clean", "paused"].includes(entry.stage), `${entry.name}: stage`);
+    assert.match(entry.code, /^[a-z][a-z-]*[a-z]$/, `${entry.name}: code`);
+    assert.ok(entry.reason, `${entry.name}: a failure fixture needs a reason`);
+  }
   for (const group of ["jsonOnlyCommands", "textOnlyCommands"]) {
     assert.ok(Array.isArray(fixtures[group]) && fixtures[group].length > 0, group);
     for (const entry of fixtures[group]) {
@@ -367,4 +377,41 @@ test("the build identity is reachable from JSON", { timeout: 600_000 }, () => {
     humanVersion.includes(doctor.version),
     `'vlab version' (${humanVersion}) and doctor.version (${doctor.version}) disagree`,
   );
+});
+
+test("declared failures report their published code", { timeout: 600_000 }, () => {
+  // The failure half of FR-GIT-06 (ADR-0021). The success path has been pinned
+  // field by field since phase 0b; until now the failure path had no contract
+  // at all, so a refusal could change classification silently. These fixtures
+  // pin the classification a caller branches on, not the prose.
+  const state = scenario();
+  const failures = [];
+  for (const entry of fixtures.failureCommands) {
+    const argv = entry.argv.map((argument) => materialize(argument, state));
+    const run = vlabResult(state.repo, ...argv);
+    if (run.status === 0) {
+      failures.push(`${entry.name}: expected a refusal, got success`);
+      continue;
+    }
+    if (run.stderr !== "") {
+      failures.push(`${entry.name}: a --json refusal must leave stderr empty`);
+    }
+    let envelope;
+    try {
+      envelope = JSON.parse(run.stdout);
+    } catch {
+      failures.push(`${entry.name}: stdout was not an envelope: ${run.stdout.slice(0, 120)}`);
+      continue;
+    }
+    if (envelope.schema !== "vcs-lab.error/v1") {
+      failures.push(`${entry.name}: schema ${envelope.schema}`);
+    }
+    if (envelope.code !== entry.code) {
+      failures.push(
+        `${entry.name}: expected code '${entry.code}', got '${envelope.code}'. ` +
+        "Update docs/conformance/fixtures.json only if the new classification is the better one.",
+      );
+    }
+  }
+  assert.deepEqual(failures, [], `failure-path conformance:\n${failures.join("\n")}`);
 });

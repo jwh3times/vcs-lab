@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+- Give failures a versioned, machine-readable envelope
+  ([ADR-0021](docs/adr/0021-give-failures-a-versioned-machine-readable-envelope.md),
+  issue #12), completing the failure half of FR-GIT-06. `--json` previously had
+  no effect on the failure path: JSON on success, prose on failure, and an exit
+  code that is 1 for nearly everything.
+  - **Behaviour change for `--json` callers.** A failing command now prints
+    `vcs-lab.error/v1` on **stdout** — `{schema, code, message, details,
+    exitCode}` — and leaves stderr empty. Without `--json` the stderr prose is
+    byte-for-byte what it was. **No exit code changes**, in either mode: the
+    classification lives in `code`, never in the exit status, so a caller that
+    only checks success or failure is unaffected. A caller that parsed stderr
+    prose under `--json` must read stdout instead.
+  - 41 codes across 232 raise sites, published as a closed vocabulary in
+    `docs/schemas/errors.md`, with `docs/schemas/error.v1.schema.json` for the
+    envelope. Adding a code is additive inside `v1`; removing one, or changing
+    what it means, is a version bump — the rule ADR-0020 fixed for record
+    families.
+  - The ADR-0020 refusals are the point: an unreadable schema version, a
+    wrong-family record, and an exceeded bound each imply a different response,
+    and a caller could previously only tell them apart by matching English.
+    They now report `unknown-schema-version`, `wrong-record-family`, and
+    `resource-bound-exceeded`.
+  - Two suite checks are **static**, scanning the source rather than running
+    it: a raise site with no code, or with a code outside the vocabulary, fails
+    the suite, as does a published code that nothing raises. Exercising the CLI
+    could never establish that about the sites no test reaches.
+  - The namespace is flat, and the enumeration is what settled it: codes
+    cluster by cause, and one cause spans several record families.
+  - Found while implementing: a reference that does not exist was classified as
+    a malformed Git response, whose published advice is to report a Git bug.
+    The raise site is shared between "an expression did not resolve" and "Git
+    returned an unparsable line"; only the second deserves that code.
+
 ## 0.12.0
 
 - Record authorship provenance as a causal fact and carry it across the

@@ -229,8 +229,13 @@ test("a journal this build cannot read is refused rather than resumed", (t) => {
 
   const status = vlabResult(repo, "reconcile", "--status", "--json");
   assert.notEqual(status.status, 0, "a future journal version must not be resumed");
-  assert.match(status.stderr, /unsupported schema "vcs-lab\.reconciliation-operation\/v99"/);
-  assert.match(status.stderr, /reads v4 of that family/);
+  // Under --json the refusal is the ADR-0021 envelope, so the disposition is
+  // readable as a code rather than only as prose. Both are checked: the code is
+  // what automation branches on, the message is what a person acts on.
+  const refusedJournal = JSON.parse(status.stdout);
+  assert.equal(refusedJournal.code, "unknown-schema-version");
+  assert.match(refusedJournal.message, /unsupported schema "vcs-lab\.reconciliation-operation\/v99"/);
+  assert.match(refusedJournal.details, /reads v4 of that family/);
 
   // Refusing must not consume or rewrite the journal.
   assert.equal(
@@ -252,7 +257,9 @@ test("a journal this build cannot read is refused rather than resumed", (t) => {
   }, null, 2)}\n`);
   const crossed = vlabResult(repo, "reconcile", "--status", "--json");
   assert.notEqual(crossed.status, 0);
-  assert.match(crossed.stderr, /not a vcs-lab\.reconciliation-operation record/);
+  const crossedRefusal = JSON.parse(crossed.stdout);
+  assert.equal(crossedRefusal.code, "wrong-record-family");
+  assert.match(crossedRefusal.message, /not a vcs-lab\.reconciliation-operation record/);
 });
 
 test("a workspace registry this build cannot read is refused rather than rewritten", (t) => {
@@ -267,7 +274,9 @@ test("a workspace registry this build cannot read is refused rather than rewritt
 
   const list = vlabResult(repo, "workspace", "list", "--json");
   assert.notEqual(list.status, 0, "a future registry version must not be consumed");
-  assert.match(list.stderr, /unsupported schema "vcs-lab\.workspaces\/v2"/);
+  const refusedRegistry = JSON.parse(list.stdout);
+  assert.equal(refusedRegistry.code, "unknown-schema-version");
+  assert.match(refusedRegistry.message, /unsupported schema "vcs-lab\.workspaces\/v2"/);
   assert.equal(fs.readFileSync(registry, "utf8"), body, "the registry must be left intact");
 });
 
@@ -278,8 +287,10 @@ test("a malformed local state file is refused as a domain error naming the file"
   fs.writeFileSync(registry, "{ not json\n");
   const list = vlabResult(repo, "workspace", "list", "--json");
   assert.notEqual(list.status, 0);
-  assert.match(list.stderr, /is not valid JSON/);
-  assert.match(list.stderr, /workspaces\.json/);
+  const malformed = JSON.parse(list.stdout);
+  assert.equal(malformed.code, "malformed-input");
+  assert.match(malformed.message, /is not valid JSON/);
+  assert.match(malformed.message, /workspaces\.json/, "the message still names the file");
 });
 
 test("a forecast version this build cannot read is refused with a version-aware message", (t) => {

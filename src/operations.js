@@ -56,7 +56,8 @@ import {
 function resolveChangeOrCommit(value, cwd) {
   if (value.startsWith("ch_")) {
     const commit = findCommitByChangeId(value, cwd);
-    if (!commit) throw new CliError(`No commit with Change-Id '${value}' was found.`);
+    if (!commit) throw new CliError(`No commit with Change-Id '${value}' was found.`,
+      { code: "revision-not-resolved" });
     return commit;
   }
   return resolveRevision(value, cwd);
@@ -96,7 +97,7 @@ export function cherryPick(value, options = {}) {
       { cwd, allowFailure: true },
     );
     if (!picked.ok) {
-      throw new CliError("Cherry-pick produced conflicts.", { details: picked.output });
+      throw new CliError("Cherry-pick produced conflicts.", { code: "conflict-blocked", details: picked.output });
     }
     appliedChangeId = newId("ch");
     const originalSubject = commitSubject(originCommit, cwd);
@@ -115,7 +116,7 @@ export function cherryPick(value, options = {}) {
       allowFailure: true,
     });
     if (!picked.ok) {
-      throw new CliError("Cherry-pick produced conflicts.", { details: picked.output });
+      throw new CliError("Cherry-pick produced conflicts.", { code: "conflict-blocked", details: picked.output });
     }
     appliedCommit = currentHead(cwd);
   }
@@ -146,7 +147,8 @@ export function cherryPick(value, options = {}) {
 function requirePendingReconciliation(cwd) {
   const operation = readReconciliationState(cwd);
   if (!operation) {
-    throw new CliError("No reconciliation is in progress in this worktree.");
+    throw new CliError("No reconciliation is in progress in this worktree.",
+      { code: "no-operation-pending" });
   }
   return operation;
 }
@@ -220,6 +222,7 @@ function finalizeReconciliation(operation, cwd) {
     throw new CliError(
       `Reconciliation result does not match forecast '${operation.forecastId}'.`,
       {
+        code: "stale-forecast",
         details: [
           `Forecast tree: ${predictedTree}`,
           `Actual tree:   ${resultTree}`,
@@ -327,6 +330,7 @@ function conflictError(operation, result, cwd) {
   return new CliError(
     `Reconciliation paused while applying ${change.shortCommit}.`,
     {
+      code: "conflict-paused",
       details: [
         result.output,
         pathSummary,
@@ -415,7 +419,7 @@ function forecastResolutionChoices(operation, change, conflicts) {
   if (approvals.length !== conflicts.length) {
     throw new CliError(
       `Forecast '${operation.forecastId}' no longer matches the current conflicts.`,
-      { details: "Abort and generate a new forecast before batch application." },
+      { code: "stale-forecast", details: "Abort and generate a new forecast before batch application." },
     );
   }
   return conflicts.map((conflict) => {
@@ -433,7 +437,7 @@ function forecastResolutionChoices(operation, change, conflicts) {
     if (!approval || !candidate) {
       throw new CliError(
         `Forecast '${operation.forecastId}' no longer matches '${conflict.path}'.`,
-        { details: "Abort and generate a new forecast before batch application." },
+        { code: "stale-forecast", details: "Abort and generate a new forecast before batch application." },
       );
     }
     return { conflict, candidate };
@@ -452,7 +456,7 @@ function forecastSpecMergeChoices(operation, change, cwd) {
   if (plans.length !== approvals.length) {
     throw new CliError(
       `Forecast '${operation.forecastId}' no longer matches the semantic spec conflicts.`,
-      { details: "Abort and generate a new forecast before batch application." },
+      { code: "stale-forecast", details: "Abort and generate a new forecast before batch application." },
     );
   }
   return approvals.map((approval) => {
@@ -467,7 +471,7 @@ function forecastSpecMergeChoices(operation, change, cwd) {
     if (!plan) {
       throw new CliError(
         `Forecast '${operation.forecastId}' no longer matches '${approval.path}'.`,
-        { details: "Abort and generate a new forecast before batch application." },
+        { code: "stale-forecast", details: "Abort and generate a new forecast before batch application." },
       );
     }
     return plan;
@@ -499,7 +503,8 @@ function applyForecastResolutions(operation, change, cwd) {
     cwd,
   );
   if (operation.current.semanticMerges.some((merge) => merge.decision !== "accepted")) {
-    throw new CliError("A forecasted semantic spec result changed while staging.");
+    throw new CliError("A forecasted semantic spec result changed while staging.",
+      { code: "stale-input" });
   }
   for (const { conflict, candidate } of choices ?? []) {
     materializeResolutionCandidate(conflict, candidate, cwd);
@@ -519,6 +524,7 @@ function applyForecastResolutions(operation, change, cwd) {
   );
   if (!continued.ok) {
     throw new CliError("Git could not apply the forecasted resolutions.", {
+      code: "conflict-blocked",
       details: continued.output,
     });
   }
@@ -631,7 +637,7 @@ function reconcileInSession(sourceRef, options, cwd) {
   if (readReconciliationState(cwd) || readRebaseState(cwd)) {
     throw new CliError(
       "A VCS Lab operation is already in progress in this worktree.",
-      { details: "Inspect the active reconciliation or rebase before starting another operation." },
+      { code: "operation-in-progress", details: "Inspect the active reconciliation or rebase before starting another operation." },
     );
   }
   assertClean(cwd);
@@ -649,6 +655,7 @@ function reconcileInSession(sourceRef, options, cwd) {
     throw new CliError(
       "The plan contains heuristic patch-equivalence candidates.",
       {
+        code: "approval-required",
         details:
           "Review 'vlab merge-plan' and rerun with --accept-candidates to treat them as already applied.",
       },
@@ -727,11 +734,13 @@ function continueReconciliationInSession(options, cwd) {
   const phaseStarted = performance.now();
   const operation = requirePendingReconciliation(cwd);
   if (!operation.current) {
-    throw new CliError("The pending reconciliation has no current change.");
+    throw new CliError("The pending reconciliation has no current change.",
+      { code: "no-operation-pending" });
   }
   const unresolved = unmergedPaths(cwd);
   if (unresolved.length) {
     throw new CliError("Reconciliation still has unresolved paths.", {
+      code: "conflict-blocked",
       details: unresolved.join("\n"),
     });
   }
@@ -740,13 +749,15 @@ function continueReconciliationInSession(options, cwd) {
     throw new CliError(
       "Git no longer has a cherry-pick to continue.",
       {
+        code: "out-of-band-change",
         details:
           "If Git was continued manually, abort this pending vlab operation and start a new reconciliation plan.",
       },
     );
   }
   if (gitHead !== operation.current.sourceCommit) {
-    throw new CliError("Git's pending cherry-pick does not match the vlab operation.");
+    throw new CliError("Git's pending cherry-pick does not match the vlab operation.",
+      { code: "out-of-band-change" });
   }
 
   operation.current.semanticMerges = captureSpecMergeOutcomes(
@@ -775,6 +786,7 @@ function continueReconciliationInSession(options, cwd) {
   );
   if (!result.ok) {
     throw new CliError("Git could not continue the reconciliation.", {
+      code: "conflict-blocked",
       details: result.output,
     });
   }

@@ -107,6 +107,7 @@ export function appendNote(commit, record, cwd = process.cwd()) {
     throw new CliError(
       `The note on '${commit}' is not a ${NOTE_SCHEMA} container.`,
       {
+        code: "wrong-record-family",
         details:
           "vcs-lab will not overwrite a note container it cannot read. Inspect it " +
           `with: git notes --ref=${NOTES_REF} show ${commit}`,
@@ -117,6 +118,7 @@ export function appendNote(commit, record, cwd = process.cwd()) {
     throw new CliError(
       `The note on '${commit}' exceeds a published note-container resource bound.`,
       {
+        code: "resource-bound-exceeded",
         details:
           `Notes are limited to ${RESOURCE_BOUNDS.noteContainerBytes} bytes and ` +
           `${RESOURCE_BOUNDS.noteContainerRecords} records; see docs/schemas/compatibility.md.`,
@@ -127,7 +129,7 @@ export function appendNote(commit, record, cwd = process.cwd()) {
   if (!withinBound("noteContainerRecords", note.records.length)) {
     throw new CliError(
       `The note on '${commit}' would exceed the noteContainerRecords bound of ` +
-      `${RESOURCE_BOUNDS.noteContainerRecords}.`,
+      `${RESOURCE_BOUNDS.noteContainerRecords}.`, { code: "resource-bound-exceeded" },
     );
   }
   runGit(

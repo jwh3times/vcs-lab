@@ -121,7 +121,8 @@ function manifestOverrideMap(manifest) {
 
 function materializeManifest(raw, storedManifest) {
   if (!storedManifest || typeof storedManifest !== "object") {
-    throw new CliError("Specification manifest is missing or invalid.");
+    throw new CliError("Specification manifest is missing or invalid.",
+      { code: "malformed-input" });
   }
   if (
     ![
@@ -130,17 +131,20 @@ function materializeManifest(raw, storedManifest) {
       SPEC_MANIFEST_SCHEMA,
     ].includes(storedManifest.schema)
   ) {
-    throw new CliError(`Unsupported specification manifest '${storedManifest.schema}'.`);
+    throw new CliError(`Unsupported specification manifest '${storedManifest.schema}'.`,
+      { code: "unknown-schema-version" });
   }
   if (!storedManifest.artifactId || !storedManifest.source) {
-    throw new CliError("Specification manifest is missing artifact identity.");
+    throw new CliError("Specification manifest is missing artifact identity.",
+      { code: "malformed-input" });
   }
   if (
     storedManifest.schema === SPEC_MANIFEST_SCHEMA &&
     (storedManifest.parser !== SPEC_PARSER ||
       storedManifest.idAlgorithm !== SPEC_ID_ALGORITHM)
   ) {
-    throw new CliError("Specification manifest uses an unsupported parser or ID algorithm.");
+    throw new CliError("Specification manifest uses an unsupported parser or ID algorithm.",
+      { code: "unknown-schema-version" });
   }
   const overrides = manifestOverrideMap(storedManifest);
   const canonical = normalizeMarkdown(raw);
@@ -247,7 +251,8 @@ function relativeSpecPath(file, context, cwd) {
   const absolute = path.resolve(cwd, file);
   const relative = path.relative(context.root, absolute);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new CliError("Specification must be inside the repository.");
+    throw new CliError("Specification must be inside the repository.",
+      { code: "path-outside-repository" });
   }
   return relative.split(path.sep).join("/");
 }
@@ -348,7 +353,8 @@ function unchangedChanges(manifest) {
 
 function indexSpecWithContext(file, context, cwd, options = {}) {
   const absolute = path.resolve(cwd, file);
-  if (!fs.existsSync(absolute)) throw new CliError(`Spec not found: ${file}`);
+  if (!fs.existsSync(absolute)) throw new CliError(`Spec not found: ${file}`,
+    { code: "not-found" });
   const relative = relativeSpecPath(file, context, cwd);
   const manifestPath = manifestPathFromRelative(relative, context);
   const storedManifest = readJson(manifestPath, null);
@@ -448,7 +454,8 @@ function markdownInventory(cwd) {
 function hashWorkingTreeSpecs(files, context) {
   if (files.length === 0) return new Map();
   if (files.some((file) => /[\r\n]/.test(file))) {
-    throw new CliError("Specification paths containing newlines are not supported.");
+    throw new CliError("Specification paths containing newlines are not supported.",
+      { code: "unsafe-input" });
   }
   const output = runGit(["hash-object", "-w", "--stdin-paths"], {
     cwd: context.root,
@@ -456,7 +463,8 @@ function hashWorkingTreeSpecs(files, context) {
     trim: false,
   }).stdout.split(/\r?\n/).filter(Boolean);
   if (output.length !== files.length) {
-    throw new CliError("Git did not return a blob identity for every specification.");
+    throw new CliError("Git did not return a blob identity for every specification.",
+      { code: "git-response-malformed" });
   }
   return new Map(files.map((file, index) => [file, output[index]]));
 }
@@ -537,13 +545,16 @@ export function readSpecManifest(file, cwd = process.cwd()) {
   }
   const storedManifest = readJson(manifestPath, null);
   if (!storedManifest) {
-    throw new CliError(`No manifest exists for '${file}'. Run 'vlab spec index ${file}'.`);
+    throw new CliError(`No manifest exists for '${file}'. Run 'vlab spec index ${file}'.`,
+      { code: "not-found" });
   }
   const absolute = path.join(context.root, relative);
-  if (!fs.existsSync(absolute)) throw new CliError(`Spec not found: ${file}`);
+  if (!fs.existsSync(absolute)) throw new CliError(`Spec not found: ${file}`,
+    { code: "not-found" });
   const raw = normalizeMarkdown(fs.readFileSync(absolute, "utf8"));
   if (sha256(raw) !== storedManifest.sourceHash) {
     throw new CliError(`Spec manifest for '${file}' is stale.`, {
+      code: "stale-forecast",
       details: `Re-index it with: vlab spec index ${file}`,
     });
   }
@@ -559,6 +570,7 @@ function primaryBlocks(raw, manifest) {
       if (sha256(content) !== block.contentHash) {
         throw new CliError(
           `Spec manifest block '${block.id}' does not match '${manifest.source}'.`,
+            { code: "malformed-input" },
         );
       }
       return { ...block, content };
@@ -585,7 +597,8 @@ function primaryBlocks(raw, manifest) {
   const ids = new Set();
   for (const block of primary) {
     if (ids.has(block.id)) {
-      throw new CliError(`Spec manifest for '${manifest.source}' has duplicate block IDs.`);
+      throw new CliError(`Spec manifest for '${manifest.source}' has duplicate block IDs.`,
+        { code: "malformed-input" });
     }
     ids.add(block.id);
   }
@@ -613,7 +626,7 @@ function revisionStageFromObjects(file, revision, sourceObject, manifestObject) 
   if (manifestRaw === null) {
     throw new CliError(
       `No committed spec manifest exists for '${file}' at ${revision}.`,
-      { details: `Index and commit it with: vlab spec index ${file}` },
+      { code: "not-found", details: `Index and commit it with: vlab spec index ${file}` },
     );
   }
   assertWithinBound(
@@ -625,10 +638,12 @@ function revisionStageFromObjects(file, revision, sourceObject, manifestObject) 
   try {
     storedManifest = JSON.parse(manifestRaw);
   } catch {
-    throw new CliError(`Spec manifest for '${file}' at ${revision} is invalid JSON.`);
+    throw new CliError(`Spec manifest for '${file}' at ${revision} is invalid JSON.`,
+      { code: "malformed-input" });
   }
   if (storedManifest.source !== file) {
-    throw new CliError(`Spec manifest source does not match '${file}' at ${revision}.`);
+    throw new CliError(`Spec manifest source does not match '${file}' at ${revision}.`,
+      { code: "malformed-input" });
   }
   const normalizedHash = sha256(raw);
   const compatibleHashes = [normalizedHash];
@@ -637,6 +652,7 @@ function revisionStageFromObjects(file, revision, sourceObject, manifestObject) 
   }
   if (!compatibleHashes.includes(storedManifest.sourceHash)) {
     throw new CliError(`Spec manifest for '${file}' is stale at ${revision}.`, {
+      code: "stale-forecast",
       details: `Re-index and commit it with: vlab spec index ${file}`,
     });
   }
@@ -867,7 +883,8 @@ export function planSpecMerge(
   const context = repoContext(cwd);
   const relative = relativeSpecPath(file, context, cwd);
   if (!/\.md$/i.test(relative)) {
-    throw new CliError("Semantic spec merge currently supports Markdown files only.");
+    throw new CliError("Semantic spec merge currently supports Markdown files only.",
+      { code: "unsupported-feature" });
   }
   const manifestFile = manifestRelativePath(relative);
   let base;
@@ -1035,7 +1052,8 @@ export function planSpecMerge(
 
 export function materializeSpecMerge(plan, cwd = process.cwd()) {
   if (plan.status !== "clean" || !plan.result) {
-    throw new CliError(`Spec merge for '${plan.file}' is not clean.`);
+    throw new CliError(`Spec merge for '${plan.file}' is not clean.`,
+      { code: "manual-review-required" });
   }
   if (plan.result.deleted) {
     runGit(["rm", "--ignore-unmatch", "--", plan.file, plan.manifestFile], { cwd });
@@ -1084,6 +1102,7 @@ export function captureSpecMergeOutcomes(merges, cwd = process.cwd()) {
     if ((markdown === null) !== (manifest === null)) {
       throw new CliError(
         `Staged spec '${merge.path}' and its manifest must be added or deleted together.`,
+          { code: "precondition-not-met" },
       );
     }
     if (markdown !== null) {
@@ -1091,13 +1110,15 @@ export function captureSpecMergeOutcomes(merges, cwd = process.cwd()) {
       try {
         storedManifest = JSON.parse(manifest);
       } catch {
-        throw new CliError(`Staged manifest for '${merge.path}' is invalid JSON.`);
+        throw new CliError(`Staged manifest for '${merge.path}' is invalid JSON.`,
+          { code: "malformed-input" });
       }
       if (
         storedManifest.source !== merge.path ||
         storedManifest.sourceHash !== sha256(markdown)
       ) {
         throw new CliError(`Staged manifest for '${merge.path}' is stale.`, {
+          code: "stale-forecast",
           details: `Run 'vlab spec index ${merge.path}', stage both files, and continue again.`,
         });
       }
@@ -1149,22 +1170,26 @@ export function applyPendingSpecMerges(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const operation = readPendingOperation(cwd);
   if (!operation?.current) {
-    throw new CliError("No VCS Lab conflict is pending in this worktree.");
+    throw new CliError("No VCS Lab conflict is pending in this worktree.",
+      { code: "nothing-pending" });
   }
   let plans = specMergePlansForOperation(operation, cwd);
   if (options.path) plans = plans.filter((plan) => plan.file === options.path);
   if (plans.length === 0) {
-    throw new CliError("No semantic specification merge is pending.");
+    throw new CliError("No semantic specification merge is pending.",
+      { code: "nothing-pending" });
   }
   if (!options.all && !options.path && plans.length !== 1) {
-    throw new CliError("Choose a spec path or pass --all.");
+    throw new CliError("Choose a spec path or pass --all.", { code: "ambiguous-match" });
   }
   if (!options.all && options.path && plans.length === 0) {
-    throw new CliError(`'${options.path}' is not a pending spec conflict.`);
+    throw new CliError(`'${options.path}' is not a pending spec conflict.`,
+      { code: "no-match" });
   }
   const blocked = plans.filter((plan) => plan.status !== "clean");
   if (blocked.length) {
     throw new CliError("One or more spec merges require manual review.", {
+      code: "manual-review-required",
       details: blocked
         .map((plan) => `${plan.file}: ${plan.conflicts.map((item) => item.type).join(", ")}`)
         .join("\n"),
@@ -1201,14 +1226,16 @@ export function benchmarkSpecIndex(options = {}) {
   const readSize = (value, fallback, name) => {
     const number = value === undefined ? fallback : Number(value);
     if (!Number.isInteger(number) || number < 1 || number > 1_000) {
-      throw new CliError(`${name} must be an integer between 1 and 1000.`);
+      throw new CliError(`${name} must be an integer between 1 and 1000.`,
+        { code: "usage-invalid-option-value" });
     }
     return number;
   };
   const documents = readSize(options.documents, 25, "--documents");
   const blocksPerDocument = readSize(options.blocks, 40, "--blocks");
   if (documents * blocksPerDocument > 100_000) {
-    throw new CliError("The benchmark is limited to 100,000 generated blocks.");
+    throw new CliError("The benchmark is limited to 100,000 generated blocks.",
+      { code: "usage-invalid-option-value" });
   }
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-spec-benchmark-"));
   try {

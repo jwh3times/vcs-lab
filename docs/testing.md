@@ -123,6 +123,23 @@ all three transports**, session, fallback, and no session at all, because a
 fallback that returned different data would be worse than one that failed. The
 override is inert unless it parses as a positive integer, which is itself
 asserted, since it shrinks a safety bound.
+`test/error-envelope.test.js` covers the failure contract (ADR-0021). Two of
+its checks are **static**: they scan `src/` for every `new CliError` and fail
+if one carries no code or a code outside `ERROR_CODES`, and fail in the other
+direction if a published code is raised nowhere. That is deliberate. The
+property worth guaranteeing is "every raise site is classified", and no amount
+of exercising the CLI proves anything about the sites no test reaches — there
+are 232 of them, and the suite reaches a fraction. A third check keeps
+`docs/schemas/errors.md` and the runtime map in agreement, the same relation
+`docs/schemas/` and `src/schemas.js` hold for record families.
+
+The behavioural checks pin what changed for callers: a `--json` failure is an
+envelope on stdout with stderr empty, the human path's prose and every exit
+code are unchanged, and the ADR-0020 refusals report the code that names their
+disposition rather than requiring a caller to match English. One test pins the
+boundary: a global flag consumed before the argument parse keeps prose, because
+no output mode is known yet, while an unknown command is enveloped.
+
 `test/provenance.test.js` covers declared authorship provenance (FR-ID-08).
 The tests that carry the requirement are the ones that follow a declaration
 through a rewrite and then check what stock Git has left: after a hard squash,

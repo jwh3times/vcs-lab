@@ -78,7 +78,7 @@ import {
   provenanceFor,
 } from "./provenance.js";
 import { auditIdentity } from "./identity-audit.js";
-import { CliError } from "./errors.js";
+import { CliError, requestJsonErrors } from "./errors.js";
 import { VERSION } from "./version.js";
 import {
   applyResolution,
@@ -181,7 +181,8 @@ function parseArgs(args) {
     const item = args[index];
     if (valueFlags.has(item) || repeatableFlags.has(item)) {
       const value = args[index + 1];
-      if (value === undefined) throw new CliError(`${item} requires a value.`);
+      if (value === undefined) throw new CliError(`${item} requires a value.`,
+        { code: "usage-missing-argument" });
       const key = item === "-m" ? "message" : item.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
       // A repeatable flag always yields an array, even for one occurrence, so
       // a caller never has to test which shape it got.
@@ -201,7 +202,8 @@ function parseArgs(args) {
 }
 
 function requireValue(value, usage) {
-  if (!value) throw new CliError(`Missing required argument. Usage: ${usage}`);
+  if (!value) throw new CliError(`Missing required argument. Usage: ${usage}`,
+    { code: "usage-missing-argument" });
   return value;
 }
 
@@ -841,7 +843,8 @@ function positiveInteger(value, fallback, name, minimum = 1) {
   if (value === undefined) return fallback;
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < minimum || parsed > 100) {
-    throw new CliError(`${name} must be an integer between ${minimum} and 100.`);
+    throw new CliError(`${name} must be an integer between ${minimum} and 100.`,
+      { code: "usage-invalid-option-value" });
   }
   return parsed;
 }
@@ -980,7 +983,8 @@ export async function main(rawArgs) {
   const forceSession = rawArgs.includes("--git-session");
   const disableSession = rawArgs.includes("--no-git-session");
   if (forceSession && disableSession) {
-    throw new CliError("Choose only one of --git-session or --no-git-session.");
+    throw new CliError("Choose only one of --git-session or --no-git-session.",
+      { code: "usage-conflicting-options" });
   }
   if (rawArgs.includes("--trace-git")) process.env.VLAB_TRACE = "1";
   if (forceSession) process.env.VLAB_GIT_SESSION = "1";
@@ -998,6 +1002,7 @@ export async function main(rawArgs) {
       if (!FORECAST_ENGINES.includes(value)) {
         throw new CliError(
           `--forecast-engine requires one of: ${FORECAST_ENGINES.join(", ")}.`,
+            { code: "usage-invalid-option-value" },
         );
       }
       process.env.VLAB_FORECAST_ENGINE = value;
@@ -1010,6 +1015,7 @@ export async function main(rawArgs) {
       if (!READ_ENGINES.includes(value)) {
         throw new CliError(
           `--engine requires one of: ${READ_ENGINES.join(", ")}.`,
+            { code: "usage-invalid-option-value" },
         );
       }
       process.env.VLAB_ENGINE = value;
@@ -1031,6 +1037,11 @@ export async function main(rawArgs) {
   }
 
   const { positionals, options } = parseArgs(rest);
+  // From here on the invocation's output mode is known, so a failure can be
+  // reported as a machine-readable envelope (ADR-0021). Everything above this
+  // line — an unknown global flag, a conflicting session flag — fails before
+  // any `--json` is in scope and keeps prose on stderr.
+  requestJsonErrors(options.json);
   switch (command) {
     case "init": {
       const context = initLab();
@@ -1079,9 +1090,10 @@ export async function main(rawArgs) {
         bundle = JSON.parse(fs.readFileSync(path.resolve(file), "utf8"));
       } catch (error) {
         if (error?.code === "ENOENT") {
-          throw new CliError(`Proof bundle not found: ${file}`);
+          throw new CliError(`Proof bundle not found: ${file}`, { code: "not-found" });
         }
-        throw new CliError(`Proof bundle '${file}' is not valid JSON.`);
+        throw new CliError(`Proof bundle '${file}' is not valid JSON.`,
+          { code: "malformed-input" });
       }
       // Check the evidence against this repository unless asked not to. A
       // verifier holding only the file can still run with --offline; the
@@ -1112,7 +1124,8 @@ export async function main(rawArgs) {
         "vlab rebase-plan <onto> [<source>]",
       );
       if (positionals.length > 2) {
-        throw new CliError("Usage: vlab rebase-plan <onto> [<source>]");
+        throw new CliError("Usage: vlab rebase-plan <onto> [<source>]",
+          { code: "usage-missing-argument" });
       }
       const plan = buildRebasePlan(onto, positionals[1]);
       print(options.json ? plan : formatRebasePlan(plan), options.json);
@@ -1126,6 +1139,7 @@ export async function main(rawArgs) {
       if (positionals.length > 2) {
         throw new CliError(
           "Usage: vlab rebase-forecast <onto> [<source>]",
+            { code: "usage-missing-argument" },
         );
       }
       const forecast = forecastRebase(onto, positionals[1], {
@@ -1140,7 +1154,8 @@ export async function main(rawArgs) {
     case "rebase": {
       const actions = [options.status, options.continue, options.abort].filter(Boolean);
       if (actions.length > 1) {
-        throw new CliError("Choose only one of --status, --continue, or --abort.");
+        throw new CliError("Choose only one of --status, --continue, or --abort.",
+          { code: "usage-conflicting-options" });
       }
       if (options.status) {
         const status = rebaseStatus();
@@ -1159,7 +1174,8 @@ export async function main(rawArgs) {
       }
       const onto = requireValue(positionals[0], "vlab rebase <onto>");
       if (positionals.length > 1) {
-        throw new CliError("Usage: vlab rebase <onto>");
+        throw new CliError("Usage: vlab rebase <onto>",
+          { code: "usage-missing-argument" });
       }
       const result = startRebase(onto, {
         acceptCandidates: options.acceptCandidates,
@@ -1179,7 +1195,8 @@ export async function main(rawArgs) {
     case "reconcile": {
       const actions = [options.status, options.continue, options.abort].filter(Boolean);
       if (actions.length > 1) {
-        throw new CliError("Choose only one of --status, --continue, or --abort.");
+        throw new CliError("Choose only one of --status, --continue, or --abort.",
+          { code: "usage-conflicting-options" });
       }
       if (options.status) {
         const status = reconciliationStatus();
@@ -1234,7 +1251,8 @@ export async function main(rawArgs) {
         print(options.json ? records : formatResolutionCatalog(records), options.json);
         return;
       }
-      throw new CliError("Unknown resolve command. Use status, apply, reject, or list.");
+      throw new CliError("Unknown resolve command. Use status, apply, reject, or list.",
+        { code: "usage-unknown-command" });
     }
     case "cherry-pick": {
       const value = requireValue(positionals[0], "vlab cherry-pick <commit-or-change-id>");
@@ -1251,7 +1269,8 @@ export async function main(rawArgs) {
     case "audit": {
       const subcommand = positionals[0];
       if (subcommand !== "identity") {
-        throw new CliError("Unknown audit command. Use identity.");
+        throw new CliError("Unknown audit command. Use identity.",
+          { code: "usage-unknown-command" });
       }
       const result = auditIdentity();
       print(options.json ? result : formatIdentityAudit(result), options.json);
@@ -1339,7 +1358,8 @@ export async function main(rawArgs) {
         print(options.json ? result : formatScaleBenchmark(result), options.json);
         return;
       }
-      throw new CliError("Unknown metadata command. Use status, validate, export, import, or benchmark.");
+      throw new CliError("Unknown metadata command. Use status, validate, export, import, or benchmark.",
+        { code: "usage-unknown-command" });
     }
     case "workspace": {
       const subcommand = positionals[0];
@@ -1411,6 +1431,7 @@ export async function main(rawArgs) {
       }
       throw new CliError(
         "Unknown workspace command. Use create, list, checkpoint, move, archive, restore, repair, prune, or forecast.",
+          { code: "usage-unknown-command" },
       );
     }
     case "spec": {
@@ -1464,7 +1485,8 @@ export async function main(rawArgs) {
         print(result, true);
         return;
       }
-      throw new CliError("Unknown spec command. Use index, show, merge-plan, status, resolve, or benchmark.");
+      throw new CliError("Unknown spec command. Use index, show, merge-plan, status, resolve, or benchmark.",
+        { code: "usage-unknown-command" });
     }
     case "doctor": {
       const context = initLab();
@@ -1489,6 +1511,7 @@ export async function main(rawArgs) {
       return;
     }
     default:
-      throw new CliError(`Unknown command '${command}'.\n\n${HELP}`);
+      throw new CliError(`Unknown command '${command}'.\n\n${HELP}`,
+        { code: "usage-unknown-command" });
   }
 }

@@ -9,6 +9,7 @@ function currentBranch(cwd) {
   if (!branch) {
     throw new CliError(
       "HEAD is detached; provide an explicit source ref for rebase planning.",
+        { code: "usage-missing-argument" },
     );
   }
   return branch;

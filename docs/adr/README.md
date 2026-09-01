@@ -38,7 +38,7 @@ survive refactoring and session boundaries. They complement the
 | [0018](0018-disable-git-rerere-inside-vlab-picks-and-landing-merges.md) | Accepted | Disable Git rerere inside vlab's cherry-picks and landing merges |
 | [0019](0019-route-every-git-read-through-one-engine-seam.md) | Accepted | Route every Git read through one engine seam with per-operation fallback |
 | [0020](0020-freeze-per-family-compatibility-and-resource-bounds.md) | Accepted | Freeze per-family compatibility, migration, and resource bounds |
-| [0021](0021-give-failures-a-versioned-machine-readable-envelope.md) | Proposed | Give failures a versioned, machine-readable envelope |
+| [0021](0021-give-failures-a-versioned-machine-readable-envelope.md) | Accepted | Give failures a versioned, machine-readable envelope |
 | [0022](0022-reject-git-read-side-maintenance-caches-on-measured-evidence.md) | Accepted | Reject Git's read-side maintenance caches on measured evidence |
 | [0023](0023-locate-the-model-substrate-mismatch-in-facts-not-content.md) | Proposed | Locate the model/substrate mismatch in causal facts, not content |
 

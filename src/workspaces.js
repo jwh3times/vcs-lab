@@ -58,7 +58,8 @@ export function readWorkspaces(cwd = process.cwd()) {
     recovery: "Read it with the vcs-lab build that wrote it.",
   });
   if (!Array.isArray(registry.workspaces)) {
-    throw new CliError(`The workspace registry at '${registryPath}' has no workspace list.`);
+    throw new CliError(`The workspace registry at '${registryPath}' has no workspace list.`,
+      { code: "malformed-input" });
   }
   for (const workspace of registry.workspaces) {
     assertReadableSchema(workspace?.schema, `A workspace entry in '${registryPath}'`, {
@@ -77,7 +78,8 @@ function findWorkspace(state, value) {
   const index = state.workspaces.findIndex(
     (workspace) => workspace.name === value || workspace.id === value,
   );
-  if (index < 0) throw new CliError(`Workspace '${value}' was not found.`);
+  if (index < 0) throw new CliError(`Workspace '${value}' was not found.`,
+    { code: "not-found" });
   return { index, workspace: state.workspaces[index] };
 }
 
@@ -112,7 +114,7 @@ function inspectWorkspace(workspace) {
     } else if (isInsideWorkTree(workspace.path)) {
       throw new CliError(
         `git status --porcelain=v2 --branch -z failed in workspace '${workspace.name}'`,
-        { details: status.error, exitCode: status.exitCode },
+        { code: "git-command-failed", details: status.error, exitCode: status.exitCode },
       );
     } else {
       pathStatus = "invalid";
@@ -142,6 +144,7 @@ function requireLifecycle(workspace, lifecycle, action) {
   if (actual !== lifecycle) {
     throw new CliError(
       `Workspace '${workspace.name}' must be ${lifecycle} before it can be ${action}.`,
+        { code: "precondition-not-met" },
     );
   }
 }
@@ -151,6 +154,7 @@ function requireMaterialized(workspace, action) {
   if (inspected.pathStatus !== ACTIVE) {
     throw new CliError(
       `Workspace '${workspace.name}' is not a usable linked worktree. Repair or prune its stale path before ${action}.`,
+        { code: "precondition-not-met" },
     );
   }
   return inspected;
@@ -160,6 +164,7 @@ function assertCallerOutsideWorkspace(cwd, workspace, action) {
   if (path.resolve(repoContext(cwd).root) === path.resolve(workspace.path)) {
     throw new CliError(
       `Run workspace ${action} from another linked worktree; the command changes '${workspace.path}'.`,
+        { code: "precondition-not-met" },
     );
   }
 }
@@ -188,10 +193,12 @@ function normalizeCone(cone) {
   if (entries.length === 0) return null;
   for (const entry of entries) {
     if (path.isAbsolute(entry) || /^[a-zA-Z]:/.test(entry)) {
-      throw new CliError(`Cone path must be relative to the repository root: '${entry}'`);
+      throw new CliError(`Cone path must be relative to the repository root: '${entry}'`,
+        { code: "path-outside-repository" });
     }
     if (entry === ".." || entry.startsWith("../") || entry.includes("/../")) {
-      throw new CliError(`Cone path must stay inside the repository: '${entry}'`);
+      throw new CliError(`Cone path must stay inside the repository: '${entry}'`,
+        { code: "path-outside-repository" });
     }
   }
   return [...new Set(entries)].sort();
@@ -239,13 +246,14 @@ export function createWorkspace(name, options = {}) {
     cwd,
   );
   if (!baseObject.exists || baseObject.type !== "commit") {
-    throw new CliError(`Git revision '${target}' did not resolve to a commit.`);
+    throw new CliError(`Git revision '${target}' did not resolve to a commit.`,
+      { code: "revision-not-resolved" });
   }
   const baseSnapshot = baseObject.oid;
 
   const state = readWorkspaces(cwd);
   if (state.workspaces.some((workspace) => workspace.name === name)) {
-    throw new CliError(`Workspace '${name}' already exists.`);
+    throw new CliError(`Workspace '${name}' already exists.`, { code: "not-found" });
   }
 
   const parent = path.dirname(context.root);
@@ -254,7 +262,8 @@ export function createWorkspace(name, options = {}) {
     options.path ?? path.join(parent, `${repoName}.workspaces`, safeName),
   );
   if (branchObject.exists) {
-    throw new CliError(`The compatibility branch '${branch}' already exists.`);
+    throw new CliError(`The compatibility branch '${branch}' already exists.`,
+      { code: "not-found" });
   }
   const cone = normalizeCone(options.cone);
   fs.mkdirSync(path.dirname(workspacePath), { recursive: true });
@@ -388,22 +397,27 @@ export function latestWorkspaceCheckpoint(workspace, cwd = process.cwd()) {
   if (workspaceId !== workspace.id) {
     throw new CliError(
       `Checkpoint '${id}' does not belong to workspace '${workspace.name}'.`,
+        { code: "repository-mismatch" },
     );
   }
   if (!baseHead) {
-    throw new CliError(`Checkpoint '${id}' has no Workspace-Base identity.`);
+    throw new CliError(`Checkpoint '${id}' has no Workspace-Base identity.`,
+      { code: "precondition-not-met" });
   }
   if (!recordedTree) {
     throw new CliError(
       `Checkpoint '${id}' predates checkpoint tree identity. Capture a new checkpoint before forecasting it.`,
+        { code: "unknown-schema-version" },
     );
   }
   if (recordedTree !== checkpointTree) {
-    throw new CliError(`Checkpoint '${id}' has inconsistent tree metadata.`);
+    throw new CliError(`Checkpoint '${id}' has inconsistent tree metadata.`,
+      { code: "malformed-input" });
   }
   if (!/^draft_[0-9a-f]{64}$/.test(draftChangeId ?? "")) {
     throw new CliError(
       `Checkpoint '${id}' has no valid draft Change-Id. Capture a new checkpoint before forecasting it.`,
+        { code: "precondition-not-met" },
     );
   }
   return {
@@ -434,7 +448,8 @@ export function moveWorkspace(value, destination, options = {}) {
     return { ...inspectWorkspace(workspace), changed: false };
   }
   if (fs.existsSync(nextPath)) {
-    throw new CliError(`Workspace destination already exists: ${nextPath}`);
+    throw new CliError(`Workspace destination already exists: ${nextPath}`,
+      { code: "not-found" });
   }
   fs.mkdirSync(path.dirname(nextPath), { recursive: true });
   runGit(["worktree", "move", workspace.path, nextPath], {
@@ -463,14 +478,14 @@ export function archiveWorkspace(value, options = {}) {
   if (status) {
     throw new CliError(
       `Workspace '${workspace.name}' has tracked or untracked changes. Commit or remove them before archiving.`,
-      { details: status },
+      { code: "precondition-not-met", details: status },
     );
   }
   const ignored = ignoredPaths(workspace.path);
   if (ignored.length) {
     throw new CliError(
       `Workspace '${workspace.name}' contains ignored files. Move or remove them before archiving.`,
-      { details: ignored.join("\n") },
+      { code: "precondition-not-met", details: ignored.join("\n") },
     );
   }
 
@@ -496,11 +511,13 @@ export function restoreWorkspace(value, options = {}) {
   if (!refExists(`refs/heads/${workspace.compatibilityBranch}`, cwd)) {
     throw new CliError(
       `Workspace branch '${workspace.compatibilityBranch}' no longer exists.`,
+        { code: "not-found" },
     );
   }
   const restoredPath = path.resolve(options.path ?? workspace.path);
   if (fs.existsSync(restoredPath)) {
-    throw new CliError(`Workspace restore path already exists: ${restoredPath}`);
+    throw new CliError(`Workspace restore path already exists: ${restoredPath}`,
+      { code: "not-found" });
   }
   fs.mkdirSync(path.dirname(restoredPath), { recursive: true });
   // Restoring re-materializes the worktree, so it must reapply the cone the
@@ -535,7 +552,8 @@ export function repairWorkspace(value, destination, options = {}) {
   const { index, workspace } = findWorkspace(state, value);
   const repairedPath = path.resolve(destination);
   if (!fs.existsSync(repairedPath)) {
-    throw new CliError(`Workspace repair path does not exist: ${repairedPath}`);
+    throw new CliError(`Workspace repair path does not exist: ${repairedPath}`,
+      { code: "not-found" });
   }
   if (
     path.resolve(workspace.path) !== repairedPath &&
@@ -543,6 +561,7 @@ export function repairWorkspace(value, destination, options = {}) {
   ) {
     throw new CliError(
       `Recorded workspace path still exists: ${workspace.path}. Use workspace move instead.`,
+        { code: "precondition-not-met" },
     );
   }
 
@@ -550,10 +569,12 @@ export function repairWorkspace(value, destination, options = {}) {
   try {
     repairedContext = repoContext(repairedPath);
   } catch {
-    throw new CliError(`Repair path is not a linked Git worktree: ${repairedPath}`);
+    throw new CliError(`Repair path is not a linked Git worktree: ${repairedPath}`,
+      { code: "precondition-not-met" });
   }
   if (path.resolve(repairedContext.commonDir) !== path.resolve(context.commonDir)) {
-    throw new CliError("Repair path belongs to a different Git repository.");
+    throw new CliError("Repair path belongs to a different Git repository.",
+      { code: "repository-mismatch" });
   }
   // The branch name exactly as `git branch --show-current` reports it: the
   // symbolic HEAD without its `refs/heads/` prefix, or empty when detached.
@@ -564,6 +585,7 @@ export function repairWorkspace(value, destination, options = {}) {
   if (branch !== workspace.compatibilityBranch) {
     throw new CliError(
       `Repair path has branch '${branch || "(detached)"}', expected '${workspace.compatibilityBranch}'.`,
+        { code: "precondition-not-met" },
     );
   }
 
@@ -587,7 +609,8 @@ export function repairWorkspace(value, destination, options = {}) {
 export function pruneWorkspaces(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   if (options.apply && options.dryRun) {
-    throw new CliError("Choose either --dry-run or --apply for workspace prune.");
+    throw new CliError("Choose either --dry-run or --apply for workspace prune.",
+      { code: "usage-conflicting-options" });
   }
   const context = repoContext(cwd);
   const state = readWorkspaces(cwd);

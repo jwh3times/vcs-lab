@@ -1,6 +1,6 @@
 # ADR-0021: Give failures a versioned, machine-readable envelope
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-31
 - **Owners:** Repository maintainers
 - **Related requirements:** FR-GIT-06, NFR-SEC-03, NFR-TEST-03
@@ -78,6 +78,39 @@ carries a stable classification code.
 - **Whether `details` stays free text** or gains structured members for the
   cases that have them (the bound that was exceeded, the versions a build
   reads). Structured detail is more useful and more expensive to freeze.
+
+## Amendment 2026-09-01: what implementing it settled
+
+Implemented across 232 raise sites in 20 modules, with 41 codes. The three
+questions this ADR deliberately left open are answered by the enumeration it
+asked for rather than in advance:
+
+- **The namespace is flat.** Codes cluster by *cause* — usage, repository
+  state, Git transport, schema, staleness — and one cause routinely spans
+  several record families: `resource-bound-exceeded` covers notes, envelopes,
+  and manifests alike. A per-family namespace would split a single caller
+  response across several names while adding nothing the family-carrying
+  `message` does not already say.
+- **`details` stays free text.** No structured member earned its place: the
+  cases that have structure (the bound that was exceeded, the versions a build
+  reads) already state it in prose the human path prints, and freezing a shape
+  for them would be a contract to maintain before anything consumes it.
+- **The pre-dispatch boundary is narrower than this ADR expected.** It is not
+  "before the command word": `parseArgs` runs on the remaining arguments
+  whether or not the command name is known, so `--json` is in scope by the
+  time dispatch rejects an unknown command, and that failure *is* enveloped.
+  What stays prose is only the global flags consumed before that parse —
+  a `--git-session`/`--no-git-session` conflict, a bad `--forecast-engine` or
+  `--engine` value. The boundary is therefore the argument parse, not the
+  command word.
+
+One correction came out of running it rather than reading it. A caller naming a
+reference that does not exist was first classified `git-response-malformed`,
+whose published advice is to report a Git bug. The raise site is shared between
+"an expression did not resolve" and "Git returned an unparsable line", and only
+the second deserves that code; the first is `revision-not-resolved`. A
+vocabulary is only as good as the classification behind it, and that one was
+found by reading the envelope of an ordinary typo.
 
 ## Constraints
 

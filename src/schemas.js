@@ -224,6 +224,7 @@ export function assertWithinBound(name, actual, subject) {
   throw new CliError(
     `${subject} exceeds the ${name} resource bound of ${RESOURCE_BOUNDS[name]}.`,
     {
+      code: "resource-bound-exceeded",
       details:
         "vcs-lab refuses to interpret a record larger than its published " +
         "resource bound; see docs/schemas/compatibility.md.",
@@ -290,6 +291,7 @@ export function assertReadableSchema(schema, subject, { family = null, recovery 
   const quoted = typeof schema === "string" && schema ? JSON.stringify(schema) : "(missing)";
   if (family && compatibility.family !== family) {
     throw new CliError(`${subject} carries schema ${quoted}, not a ${family} record.`, {
+      code: "wrong-record-family",
       details: recovery,
     });
   }
@@ -298,6 +300,7 @@ export function assertReadableSchema(schema, subject, { family = null, recovery 
     ? `This build reads ${compatibility.policy.readable.map((version) => `v${version}`).join(", ")} of that family.`
     : "This build does not know that record family.";
   throw new CliError(`${subject} carries unsupported schema ${quoted}.`, {
+    code: "unknown-schema-version",
     details: [known, recovery].filter(Boolean).join(" "),
   });
 }

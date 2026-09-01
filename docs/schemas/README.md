@@ -97,6 +97,12 @@ output is text, which is JSON, and which members the two must agree on.
 These families exist only as command output; they carry a `schema` field so
 automation can dispatch on them, but they are not persisted by vcs-lab.
 
+`vcs-lab.error/v1` is the failure envelope of
+[ADR-0021](../adr/0021-give-failures-a-versioned-machine-readable-envelope.md).
+Unlike the others it is printed *instead of* a command's success output, on
+stdout, when the invocation asked for `--json`; its closed error-code
+vocabulary is published in [errors.md](errors.md).
+
 | Schema | Document |
 | --- | --- |
 | `vcs-lab.merge-plan/v1` | [merge-plan.v1.schema.json](merge-plan.v1.schema.json) |
@@ -115,6 +121,7 @@ automation can dispatch on them, but they are not persisted by vcs-lab.
 | `vcs-lab.metadata-import-preview/v1` | [metadata-import-preview.v1.schema.json](metadata-import-preview.v1.schema.json) |
 | `vcs-lab.metadata-import/v1` | [metadata-import.v1.schema.json](metadata-import.v1.schema.json) |
 | `vcs-lab.engine-differential/v1` | [engine-differential.v1.schema.json](engine-differential.v1.schema.json) |
+| `vcs-lab.error/v1` | [error.v1.schema.json](error.v1.schema.json) |
 
 ### Superseded identifiers without documents
 

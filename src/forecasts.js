@@ -56,7 +56,7 @@ function forecastDirectory(cwd) {
 
 function assertForecastId(id) {
   if (!/^forecast_[a-z0-9]+$/.test(String(id ?? ""))) {
-    throw new CliError(`Invalid forecast ID '${id}'.`);
+    throw new CliError(`Invalid forecast ID '${id}'.`, { code: "invalid-identifier" });
   }
   return id;
 }
@@ -86,7 +86,8 @@ export function planFingerprint(plan) {
 export function readForecast(id, cwd = process.cwd()) {
   const forecast = readJson(forecastPath(id, cwd), null);
   if (!forecast) {
-    throw new CliError(`Forecast '${id}' was not found in this worktree.`);
+    throw new CliError(`Forecast '${id}' was not found in this worktree.`,
+      { code: "not-found" });
   }
   return forecast;
 }
@@ -641,6 +642,7 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
   if (readReconciliationState(cwd) || readRebaseState(cwd)) {
     throw new CliError(
       "Finish or abort the current VCS Lab operation before forecasting another.",
+        { code: "operation-in-progress" },
     );
   }
   const startedAt = new Date().toISOString();
@@ -688,7 +690,8 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
     before.status !== after.status
   ) {
     endGitMetrics(gitMetrics);
-    throw new CliError("Forecasting unexpectedly changed the current worktree.");
+    throw new CliError("Forecasting unexpectedly changed the current worktree.",
+      { code: "internal-invariant" });
   }
   phases.invariantCheckMs = performance.now() - invariantStarted;
 
@@ -752,7 +755,8 @@ export function forecastForPlan(id, plan, cwd = process.cwd()) {
     recovery: "Generate a new forecast with: vlab forecast",
   });
   if (forecast.id !== id) {
-    throw new CliError(`Forecast '${id}' has invalid metadata.`);
+    throw new CliError(`Forecast '${id}' has invalid metadata.`,
+      { code: "malformed-input" });
   }
   const currentFingerprint = planFingerprint(plan);
   if (
@@ -761,6 +765,7 @@ export function forecastForPlan(id, plan, cwd = process.cwd()) {
     forecast.planFingerprint !== currentFingerprint
   ) {
     throw new CliError(`Forecast '${id}' no longer matches this reconciliation.`, {
+      code: "stale-forecast",
       details:
         "A branch head or causal record changed. Generate and review a new forecast.",
     });
@@ -774,7 +779,8 @@ export function forecastForPlan(id, plan, cwd = process.cwd()) {
       checkpoint?.id !== forecast.sourceHead ||
       !checkpoint.baseHead
     ) {
-      throw new CliError(`Forecast '${id}' has invalid checkpoint metadata.`);
+      throw new CliError(`Forecast '${id}' has invalid checkpoint metadata.`,
+        { code: "malformed-input" });
     }
     const sourceWorkspace = listWorkspaces(cwd).find(
       (workspace) => workspace.id === comparison.source.id,
@@ -782,6 +788,7 @@ export function forecastForPlan(id, plan, cwd = process.cwd()) {
     if (!sourceWorkspace) {
       throw new CliError(
         `Forecast '${id}' no longer matches its source workspace.`,
+          { code: "stale-forecast" },
       );
     }
     let sourceWorkspaceHead;
@@ -793,6 +800,7 @@ export function forecastForPlan(id, plan, cwd = process.cwd()) {
     } catch {
       throw new CliError(
         `Forecast '${id}' no longer matches its source workspace branch.`,
+          { code: "stale-forecast" },
       );
     }
     if (
@@ -802,6 +810,7 @@ export function forecastForPlan(id, plan, cwd = process.cwd()) {
       throw new CliError(
         `Forecast '${id}' no longer matches its source workspace head.`,
         {
+          code: "stale-forecast",
           details:
             "The source branch moved after its checkpoint was reviewed. Capture a new checkpoint and forecast.",
         },
@@ -815,9 +824,11 @@ function requireWorkspace(workspaces, value, role) {
   const workspace = workspaces.find(
     (item) => item.name === value || item.id === value,
   );
-  if (!workspace) throw new CliError(`${role} workspace '${value}' was not found.`);
+  if (!workspace) throw new CliError(`${role} workspace '${value}' was not found.`,
+    { code: "not-found" });
   if (workspace.status !== "active") {
-    throw new CliError(`${role} workspace '${value}' is not active.`);
+    throw new CliError(`${role} workspace '${value}' is not active.`,
+      { code: "precondition-not-met" });
   }
   return workspace;
 }
@@ -828,7 +839,8 @@ export function forecastWorkspaces(targetName, sourceName, options = {}) {
   const target = requireWorkspace(workspaces, targetName, "Target");
   const source = requireWorkspace(workspaces, sourceName, "Source");
   if (target.id === source.id) {
-    throw new CliError("Choose two different workspaces to compare.");
+    throw new CliError("Choose two different workspaces to compare.",
+      { code: "usage-conflicting-options" });
   }
   const checkpoint = options.sourceCheckpoint
     ? latestWorkspaceCheckpoint(source, cwd)
@@ -836,16 +848,19 @@ export function forecastWorkspaces(targetName, sourceName, options = {}) {
   if (options.sourceCheckpoint && !checkpoint) {
     throw new CliError(
       `Source workspace '${source.name}' has no checkpoint. Capture one before requesting a checkpoint forecast.`,
+        { code: "precondition-not-met" },
     );
   }
   if (checkpoint && checkpoint.baseHead !== source.head) {
     throw new CliError(
       `Source workspace '${source.name}' moved after checkpoint '${checkpoint.id}'. Capture a new checkpoint before forecasting its draft.`,
+        { code: "stale-input" },
     );
   }
   if (checkpoint && checkpoint.tree === treeId(source.head, source.path)) {
     throw new CliError(
       `Source checkpoint '${checkpoint.id}' contains no draft overlay beyond the committed workspace head.`,
+        { code: "precondition-not-met" },
     );
   }
 

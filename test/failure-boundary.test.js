@@ -37,6 +37,18 @@ function vlabResult(cwd, args, env = {}) {
   });
 }
 
+/**
+ * The failure envelope of a `--json` run (ADR-0021). Since the envelope
+ * landed, a refusal under `--json` is a document on stdout rather than prose
+ * on stderr, which lets these tests assert the classification instead of
+ * matching English.
+ */
+function refusal(result) {
+  assert.notEqual(result.status, 0, "the command must refuse");
+  assert.equal(result.stderr, "", "a --json refusal writes one stream");
+  return JSON.parse(result.stdout);
+}
+
 function write(repo, relative, content) {
   const target = path.join(repo, relative);
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -127,10 +139,9 @@ test("an interrupted publication leaves a recoverable journal and no duplicate r
       `${point}: --continue must not duplicate published records`,
     );
     if (resumed.status !== 0) {
-      assert.match(
-        resumed.stderr,
-        /^vlab: /m,
-        `${point}: a refused continue must be a domain diagnostic`,
+      assert.ok(
+        refusal(resumed).code,
+        `${point}: a refused continue must carry a published error code`,
       );
     }
   }
@@ -203,8 +214,7 @@ test("out-of-band Git actions during a paused operation fail closed", () => {
   assert.equal(outOfBand.status, 0, "the out-of-band abort itself succeeds");
 
   const resumed = vlabResult(repo, ["reconcile", "--continue", "--json"]);
-  assert.notEqual(resumed.status, 0, "vlab must not publish after an out-of-band abort");
-  assert.match(resumed.stderr, /^vlab: /m, "the refusal is a domain diagnostic");
+  assert.ok(refusal(resumed).code, "the refusal carries a published error code");
   assert.equal(
     notesRef(repo),
     notesBefore,
@@ -310,10 +320,9 @@ test("an interrupted rebase publication is recoverable and never duplicates a re
       `${point}: --continue must not duplicate published records`,
     );
     if (resumed.status !== 0) {
-      assert.match(
-        resumed.stderr,
-        /^vlab: /m,
-        `${point}: a refused continue must be a domain diagnostic`,
+      assert.ok(
+        refusal(resumed).code,
+        `${point}: a refused continue must carry a published error code`,
       );
     }
   }
@@ -395,8 +404,10 @@ test("out-of-band continue and skip during a paused reconciliation fail closed",
     }
 
     const resumed = vlabResult(repo, ["reconcile", "--continue", "--json"]);
-    assert.notEqual(resumed.status, 0, `vlab must not publish after an out-of-band ${action}`);
-    assert.match(resumed.stderr, /^vlab: /m, "the refusal is a domain diagnostic");
+    assert.ok(
+      refusal(resumed).code,
+      `the refusal after an out-of-band ${action} carries a published error code`,
+    );
     assert.equal(
       notesRef(repo),
       notesBefore,
@@ -440,11 +451,16 @@ test("out-of-band Git actions during a paused rebase fail closed and stay recove
     }
 
     const resumed = vlabResult(repo, ["rebase", "--continue", "--json"]);
-    assert.notEqual(resumed.status, 0, `vlab must not publish after an out-of-band ${action}`);
+    const refused = refusal(resumed);
+    assert.equal(
+      refused.code,
+      "out-of-band-change",
+      `an out-of-band ${action} is classified as exactly that, not as a generic failure`,
+    );
     assert.match(
-      resumed.stderr,
+      refused.message,
       /does not match the causal rebase journal/,
-      "the refusal names the disagreement rather than failing generically",
+      "and the message still names the disagreement for a person",
     );
     assert.equal(notesRef(repo), notesBefore, "no receipt is published while recovering");
 
@@ -506,8 +522,10 @@ test("a journal never claims more progress than Git actually made", () => {
 
     // Continuing is refused rather than guessed at, and nothing is certified.
     const resumed = vlabResult(repo, [command, "--continue", "--json"]);
-    assert.notEqual(resumed.status, 0, `${command}: a torn journal must not be resumed`);
-    assert.match(resumed.stderr, /^vlab: /m, "the refusal is a domain diagnostic");
+    assert.ok(
+      refusal(resumed).code,
+      `${command}: a torn journal must be refused with a published error code`,
+    );
     assert.equal(receipts(repo).length, 0, `${command}: nothing was published`);
 
     // And the state is not a trap: abort still recovers it completely.

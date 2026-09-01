@@ -36,6 +36,7 @@ function integerOption(value, fallback, name, minimum, maximum) {
   if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
     throw new CliError(
       `${name} must be an integer between ${minimum} and ${maximum}.`,
+        { code: "usage-invalid-option-value" },
     );
   }
   return parsed;
@@ -88,6 +89,7 @@ function measurePhase(name, sampleCount, operation) {
     } else if (serialized !== expectedResult) {
       throw new CliError(
         `Scale benchmark phase '${name}' returned inconsistent semantic results.`,
+          { code: "internal-invariant" },
       );
     }
     samples.push({
@@ -310,6 +312,7 @@ export function benchmarkRepositoryScale(options = {}) {
   if (noteCount + resolutionCount > 5_000) {
     throw new CliError(
       "The scale benchmark is limited to 5,000 total note and resolution records.",
+        { code: "usage-invalid-option-value" },
     );
   }
 

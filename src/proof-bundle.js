@@ -231,6 +231,7 @@ export function verifyProofBundle(bundle, repository = null) {
   if (bundle?.schema !== PROOF_BUNDLE_SCHEMA) {
     throw new CliError(
       `Not a ${PROOF_BUNDLE_SCHEMA} document (found ${JSON.stringify(bundle?.schema ?? null)}).`,
+        { code: "wrong-record-family" },
     );
   }
   const expected = bundle.integrity?.bundleHash ?? null;

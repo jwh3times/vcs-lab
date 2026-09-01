@@ -53,7 +53,8 @@ import {
 function requirePendingRebase(cwd) {
   const operation = readRebaseState(cwd);
   if (!operation) {
-    throw new CliError("No causal rebase is in progress in this worktree.");
+    throw new CliError("No causal rebase is in progress in this worktree.",
+      { code: "no-operation-pending" });
   }
   return operation;
 }
@@ -61,7 +62,8 @@ function requirePendingRebase(cwd) {
 function currentBranch(cwd) {
   const ref = symbolicRef("HEAD", cwd);
   if (!ref || !ref.startsWith("refs/heads/")) {
-    throw new CliError("Causal rebase requires a named local branch.");
+    throw new CliError("Causal rebase requires a named local branch.",
+      { code: "precondition-not-met" });
   }
   return {
     ref,
@@ -75,6 +77,7 @@ function requireOperationBranch(operation, cwd) {
     throw new CliError(
       `The rebase journal belongs to branch '${operation.sourceRef}', not '${branch.name}'.`,
       {
+        code: "out-of-band-change",
         details: `Switch back to '${operation.sourceRef}' before status recovery, continue, or abort.`,
       },
     );
@@ -93,7 +96,7 @@ function assertNoGitReplay(cwd) {
       `Git already has an active replay operation (${[
         ...active,
         ...privateReplayPaths.map((location) => path.basename(location)),
-      ].join(", ")}).`,
+      ].join(", ")}).`, { code: "git-operation-active" },
     );
   }
 }
@@ -169,6 +172,7 @@ function markMismatch(operation, message, cwd, details = null) {
   operation.state = "forecast-mismatch";
   writeRebaseState(operation, cwd);
   throw new CliError(message, {
+    code: "stale-forecast",
     details:
       details ??
       "Run 'vlab rebase --abort', then generate and review a new forecast.",
@@ -237,7 +241,7 @@ function applicationRecord(operation, change, relation, cwd) {
     writeRebaseState(operation, cwd);
     throw new CliError(
       `Rebased commit '${appliedCommit}' did not preserve Change-Id '${change.changeId}'.`,
-      { details: "Abort the rebase; no shared receipts were published." },
+      { code: "identity-not-preserved", details: "Abort the rebase; no shared receipts were published." },
     );
   }
   return {
@@ -283,6 +287,7 @@ function forecastResolutionChoices(operation, change, conflicts) {
   if (approvals.length !== conflicts.length) {
     throw new CliError(
       `Rebase forecast '${operation.forecastId}' no longer matches the current conflicts.`,
+        { code: "stale-forecast" },
     );
   }
   return conflicts.map((conflict) => {
@@ -300,6 +305,7 @@ function forecastResolutionChoices(operation, change, conflicts) {
     if (!approval || !candidate) {
       throw new CliError(
         `Rebase forecast '${operation.forecastId}' no longer matches '${conflict.path}'.`,
+          { code: "stale-forecast" },
       );
     }
     return { conflict, candidate };
@@ -318,6 +324,7 @@ function forecastSpecMergeChoices(operation, change, cwd) {
   if (plans.length !== approvals.length) {
     throw new CliError(
       `Rebase forecast '${operation.forecastId}' no longer matches the semantic spec conflicts.`,
+        { code: "stale-forecast" },
     );
   }
   return approvals.map((approval) => {
@@ -332,6 +339,7 @@ function forecastSpecMergeChoices(operation, change, cwd) {
     if (!plan) {
       throw new CliError(
         `Rebase forecast '${operation.forecastId}' no longer matches '${approval.path}'.`,
+          { code: "stale-forecast" },
       );
     }
     return plan;
@@ -363,7 +371,8 @@ function applyForecastResolutions(operation, change, cwd) {
       (merge) => merge.decision !== "accepted",
     )
   ) {
-    throw new CliError("A forecasted semantic spec result changed while staging.");
+    throw new CliError("A forecasted semantic spec result changed while staging.",
+      { code: "stale-input" });
   }
   for (const { conflict, candidate } of choices ?? []) {
     materializeResolutionCandidate(conflict, candidate, cwd);
@@ -383,6 +392,7 @@ function applyForecastResolutions(operation, change, cwd) {
   );
   if (!continued.ok) {
     throw new CliError("Git could not apply the forecasted rebase resolutions.", {
+      code: "conflict-blocked",
       details: continued.output,
     });
   }
@@ -405,6 +415,7 @@ function conflictError(operation, result) {
     return new CliError(
       `Causal rebase blocked while applying ${change.shortCommit}.`,
       {
+        code: "conflict-blocked",
         details: [
           result.output,
           "Git did not report conflict paths; the replay may have become unexpectedly empty.",
@@ -422,6 +433,7 @@ function conflictError(operation, result) {
   return new CliError(
     `Causal rebase paused while applying ${change.shortCommit}.`,
     {
+      code: "conflict-paused",
       details: [
         result.output,
         `Conflicted paths: ${paths.join(", ")}`,
@@ -688,6 +700,7 @@ function startRebaseInSession(ontoRef, options, cwd) {
   if (readReconciliationState(cwd) || readRebaseState(cwd)) {
     throw new CliError(
       "A VCS Lab operation is already in progress in this worktree.",
+        { code: "operation-in-progress" },
     );
   }
   assertClean(cwd);
@@ -697,7 +710,7 @@ function startRebaseInSession(ontoRef, options, cwd) {
   if (!plan.constraints.supported) {
     throw new CliError(
       "Linear causal rebase does not support source history containing merge commits.",
-      { details: "Use ordinary Git for this topology." },
+      { code: "unsupported-repository-shape", details: "Use ordinary Git for this topology." },
     );
   }
   const forecast = options.forecastId
@@ -710,6 +723,7 @@ function startRebaseInSession(ontoRef, options, cwd) {
     throw new CliError(
       "The rebase plan contains heuristic patch-equivalence candidates.",
       {
+        code: "approval-required",
         details:
           "Review 'vlab rebase-plan' and rerun with --accept-candidates, or use a complete reviewed rebase forecast.",
       },
@@ -808,12 +822,13 @@ function continueRebaseInSession(options, cwd) {
   if (operation.state !== "conflicted" || !operation.current) {
     throw new CliError(
       `Rebase state '${operation.state}' cannot be continued.`,
-      { details: "Only a resolved conflict can continue; abort other blocked states." },
+      { code: "operation-state-invalid", details: "Only a resolved conflict can continue; abort other blocked states." },
     );
   }
   const unresolved = unmergedPaths(cwd);
   if (unresolved.length) {
     throw new CliError("Causal rebase still has unresolved paths.", {
+      code: "conflict-blocked",
       details: unresolved.join("\n"),
     });
   }
@@ -821,7 +836,7 @@ function continueRebaseInSession(options, cwd) {
   if (!gitHead || gitHead !== operation.current.sourceCommit) {
     throw new CliError(
       "Git's pending cherry-pick does not match the causal rebase journal.",
-      { details: "Abort the VCS Lab rebase to restore the original branch tip." },
+      { code: "out-of-band-change", details: "Abort the VCS Lab rebase to restore the original branch tip." },
     );
   }
 
@@ -850,6 +865,7 @@ function continueRebaseInSession(options, cwd) {
   );
   if (!result.ok) {
     throw new CliError("Git could not continue the causal rebase.", {
+      code: "conflict-blocked",
       details: result.output,
     });
   }
@@ -881,7 +897,8 @@ export function abortRebase(options = {}) {
   }
   const restoredHead = currentHead(cwd);
   if (restoredHead !== operation.originalHead) {
-    throw new CliError("Causal rebase abort did not restore the original tip.");
+    throw new CliError("Causal rebase abort did not restore the original tip.",
+      { code: "internal-invariant" });
   }
   faultPoint("rebase:abort-before-clear");
   clearRebaseState(cwd);

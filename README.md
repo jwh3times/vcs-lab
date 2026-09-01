@@ -183,6 +183,22 @@ git log --graph --oneline --decorate --branches --tags --remotes
 
 `vlab receipts` is human-readable by default; use `vlab receipts --json` for the complete machine-readable records.
 
+### Failure output
+
+Every command's failure has a machine-readable form. Without `--json` a failure prints `vlab: <message>` on stderr, as it always has. With `--json` it prints a `vcs-lab.error/v1` envelope on stdout instead, and leaves stderr empty:
+
+```json
+{
+  "schema": "vcs-lab.error/v1",
+  "code": "unknown-schema-version",
+  "message": "The reconciliation journal carries unsupported schema \"vcs-lab.reconciliation-operation/v99\".",
+  "details": "This build reads v4 of that family.",
+  "exitCode": 1
+}
+```
+
+`code` comes from a closed vocabulary published in [docs/schemas/errors.md](docs/schemas/errors.md), so automation can tell "your build is too old" from "your input is too big" without matching English. Exit codes are unchanged and identical in both modes.
+
 ### Authorship provenance
 
 `vlab commit` can declare who produced a change, and the declaration survives the rewrites that destroy ordinary Git attribution:
