@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- Begin the failure and hostile-input boundaries of roadmap Horizon 2 item 3
-  with two new suites and a deterministic fault-injection hook.
+- Complete the failure and hostile-input boundaries of roadmap Horizon 2
+  item 3 with three new suites and a deterministic fault-injection hook.
   - `test/hostile-input.test.js` drives malformed notes, tampered metadata
     envelopes, unreadable tracked manifests, traversing identifiers, and
     newline-bearing object expressions through the real CLI, holding each to
@@ -13,7 +13,9 @@
     `vlab: <message>`, so an exit code alone cannot distinguish a considered
     refusal from a crash.
   - `src/faults.js` adds `VLAB_TEST_FAULT`, which turns named points on the
-    reconciliation publication path into a hard `process.exit`. It is inert
+    mutating paths of reconciliation and causal rebase into a hard
+    `process.exit`, across three stretches: publication, the journal advance,
+    and abort cleanup. It is inert
     unless the variable names a point exactly, and it exits rather than throws
     on purpose: throwing would run the cleanup a real interruption never gets
     to run, and the whole question is what the repository looks like when
@@ -30,9 +32,43 @@
     rule admits only receipts reachable from the target. Inert records are
     left behind rather than collected, which is now documented rather than
     discovered.
-  - An out-of-band `git cherry-pick --abort` during a paused reconciliation is
-    covered too: the continue refuses, publishes nothing, and the operation
-    stays recoverable through `vlab reconcile --abort`.
+  - Causal rebase gets the same treatment, with more at stake: the branch ref
+    has already moved by the time publication starts. An abort restores it, and
+    the records published before the interruption are left inert on the notes
+    ref exactly as a reconciliation's are.
+  - **The journal never claims more progress than Git made.** The pick is
+    committed before the journal records it, so an interruption between them
+    leaves a journal that under-reports. That asymmetry is the safe direction
+    and is now pinned as such: a journal that over-reported would resume past a
+    commit that does not exist, while one that under-reports only causes an
+    abort to roll back work nobody recorded. The write is atomic, so no torn
+    journal or temporary-file debris survives either.
+  - **Abort is idempotent.** It restores the history before it clears the
+    journal, so an abort interrupted between the two is completed by running it
+    again, rather than leaving an operation that can neither be continued nor
+    abandoned.
+  - Out-of-band Git during a paused operation is covered for `cherry-pick
+    --continue`, `--skip`, and `--abort`, on both reconciliation and rebase.
+    The dangerous shape is not the abort but an out-of-band *advance*: Git
+    commits the resolution itself, so the work looks finished. vlab refuses to
+    certify a commit it never saw resolved, publishes nothing, and stays
+    recoverable through its own abort.
+  - `test/object-format.test.js` runs the workflows in a SHA-256 repository,
+    where every object id is 64 characters instead of 40, so any comparison
+    that assumed a fixed width fails. It skips itself if the host Git cannot
+    create one.
+
+- Fix proof-bundle verification reporting a bundle from an unrelated repository
+  as a stale one. The bundle stated a repository lineage and
+  `verifyAgainstRepository` never read it, so an unrelated bundle — intact, and
+  internally consistent, so no other check could catch it — came back as
+  `target-moved`: advice to fetch and retry, for a bundle that will never be
+  about this repository. Lineage is now compared first, and a mismatch reports
+  `different-repository` along with the claimed and actual lineage and object
+  format. This is a diagnostic fix rather than a soundness one — verification
+  never confirmed anything it should not have — but a verifier that acts on the
+  wrong reason reaches the wrong conclusion about why it could not confirm the
+  evidence.
 
 - Freeze the logical identity protocol `vcs-lab.logical-id/v1` (FR-ID-07,
   roadmap Horizon 2 item 2) in `docs/identity/`, with `ID_NAMESPACES`,

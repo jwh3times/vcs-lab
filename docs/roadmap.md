@@ -361,24 +361,50 @@ complete outcome.
 
 ### 3. Exercise failure and hostile-input boundaries
 
-- **Started 2026-08-31.** `VLAB_TEST_FAULT` (`src/faults.js`) turns named
-  points on the reconciliation publication path into a hard `process.exit`, so
-  an interruption is reproducible rather than a flaky signal race, and
-  `test/failure-boundary.test.js` asserts what survives each one. Remaining:
-  the same treatment for the rebase publication path, journal writes, and
-  cleanup edges.
-- **Started 2026-08-31.** `test/hostile-input.test.js` covers malformed notes,
+- **Done 2026-08-31.** `VLAB_TEST_FAULT` (`src/faults.js`) turns named points
+  on the mutating paths into a hard `process.exit`, so an interruption is
+  reproducible rather than a flaky signal race, and
+  `test/failure-boundary.test.js` asserts what survives each one. Both
+  reconciliation and causal rebase are covered across three stretches:
+  publication, the journal advance, and abort cleanup. A rebase has more at
+  stake than a reconciliation because the branch ref has already moved by the
+  time publication starts; an abort restores it, and the records published
+  before the interruption survive on the notes ref while carrying no weight,
+  because the FR-PLAN-05 reachability rule admits only receipts reachable from
+  the target. Two properties are worth naming. **The journal never claims more
+  progress than Git made**: the pick is committed before the journal records
+  it, so an interruption there leaves a journal that under-reports, and that
+  asymmetry is the safe direction — a journal that over-reported would resume
+  past a commit that does not exist. **Abort is idempotent**: it restores the
+  history before it clears the journal, so an interrupted abort is completed by
+  running it again rather than leaving an operation that can neither continue
+  nor be abandoned.
+- **Done 2026-08-31.** `test/hostile-input.test.js` covers malformed notes,
   envelopes, tracked manifests, identifiers, and object expressions, holding
   each to a non-zero exit, a domain diagnostic rather than a leaked runtime
-  error, and an unmoved ref. Remaining: SHA-256 repositories, adversarial
-  object graphs, and the bounded-buffer limits that need large fixtures.
-- **Started 2026-08-31.** A `git cherry-pick --abort` behind vlab's back
-  during a paused reconciliation is covered: the continue refuses, publishes
-  nothing, and the operation stays recoverable through `vlab reconcile
-  --abort`. Remaining: out-of-band `--continue` and `--skip`, and the rebase
-  equivalents.
+  error, and an unmoved ref. `test/object-format.test.js` adds SHA-256
+  repositories, where every object id is 64 characters instead of 40, and the
+  adversarial object-graph case that matters most for FR-PLAN-08: a proof
+  bundle from an unrelated repository. That case found a real defect. The
+  bundle stated a lineage and the verifier never read it, so an unrelated
+  bundle — intact, and internally consistent, so nothing else could catch it —
+  came back as `target-moved`, advice to fetch and retry for a bundle that will
+  never be about this repository. `verifyAgainstRepository` now compares
+  lineage first and reports `different-repository` with both object formats.
+  Remaining: the bounded-buffer limits that need large fixtures.
+- **Done 2026-08-31.** Out-of-band Git during a paused operation is covered for
+  `cherry-pick --continue`, `--skip`, and `--abort`, on both reconciliation and
+  rebase. The dangerous shape is not the out-of-band abort but an out-of-band
+  *advance*: Git commits the resolution itself, so the work looks finished.
+  vlab refuses to certify a commit it never saw resolved — a receipt is a claim
+  about how the content was reached — publishes nothing, and stays recoverable
+  through its own abort. The rebase refusal names the disagreement between
+  Git's pending pick and the journal rather than failing generically.
 - Add representative Windows and POSIX runs, including large-object fallback
-  and OneDrive/path-edge cases.
+  and OneDrive/path-edge cases. This is the one piece of this item that a
+  Windows host cannot produce; it needs the Docker route and pairs with the
+  Linux benchmark re-record of
+  [issue #13](https://github.com/jwh3times/vcs-lab/issues/13).
 
 Exit criteria for this horizon are published schemas, deterministic audit
 output, migration/conformance coverage, and fault tests showing that no partial

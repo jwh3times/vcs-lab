@@ -45,15 +45,19 @@
     },
     "repository": {
       "type": "object",
-      "description": "Comparison of the bundle's evidence with a live repository, the only check that catches fabricated evidence. Skipped rather than failed when the repository has moved on, since different heads legitimately produce different evidence.",
+      "description": "Comparison of the bundle's evidence with a live repository, the only check that catches fabricated evidence. Skipped rather than failed when the bundle is about a different repository, or when this one has moved on, since different heads legitimately produce different evidence.",
       "required": ["checked", "matches"],
       "properties": {
         "checked": { "type": "boolean" },
         "matches": { "type": ["boolean", "null"] },
         "reason": {
           "type": ["string", "null"],
-          "description": "Why the comparison was skipped: not-requested, not-a-repository, bundle-incomplete, target-moved, source-moved, or source-ref-missing."
+          "description": "Why the comparison was skipped: not-requested, not-a-repository, bundle-incomplete, different-repository, target-moved, source-moved, or source-ref-missing. different-repository is checked first and is the only reason meaning the bundle will never apply here; the rest mean this repository has moved since the bundle was built."
         },
+        "claimedLineage": { "type": ["string", "null"] },
+        "repositoryLineage": { "type": ["string", "null"] },
+        "claimedObjectFormat": { "type": ["string", "null"] },
+        "repositoryObjectFormat": { "type": ["string", "null"] },
         "claimedTarget": { "type": "string" },
         "repositoryTarget": { "type": "string" },
         "claimedSource": { "type": "string" },

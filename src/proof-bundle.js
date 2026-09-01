@@ -151,6 +151,30 @@ export function verifyAgainstRepository(bundle, cwd = process.cwd()) {
   if (!claimedTarget || !claimedSource || !sourceRef) {
     return { checked: false, reason: "bundle-incomplete", matches: null };
   }
+
+  // Lineage first, because it is the only discriminator that separates a
+  // bundle about this repository from a bundle about a different one. Without
+  // it every mismatch below reads as "the branch moved on, fetch and retry",
+  // which is exactly the wrong advice for a bundle that was never about this
+  // repository at all. Lineage is derived from the root commits, so it also
+  // catches the case where the two repositories do not even share an object
+  // format.
+  const claimedLineage = bundle?.repository?.lineage ?? null;
+  if (claimedLineage?.id) {
+    const actualLineage = repositoryLineage(cwd);
+    if (actualLineage?.id !== claimedLineage.id) {
+      return {
+        checked: false,
+        reason: "different-repository",
+        matches: null,
+        claimedLineage: claimedLineage.id,
+        repositoryLineage: actualLineage?.id ?? null,
+        claimedObjectFormat: claimedLineage.objectFormat ?? null,
+        repositoryObjectFormat: actualLineage?.objectFormat ?? null,
+      };
+    }
+  }
+
   const head = currentHead(cwd);
   if (head !== claimedTarget) {
     return {

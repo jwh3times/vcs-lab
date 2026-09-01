@@ -191,6 +191,7 @@ function recordSuccessfulApplication(operation, relation, cwd) {
   operation.nextIndex += 1;
   operation.current = null;
   operation.state = "running";
+  faultPoint("reconcile:before-journal-advance");
   writeReconciliationState(operation, cwd);
   return application;
 }
@@ -787,6 +788,7 @@ export function abortReconciliation(options = {}) {
   if (currentHead(cwd) !== operation.targetBefore) {
     runGit(["reset", "--hard", operation.targetBefore], { cwd });
   }
+  faultPoint("reconcile:abort-before-clear");
   clearReconciliationState(cwd);
   return {
     aborted: true,

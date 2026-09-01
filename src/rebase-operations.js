@@ -22,6 +22,7 @@ import {
 } from "./engine.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
+import { faultPoint } from "./faults.js";
 import {
   cherryPickHead,
   mergeMessagePath,
@@ -267,6 +268,7 @@ function recordSuccessfulApplication(operation, relation, cwd) {
   operation.nextIndex += 1;
   operation.current = null;
   operation.state = "running";
+  faultPoint("rebase:before-journal-advance");
   writeRebaseState(operation, cwd);
   return application;
 }
@@ -516,13 +518,20 @@ function finalizeRebase(operation, cwd) {
     createdAt: new Date().toISOString(),
   };
 
+  // The same non-atomic stretch as the reconciliation publication path, and
+  // the same named interruption points (Horizon 2 item 3). A rebase has more
+  // at stake: the branch ref has already moved by the time publication starts.
+  faultPoint("rebase:before-publish");
   for (const application of operation.applied) {
     for (const outcome of application.resolutions ?? []) {
       publishResolution(outcome, application, cwd);
     }
     appendNote(application.appliedCommit, application, cwd);
+    faultPoint("rebase:mid-publish");
   }
+  faultPoint("rebase:before-receipt");
   appendNote(resultCommit, receipt, cwd);
+  faultPoint("rebase:before-clear");
   clearRebaseState(cwd);
   return { operationId: operation.id, plan: operation.plan, receipt };
 }
@@ -870,6 +879,7 @@ export function abortRebase(options = {}) {
   if (restoredHead !== operation.originalHead) {
     throw new CliError("Causal rebase abort did not restore the original tip.");
   }
+  faultPoint("rebase:abort-before-clear");
   clearRebaseState(cwd);
   return {
     aborted: true,

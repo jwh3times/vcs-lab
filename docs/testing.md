@@ -95,11 +95,29 @@ each to one property: a non-zero exit, a `vlab:` domain diagnostic rather than
 a leaked JavaScript runtime error, and **no ref moved**. The runtime-error
 check matters because the error boundary prints any failure as `vlab: <message>`,
 so an exit code alone cannot tell a refusal from a crash.
-`test/failure-boundary.test.js` interrupts the reconciliation publication path
-at named fault points with `VLAB_TEST_FAULT` and asserts what survives: the
-journal is always recoverable, no record is ever duplicated, `--continue`
-refuses rather than republishing, and an abort restores the head and leaves no
-*effective* coverage even when receipts were already published.
+`test/failure-boundary.test.js` interrupts the mutating paths of both
+reconciliation and causal rebase at named fault points with `VLAB_TEST_FAULT`
+and asserts what survives: the journal is always recoverable, no record is
+ever duplicated, `--continue` refuses rather than republishing, and an abort
+restores the head — or, for a rebase, the branch ref that had already moved —
+leaving no *effective* coverage even when records were already published. It
+covers three stretches. **Publication**, where shared records reach the notes
+ref. **The journal advance**, the one point where Git is knowingly ahead of the
+journal: the pick is committed before the journal records it, so an
+interruption there leaves a journal that under-reports, which is the safe
+direction and is pinned as such. **Abort cleanup**, where the history has been
+restored but the journal has not yet been cleared, so abort must be idempotent
+or the operation could neither continue nor be abandoned. The same file also
+covers out-of-band Git: a `cherry-pick --continue`, `--skip`, or `--abort`
+driven behind vlab's back during a paused operation must leave the resume
+refusing, publishing nothing, and still recoverable through vlab's own abort.
+`test/object-format.test.js` runs the same workflows in a SHA-256 repository,
+where every object id is 64 characters instead of 40, so any comparison that
+assumed a fixed width fails. It also pins the proof bundle's sharpest
+adversarial case: a bundle from an unrelated repository is intact and
+internally consistent, so only the lineage comparison can catch it, and it must
+be reported as `different-repository` rather than as a stale `target-moved`.
+The test skips itself if the host Git cannot create a SHA-256 repository.
 `test/schema-compatibility.test.js` keeps the published compatibility contract
 in `docs/schemas/compatibility.md` in agreement with `RECORD_FAMILIES` and
 `RESOURCE_BOUNDS` in `src/schemas.js`, and exercises each disposition against

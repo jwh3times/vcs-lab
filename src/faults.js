@@ -5,10 +5,19 @@
  *
  * A real interruption is a kill: the process stops between two Git mutations
  * with no unwinding, no `finally`, and no chance to tidy up. Testing that with
- * a signal and a sleep is flaky and proves nothing repeatable, so the
- * publication path names the points where an interruption would be most
- * damaging and this module turns one of them into a hard exit when the
- * environment asks for it.
+ * a signal and a sleep is flaky and proves nothing repeatable, so the mutating
+ * paths name the points where an interruption would be most damaging and this
+ * module turns one of them into a hard exit when the environment asks for it.
+ *
+ * Three stretches are named, for both reconciliation and causal rebase:
+ *
+ * - **publication** (`*:before-publish`, `*:mid-publish`, `*:before-receipt`,
+ *   `*:before-clear`), where shared records reach the notes ref;
+ * - **the journal advance** (`*:before-journal-advance`), the one point where
+ *   Git is knowingly ahead of the journal, because the pick has been committed
+ *   and the journal has not yet been told;
+ * - **abort cleanup** (`*:abort-before-clear`), where the history has been
+ *   restored but the journal still advertises a pending operation.
  *
  * `process.exit` is deliberate rather than a thrown error: throwing would run
  * cleanup the real failure would not, and the whole question is what the
