@@ -315,3 +315,51 @@ test("a carried record is a valid note record and passes strict metadata validat
   );
   assert.ok(provenanceRecords.every((record) => record.type === "provenance"));
 });
+
+test("carrying provenance does not scale the notes ref reads with the queue", () => {
+  // ADR-0013's rule: a path must not launch one Git process per entity. The
+  // first version of this feature read the notes ref once per application to
+  // discover whether there was anything to carry, which cost one extra process
+  // per change — about 30 ms each on Windows — even in a repository where no
+  // provenance had ever been declared. The read is now done once for the whole
+  // queue.
+  //
+  // Measured as growth rather than as an absolute count, so the test pins the
+  // shape of the cost rather than a number that legitimately moves. Each extra
+  // application costs exactly four notes processes: the read-modify-write of
+  // its own application record, and the same for the provenance record carried
+  // onto it. A fifth means the notes ref is being listed once per application
+  // again instead of once for the queue.
+  //
+  // Provenance must actually be declared for this to discriminate. With none in
+  // the repository the batched path returns before the loop, so batched and
+  // unbatched cost the same and the test would pass either way. Verified by
+  // mutation: reading per application gives five, not four.
+  const notesProcesses = (changes) => {
+    const repo = makeRepo();
+    git(repo, "switch", "-c", "feature");
+    for (let index = 1; index <= changes; index += 1) {
+      write(repo, `f${index}.txt`, `feature ${index}\n`);
+      git(repo, "add", "-A");
+      vlabEnv(repo, { VLAB_AGENT: "agent-x" }, "commit", "-m", `feature ${index}`);
+    }
+    git(repo, "switch", "main");
+    write(repo, "m.txt", "main\n");
+    git(repo, "add", "-A");
+    vlab(repo, "commit", "-m", "main moves");
+
+    const run = vlabResult(repo, ["reconcile", "feature", "--json"], { VLAB_TRACE: "1" });
+    assert.equal(run.status, 0, "the fixture must reconcile cleanly");
+    return run.stderr.split("\n").filter((line) => line.includes("git notes")).length;
+  };
+
+  const small = notesProcesses(2);
+  const large = notesProcesses(6);
+  assert.equal(
+    (large - small) / 4,
+    4,
+    `${small} notes processes for 2 changes and ${large} for 6: each extra ` +
+      "application must cost four, not five. A fifth means the provenance read " +
+      "is per application again instead of once for the queue.",
+  );
+});

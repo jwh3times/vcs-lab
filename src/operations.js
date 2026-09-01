@@ -23,7 +23,11 @@ import {
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
 import { faultPoint } from "./faults.js";
-import { carryProvenanceSafely, declareProvenance } from "./provenance.js";
+import {
+  carryProvenanceForApplications,
+  carryProvenanceSafely,
+  declareProvenance,
+} from "./provenance.js";
 import { buildMergePlan } from "./merge-plan.js";
 import { CliError } from "./errors.js";
 import {
@@ -283,14 +287,12 @@ function finalizeReconciliation(operation, cwd) {
       publishResolution(outcome, application, cwd);
     }
     appendNote(application.appliedCommit, application, cwd);
-    carryProvenanceSafely(
-      [application.originCommit],
-      application.appliedCommit,
-      application.appliedChangeId,
-      cwd,
-    );
     faultPoint("reconcile:mid-publish");
   }
+  // One read of the notes ref for the whole queue rather than one per
+  // application (ADR-0013). Carried after the loop, so an interruption inside
+  // it leaves the same journal state the failure-boundary tests already pin.
+  carryProvenanceForApplications(operation.applied, cwd);
   faultPoint("reconcile:before-receipt");
   appendNote(attachedTo, receipt, cwd);
   faultPoint("reconcile:before-clear");

@@ -23,7 +23,7 @@ import {
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
 import { faultPoint } from "./faults.js";
-import { carryProvenanceSafely } from "./provenance.js";
+import { carryProvenanceForApplications } from "./provenance.js";
 import {
   cherryPickHead,
   mergeMessagePath,
@@ -528,14 +528,11 @@ function finalizeRebase(operation, cwd) {
       publishResolution(outcome, application, cwd);
     }
     appendNote(application.appliedCommit, application, cwd);
-    carryProvenanceSafely(
-      [application.originCommit],
-      application.appliedCommit,
-      application.appliedChangeId,
-      cwd,
-    );
     faultPoint("rebase:mid-publish");
   }
+  // One read of the notes ref for the whole queue (ADR-0013), as in the
+  // reconciliation path.
+  carryProvenanceForApplications(operation.applied, cwd);
   faultPoint("rebase:before-receipt");
   appendNote(resultCommit, receipt, cwd);
   faultPoint("rebase:before-clear");

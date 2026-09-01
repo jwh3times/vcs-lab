@@ -29,6 +29,13 @@
     back to the Git author, because "who committed this" and "who produced
     this" are different claims. The record is an unauthenticated claim by
     whoever ran the command; signing it is FR-TRUST-02 and does not exist.
+  - Carrying is bounded by the invocation, not by the queue (ADR-0013): one
+    read of the notes ref serves a whole publication loop rather than one per
+    application. A six-change reconciliation costs four notes processes per
+    application, not five, and a repository that has never declared provenance
+    pays one bounded read for the operation. `test/provenance.test.js` measures
+    the growth rather than an absolute count and fails if the read goes back
+    inside the loop.
   - Silence stays silence: nothing declared writes no record, because an empty
     one would turn "nobody said" into a claim. The role vocabulary is closed
     (`authored`, `generated`, `reviewed`) so a consumer never has to guess what
