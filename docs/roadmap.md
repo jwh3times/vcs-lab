@@ -166,7 +166,9 @@ current `vlab` path:
    landing merges.
 2. **Done 2026-08-29:** the Windows post-batching rerun of
    `vcs-lab.repository-scale-benchmark/v1` is recorded in ADR-0013's Windows
-   post-batching evidence section.
+   post-batching evidence section. The `linux` entry dropped by the
+   `reduced-local-v2` profile change was re-recorded on 2026-09-01 (issue #13),
+   restoring both hosts to the committed baseline.
 3. **Partly resolved 2026-08-31 by
    [ADR-0022](adr/0022-reject-git-read-side-maintenance-caches-on-measured-evidence.md)
    (issue #10).** The commit-graph and multi-pack index were implemented
@@ -405,10 +407,21 @@ which carries the evidence and the one remaining piece.
   Git's pending pick and the journal rather than failing generically.
 - Add representative Windows and POSIX runs, including large-object fallback
   and OneDrive/path-edge cases. This is the one piece of this item that a
-  Windows host cannot produce; it needs the Docker route and pairs with the
-  Linux benchmark re-record of
-  [issue #13](https://github.com/jwh3times/vcs-lab/issues/13). The ADR-0020
-  bounded-buffer limits that need large fixtures are tracked with it.
+  **Done 2026-09-01** for the POSIX runs and the large-object fallback, in an
+  Ubuntu 24.04 container matching the previous Linux toolchain (Git 2.55.0,
+  Node v22.23.2): all five suite modes green, and the SHA-256 tests ran rather
+  than self-skipping. The large-object fallback is exercised and correct — a
+  `cat-file` content response larger than the 64 MiB session buffer is
+  replaced by a `response-too-large` envelope, the session is disabled, and the
+  read falls back to an ordinary Git process with the right bytes, announced
+  under `VLAB_TRACE=1`. Note the fallback disables the session for the rest of
+  the invocation, so one oversized blob costs that command its batching; that
+  is a deliberate fail-safe rather than a defect, but it is now measured rather
+  than assumed. **Remaining: OneDrive path edges**, which are a Windows concern
+  a container cannot reach — the suites run their fixtures in the OS temp
+  directory, so no run so far has placed a repository inside a synced folder.
+  The ADR-0020 bounded-buffer limits that need large fixtures are tracked with
+  it.
 
 Exit criteria for this horizon are published schemas, deterministic audit
 output, migration/conformance coverage, and fault tests showing that no partial

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Re-record the `linux` benchmark baseline under the `reduced-local-v2`
+  profile, restoring both hosts to `benchmarks/baseline.json`. The entry was
+  dropped when the profile changed, per ADR-0017. Recorded in an Ubuntu 24.04
+  container on Git 2.55.0 and Node v22.23.2, matching the toolchain of the
+  previous Linux entry.
+  - **Every process and query count matches the Windows entry exactly**, and
+    the materialization figures are identical, so the platform-independent
+    part of the contract holds across hosts while the wall-clock figures
+    differ by 5-15x. That gap is the clearest confirmation yet that these
+    commands are dominated by process-launch and filesystem cost rather than
+    by anything algorithmic: identical work, identical process counts, an
+    order of magnitude apart.
+  - Every Linux phase is far under the profile's 1000 ms interactive budget,
+    the slowest being the ordinary worktree forecast at 183 ms, so ADR-0014
+    Gate A item 3 is unmet on Linux by a wider margin than on Windows.
+
 - Complete the failure and hostile-input boundaries of roadmap Horizon 2
   item 3 with three new suites and a deterministic fault-injection hook.
   - `test/hostile-input.test.js` drives malformed notes, tampered metadata

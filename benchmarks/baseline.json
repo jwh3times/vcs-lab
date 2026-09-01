@@ -18,6 +18,91 @@
     "processes": 0
   },
   "hosts": {
+    "linux": {
+      "recordedAt": "2026-09-01",
+      "git": "git version 2.55.0",
+      "node": "v22.23.2",
+      "phases": {
+        "history": {
+          "medianMs": 3.96,
+          "p95Ms": 4.44,
+          "medianProcesses": 1
+        },
+        "gitWorktrees": {
+          "medianMs": 2.36,
+          "p95Ms": 2.73,
+          "medianProcesses": 1
+        },
+        "workspaceRegistry": {
+          "medianMs": 0.14,
+          "p95Ms": 0.17,
+          "medianProcesses": 0
+        },
+        "workspaceStatus": {
+          "medianMs": 35.63,
+          "p95Ms": 37.39,
+          "medianProcesses": 4
+        },
+        "noteCatalog": {
+          "medianMs": 12.16,
+          "p95Ms": 19.36,
+          "medianProcesses": 2
+        },
+        "resolutionCatalog": {
+          "medianMs": 19.92,
+          "p95Ms": 21.86,
+          "medianProcesses": 6
+        },
+        "metadataStatus": {
+          "medianMs": 56.67,
+          "p95Ms": 66.34,
+          "medianProcesses": 12
+        },
+        "workspaceCreate": {
+          "medianMs": 55.6,
+          "p95Ms": 56.74,
+          "medianProcesses": 2
+        },
+        "workspaceCreateCone": {
+          "medianMs": 22.74,
+          "p95Ms": 23.22,
+          "medianProcesses": 4
+        }
+      },
+      "materialization": {
+        "full": {
+          "files": 600,
+          "bytes": 615000
+        },
+        "cone": {
+          "files": 60,
+          "bytes": 61500
+        }
+      },
+      "forecast": {
+        "worktree-ordinary": {
+          "engine": "worktree",
+          "fallbacks": 0,
+          "processes": 63,
+          "queries": 63,
+          "forecastMs": 182.55
+        },
+        "worktree-session": {
+          "engine": "worktree",
+          "fallbacks": 0,
+          "processes": 24,
+          "queries": 63,
+          "forecastMs": 184.5
+        },
+        "merge-tree-session": {
+          "engine": "merge-tree",
+          "fallbacks": 0,
+          "processes": 9,
+          "queries": 24,
+          "forecastMs": 101.81
+        }
+      }
+    },
     "win32": {
       "recordedAt": "2026-08-31",
       "git": "git version 2.55.0.windows.3",
