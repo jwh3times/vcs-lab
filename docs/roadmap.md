@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Baseline | v0.12.0 released |
+| Baseline | v0.13.0 released |
 | Status | Maintained execution guide |
 | Last reviewed | 2026-08-31 |
 | Planning horizon | Next bounded increment through the phased native-core program |
@@ -46,7 +46,11 @@ protocol, portable coverage proof bundles with an independent verifier, the
 hostile-input and fault-injection suites with their deterministic
 `VLAB_TEST_FAULT` hook, SHA-256 object-format coverage, and declared
 authorship provenance carried across the rewrites that destroy ordinary Git
-attribution. On 2026-08-28
+attribution. v0.13.0 releases the failure envelope `vcs-lab.error/v1`
+(ADR-0021, issue #12), which completes the failure half of FR-GIT-06, together
+with the two controls that the provenance work showed were missing: a benchmark
+phase over the publication loop (issue #15) and a suite check that no file in
+the checkout is binary. On 2026-08-28
 [ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
 split the native implementation gate and
 [ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) adopted a

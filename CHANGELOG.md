@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0
 
 - Add a checkout-hygiene check to the suite and the release gate:
   `test/repository-hygiene.test.js` fails when any file contains a NUL byte, or
