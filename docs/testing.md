@@ -260,18 +260,32 @@ unique and every reference must resolve to a definition.
 A release candidate is eligible only when:
 
 1. the source checkout begins and ends clean at the same candidate commit;
-2. the integration suite passes in ordinary, forced-session, both forced
+2. every file in the checkout is text Git will diff — no file contains a NUL
+   byte and none is hidden from review by a `binary` attribute;
+3. the integration suite passes in ordinary, forced-session, both forced
    forecast-engine, and native read-engine modes;
-3. all maintained demos complete;
-4. metadata validation reports no unexpected errors;
-5. expected-failure cases leave protected refs and worktrees unchanged;
-6. no VCS Lab Node or Git process remains after completion;
-7. version constants, package metadata, changelog, and release tag agree; and
-8. the packed artifact passes an install and smoke test outside the source
+4. all maintained demos complete;
+5. metadata validation reports no unexpected errors;
+6. expected-failure cases leave protected refs and worktrees unchanged;
+7. no VCS Lab Node or Git process remains after completion;
+8. version constants, package metadata, changelog, and release tag agree; and
+9. the packed artifact passes an install and smoke test outside the source
    checkout; and
-9. `npm run test:benchmark` passes on every host that has an entry in
-   `benchmarks/baseline.json`; hosts without an entry are reported as
-   skipped.
+10. `npm run test:benchmark` passes on every host that has an entry in
+    `benchmarks/baseline.json`; hosts without an entry are reported as
+    skipped.
+
+Item 2 is enforced by `test/repository-hygiene.test.js`, so item 3 already
+covers it; it is named separately because it is a property of the checkout
+rather than of the tool, and because nothing else in this list can see it. A
+NUL byte inside a JavaScript string literal is valid JavaScript and harmless at
+run time: `node --check`, the whole suite in every mode, the demos, and the
+benchmark all pass. What it destroys is review — Git classifies the file as
+binary, so it has no diff, no blame, and no `git grep` from the moment it
+lands. One was shipped that way, and this is the control that was missing.
+
+The scan covers untracked files as well as tracked ones, so a new file is
+checked before its first commit rather than one commit afterwards.
 
 New schemas, migration behavior, replay algorithms, or performance decisions
 require focused disposable-repository coverage in addition to this general

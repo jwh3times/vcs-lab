@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Add a checkout-hygiene check to the suite and the release gate:
+  `test/repository-hygiene.test.js` fails when any file contains a NUL byte, or
+  when Git would not treat a file as text.
+  - A NUL byte was shipped inside a JavaScript string literal. It is valid
+    JavaScript and harmless at run time, so `node --check`, the whole suite in
+    all five modes, the demos, the benchmark, and the release gate all passed.
+    What it destroys is **review**: Git classifies the file as binary, so it has
+    no diff, no blame, and no `git grep` from the moment it lands.
+  - The scan covers untracked files as well as tracked ones, so a new file is
+    checked before its first commit rather than one commit afterwards. That is
+    not hypothetical — the first version of this test embedded a literal NUL in
+    the regex meant to render one, and did not catch itself because it was not
+    yet tracked. It builds the byte with `String.fromCharCode(0)` now.
+  - A second check asks Git directly, via `git grep -I`, which catches
+    something the byte scan cannot: a `binary` attribute in `.gitattributes`
+    hides a file from review with no NUL in it at all.
+
 - Measure the publication loop in the benchmark (issue #15; ADR-0017 profile
   `reduced-local-v3`). Every existing phase measured a read, and the forecast
   phases simulate without publishing, so nothing covered the one stretch whose
