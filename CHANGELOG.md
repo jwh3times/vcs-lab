@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Fix path checks failing when a Windows process starts inside an 8.3 alias
+  of its directory. The first CI run on a GitHub Windows runner, whose
+  temporary directory is `C:\Users\RUNNER~1\...`, failed 26 tests in every
+  mode: `process.cwd()` kept the alias while Git reported the long form, so
+  `vlab spec index` refused a specification inside the repository as
+  `path-outside-repository` and workspace paths compared unequal. The
+  maintainer's host has no 8.3 component in its temporary path, which is why
+  the hand-run gate never saw it.
+  - The CLI canonicalizes its working directory once at entry with
+    `fs.realpathSync.native`, so the rest of the process shares Git's view of
+    the directory. On POSIX the working directory is already physical and
+    nothing changes.
+  - The test fixtures canonicalize their temporary directories the same way,
+    so expectations built from the fixture path agree with what the CLI
+    reports.
+
 - Add a GitHub Actions workflow (`.github/workflows/ci.yml`) and a sixth
   suite mode, `VLAB_GIT_SESSION=0`. The release gate had run by hand on one
   host, and "ordinary mode" on that host is not ordinary mode on the other

@@ -139,7 +139,7 @@ test("the manifest-hash encoder vector is accepted by the shipped envelope reade
   assert.equal(sha256(encoder.hashedPayloadCanonical), encoder.manifestHash);
   assert.equal(encoder.manifest.integrity.manifestHash, encoder.manifestHash);
 
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-canonical-vector-"));
+  const directory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-canonical-vector-")));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const manifestPath = path.join(directory, "manifest.json");
 

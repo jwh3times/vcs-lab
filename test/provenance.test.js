@@ -60,7 +60,7 @@ function write(repo, relative, content) {
 }
 
 function makeRepo() {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-prov-"));
+  const parent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-prov-")));
   created.push(parent);
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);

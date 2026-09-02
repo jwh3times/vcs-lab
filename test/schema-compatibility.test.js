@@ -195,7 +195,7 @@ function vlabResult(cwd, ...args) {
 }
 
 function repository(t) {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-compatibility-"));
+  const parent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-compatibility-")));
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);
   git(repo, "init", "-b", "main");

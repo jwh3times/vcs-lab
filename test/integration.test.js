@@ -81,7 +81,7 @@ function readText(repo, relative) {
 }
 
 function makeRepo(t) {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-test-"));
+  const parent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-test-")));
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);
   git(repo, "init", "-b", "main");

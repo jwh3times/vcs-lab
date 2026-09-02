@@ -85,7 +85,7 @@ function allRaiseSites() {
 }
 
 function makeRepo() {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-error-"));
+  const parent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-error-")));
   created.push(parent);
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);

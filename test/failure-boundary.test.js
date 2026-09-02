@@ -61,7 +61,7 @@ function write(repo, relative, content) {
  * publication path, which is the stretch these tests interrupt.
  */
 function makeReconcilable() {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-fault-"));
+  const parent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-fault-")));
   created.push(parent);
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);

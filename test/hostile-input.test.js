@@ -52,7 +52,7 @@ after(() => {
  */
 function scenario() {
   if (scenarioState) return scenarioState;
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-hostile-"));
+  const parent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-hostile-")));
   scenarioParent = parent;
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);

@@ -892,6 +892,26 @@ function gitBenchmark(options = {}) {
   });
 }
 
+/**
+ * Windows can start a process inside an 8.3 alias of its directory
+ * (`C:\Users\RUNNER~1\...`), and `process.cwd()` then keeps the alias while
+ * Git reports the long form from `rev-parse --show-toplevel`. Every check
+ * that relates a caller-supplied path to the repository root — spec
+ * containment, workspace path equality — would compare the two spellings and
+ * refuse a path that is inside the repository. Canonicalizing once at entry
+ * gives the rest of the CLI the same view of the directory Git has. On POSIX
+ * `process.cwd()` is already the physical path, so this changes nothing.
+ */
+function canonicalizeWorkingDirectory() {
+  try {
+    const current = process.cwd();
+    const canonical = fs.realpathSync.native(current);
+    if (canonical !== current) process.chdir(canonical);
+  } catch {
+    // A directory that cannot be resolved is reported by the first Git call.
+  }
+}
+
 function gitObjectSessionBenchmark(options = {}, cwd = process.cwd()) {
   const sampleCount = positiveInteger(options.samples, 3, "--samples");
   const collector = beginGitMetrics("doctor-object-session");
@@ -980,6 +1000,7 @@ function formatRebaseStatus(status) {
 }
 
 export async function main(rawArgs) {
+  canonicalizeWorkingDirectory();
   const forceSession = rawArgs.includes("--git-session");
   const disableSession = rawArgs.includes("--no-git-session");
   if (forceSession && disableSession) {

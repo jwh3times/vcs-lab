@@ -288,7 +288,7 @@ let scenarioState = null;
  */
 function scenario(t) {
   if (scenarioState) return scenarioState;
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-schema-catalog-"));
+  const parent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-schema-catalog-")));
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);
   git(repo, "init", "-b", "main");

@@ -51,7 +51,7 @@ function write(repo, relative, content) {
  * files so the operation completes.
  */
 function makeRepository(objectFormat) {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-objfmt-"));
+  const parent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-objfmt-")));
   created.push(parent);
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);
@@ -76,7 +76,7 @@ function makeRepository(objectFormat) {
 }
 
 const supportsSha256 = (() => {
-  const probe = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-objfmt-probe-"));
+  const probe = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-objfmt-probe-")));
   try {
     const attempt = spawnSync(
       "git",
