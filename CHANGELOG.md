@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.1
 
 - Make every text file LF in the working tree as well as in the index.
   `.gitattributes` set `text=auto`, which normalises what Git stores but leaves
