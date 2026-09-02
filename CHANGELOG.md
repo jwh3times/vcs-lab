@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.2
 
 - Fix path checks failing when a Windows process starts inside an 8.3 alias
   of its directory. The first CI run on a GitHub Windows runner, whose

@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Baseline | `ef6f224` on `main`, four commits after v0.13.1, unreleased |
+| Baseline | v0.13.2 released |
 | Status | Maintained until every item below is closed, then deleted |
 | Written | 2026-09-02, from a full evaluation of the repository at v0.13.1 |
 
@@ -48,7 +48,7 @@ the two most severe findings reproduced in disposable repositories.
 
 ## What is done
 
-All four commits are on `main` and unreleased. The CI run for `ef6f224`
+All four commits are on `main` and released in v0.13.2. The CI run for `ef6f224`
 passed all fifteen jobs.
 
 | Commit | Change |
@@ -67,10 +67,9 @@ Two properties of the workflow to keep in mind:
   metadata validation, and the packed-install smoke test remain release-time
   steps in [testing.md](testing.md#release-gate).
 
-The next release is **v0.13.2**. Its changelog entries are already written
-under `Unreleased`. The release gate is the one in
-[testing.md](testing.md#release-gate); a green CI run on the release commit
-satisfies item 3.
+These four commits shipped in **v0.13.2**. Its release gate was the one in
+[testing.md](testing.md#release-gate), with item 3 satisfied by the CI run
+on the release commit.
 
 ## Step 3: decide ADR-0015 phase 1 on the evidence
 
