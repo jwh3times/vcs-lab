@@ -19,6 +19,7 @@ import {
   repoContext,
   resolveObjectIds,
   resolveRevision,
+  symbolicRef,
 } from "./engine.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
@@ -151,6 +152,54 @@ function requirePendingReconciliation(cwd) {
       { code: "no-operation-pending" });
   }
   return operation;
+}
+
+function branchLabel(ref) {
+  if (!ref) return "a detached HEAD";
+  return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
+}
+
+/**
+ * Refuse to continue or abort a reconciliation from a worktree that is no
+ * longer on the branch the operation started on. Abort restores
+ * `targetBefore` with `reset --hard`, which moves whatever branch HEAD points
+ * at; without this guard a `git checkout -f other` between the pause and the
+ * abort would reset `other` to the target's old tip and strand its commits in
+ * the reflog. The rebase path has had the same guard from the start.
+ *
+ * A journal written before `targetBranchRef` existed cannot answer the
+ * question, so it is trusted only while Git's own sequencer still holds the
+ * pick the journal is paused on: a checkout that discarded the conflict also
+ * removed `CHERRY_PICK_HEAD`, so that shape is the one to refuse.
+ */
+function requireReconciliationBranch(operation, cwd) {
+  const actualRef = symbolicRef("HEAD", cwd);
+  if (Object.hasOwn(operation, "targetBranchRef")) {
+    if (actualRef === operation.targetBranchRef) return actualRef;
+    throw new CliError(
+      `The reconciliation journal belongs to ${
+        operation.targetBranchRef ? `branch '${branchLabel(operation.targetBranchRef)}'` : "a detached HEAD"
+      }, not ${operation.targetBranchRef && actualRef ? `'${branchLabel(actualRef)}'` : branchLabel(actualRef)}.`,
+      {
+        code: "out-of-band-change",
+        details: `Switch back to ${
+          operation.targetBranchRef ? `'${branchLabel(operation.targetBranchRef)}'` : "the detached HEAD the operation started on"
+        } before continuing or aborting the reconciliation.`,
+      },
+    );
+  }
+  const pending = cherryPickHead(cwd);
+  if (pending && pending === operation.current?.sourceCommit) return actualRef;
+  throw new CliError(
+    "The reconciliation journal does not record its branch, and Git holds no matching cherry-pick.",
+    {
+      code: "out-of-band-change",
+      details: [
+        "The journal predates the branch record, so vlab cannot prove this worktree is still on the branch the reconciliation started on.",
+        `Restore it by hand if needed: git reset --hard ${operation.targetBefore} on that branch, then remove the journal file.`,
+      ].join("\n"),
+    },
+  );
 }
 
 function applicationRecord(
@@ -599,6 +648,7 @@ function startOperation(sourceRef, plan, options, cwd) {
     sourceRef,
     sourceHead: plan.sourceHead,
     targetBefore: plan.targetHead,
+    targetBranchRef: symbolicRef("HEAD", cwd),
     acceptCandidates: Boolean(options.acceptCandidates),
     forecastId: options.forecast?.id ?? null,
     forecastApproval: options.forecast
@@ -683,6 +733,7 @@ export function reconciliationStatus(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const operation = readReconciliationState(cwd);
   if (!operation) return { active: false, state: "idle" };
+  const actualBranchRef = symbolicRef("HEAD", cwd);
   return {
     active: true,
     operationId: operation.id,
@@ -691,7 +742,17 @@ export function reconciliationStatus(options = {}) {
     sourceRef: operation.sourceRef,
     sourceHead: operation.sourceHead,
     targetBefore: operation.targetBefore,
+    targetBranchRef: operation.targetBranchRef ?? null,
     forecastId: operation.forecastId ?? null,
+    recovery: {
+      expectedBranchRef: operation.targetBranchRef ?? null,
+      actualBranchRef,
+      actualHead: currentHead(cwd),
+      targetBefore: operation.targetBefore,
+      branchMatches: Object.hasOwn(operation, "targetBranchRef")
+        ? actualBranchRef === operation.targetBranchRef
+        : null,
+    },
     progress: {
       completed: operation.nextIndex,
       total: operation.queue.length,
@@ -733,6 +794,7 @@ function forkMergeMessage(operation, cwd) {
 function continueReconciliationInSession(options, cwd) {
   const phaseStarted = performance.now();
   const operation = requirePendingReconciliation(cwd);
+  requireReconciliationBranch(operation, cwd);
   if (!operation.current) {
     throw new CliError("The pending reconciliation has no current change.",
       { code: "no-operation-pending" });
@@ -808,6 +870,7 @@ export function continueReconciliation(options = {}) {
 export function abortReconciliation(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const operation = requirePendingReconciliation(cwd);
+  requireReconciliationBranch(operation, cwd);
   if (cherryPickHead(cwd)) {
     runGit(["cherry-pick", "--abort"], { cwd });
   } else {
@@ -815,6 +878,10 @@ export function abortReconciliation(options = {}) {
   }
   if (currentHead(cwd) !== operation.targetBefore) {
     runGit(["reset", "--hard", operation.targetBefore], { cwd });
+  }
+  if (currentHead(cwd) !== operation.targetBefore) {
+    throw new CliError("Reconciliation abort did not restore the target's original tip.",
+      { code: "internal-invariant" });
   }
   faultPoint("reconcile:abort-before-clear");
   clearReconciliationState(cwd);

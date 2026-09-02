@@ -153,7 +153,7 @@ rendering at all.
 | `vlab rebase --abort` | Projection `{aborted, operationId, sourceRef, restoredHead}` |
 | `vlab forecast` | `vcs-lab.forecast/v2` |
 | `vlab reconcile`, `vlab reconcile --continue` | Projection `{operationId, plan, receipt}` with `plan` a `vcs-lab.merge-plan/v1` and `receipt` a `vcs-lab.reconciliation/v6` |
-| `vlab reconcile --status` | Projection like `rebase --status` (without `sourceBranchRef`/`ontoRef`/`ontoHead`/`recovery`) with `applied` an array of `vcs-lab.application/v4` |
+| `vlab reconcile --status` | Projection like `rebase --status` (with `targetBranchRef` in place of `sourceBranchRef`, without `ontoRef`/`ontoHead`; `recovery` names the expected and actual branch, with `branchMatches` null for a journal written before the branch was recorded) with `applied` an array of `vcs-lab.application/v4` |
 | `vlab reconcile --abort` | Projection `{aborted, operationId, restoredHead}` |
 | `vlab resolve status` | Projection `{active, operationId, conflicts}` |
 | `vlab resolve apply` | Projection `{operationId, applied: [{path, resolution}]}` |

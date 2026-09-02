@@ -798,11 +798,17 @@ export function readGitBlob(blob, cwd = process.cwd()) {
     }
     return object.content;
   }
-  return readGit(["cat-file", "blob", blob], {
+  const result = readGit(["cat-file", "blob", blob], {
     cwd,
     binary: true,
     trim: false,
-  }).stdout;
+    allowFailure: true,
+  });
+  if (!result.ok) {
+    throw new CliError(`Git object '${blob}' is not a blob.`,
+      { code: "revision-not-resolved", details: result.stderr });
+  }
+  return result.stdout;
 }
 
 function readBatchLine(buffer, offset) {
@@ -966,7 +972,19 @@ export function resolveRevision(revision, cwd = process.cwd()) {
     }
     return object.oid;
   }
-  return readText(["rev-parse", "--verify", `${revision}^{commit}`], { cwd });
+  // The process path must classify a missing revision the way the session
+  // path does (ADR-0021): a reference that is not there is the caller's
+  // problem, not a Git defect, and the code must not depend on which
+  // transport answered — the session is the default on Windows only.
+  const result = readGit(["rev-parse", "--verify", "--quiet", `${revision}^{commit}`], {
+    cwd,
+    allowFailure: true,
+  });
+  if (!result.ok || !result.stdout) {
+    throw new CliError(`Git revision '${revision}' did not resolve to a commit.`,
+      { code: "revision-not-resolved", details: result.stderr });
+  }
+  return result.stdout;
 }
 
 export function resolveObjectIds(expressions, cwd = process.cwd()) {
@@ -980,11 +998,11 @@ export function resolveObjectIds(expressions, cwd = process.cwd()) {
     }
     return objects.map((object) => object.oid);
   }
-  const output = readText(["rev-parse", ...expressions], { cwd });
-  const ids = output.split(/\r?\n/).filter(Boolean);
-  if (ids.length !== expressions.length) {
+  const result = readGit(["rev-parse", ...expressions], { cwd, allowFailure: true });
+  const ids = result.ok ? result.stdout.split(/\r?\n/).filter(Boolean) : [];
+  if (!result.ok || ids.length !== expressions.length) {
     throw new CliError("Git did not resolve every requested object expression.",
-      { code: "revision-not-resolved" });
+      { code: "revision-not-resolved", details: result.ok ? "" : result.stderr });
   }
   return ids;
 }
@@ -999,7 +1017,15 @@ export function treeId(revision, cwd = process.cwd()) {
     }
     return object.oid;
   }
-  return readText(["rev-parse", `${revision}^{tree}`], { cwd });
+  const result = readGit(["rev-parse", "--verify", "--quiet", `${revision}^{tree}`], {
+    cwd,
+    allowFailure: true,
+  });
+  if (!result.ok || !result.stdout) {
+    throw new CliError(`Git revision '${revision}' did not resolve to a tree.`,
+      { code: "revision-not-resolved", details: result.stderr });
+  }
+  return result.stdout;
 }
 
 export function mergeBase(left, right, cwd = process.cwd()) {
@@ -1120,7 +1146,15 @@ export function commitMessage(commit, cwd = process.cwd()) {
     const separator = raw.indexOf("\n\n");
     return (separator < 0 ? "" : raw.slice(separator + 2)).trim();
   }
-  return readText(["show", "-s", "--format=%B", commit], { cwd });
+  const result = readGit(["show", "-s", "--format=%B", `${commit}^{commit}`], {
+    cwd,
+    allowFailure: true,
+  });
+  if (!result.ok) {
+    throw new CliError(`Git revision '${commit}' did not resolve to a commit.`,
+      { code: "revision-not-resolved", details: result.stderr });
+  }
+  return result.stdout;
 }
 
 export function commitSubject(commit, cwd = process.cwd()) {

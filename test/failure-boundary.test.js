@@ -691,3 +691,96 @@ test("the session buffer override is inert unless it names a positive integer", 
     );
   }
 });
+
+test("reconciliation continue and abort refuse a worktree that has moved to another branch", () => {
+  // Abort restores `targetBefore` with a hard reset of whatever HEAD points
+  // at. Before the journal recorded its branch, a `git checkout -f other`
+  // between the pause and the abort reset `other` to main's old tip and left
+  // its commits reachable only from the reflog — the one shape the abort
+  // invariant exists to rule out.
+  const repo = conflictOnSharedFile(makeReconcilable());
+  git(repo, "switch", "-c", "other", "main");
+  write(repo, "o.txt", "other work\n");
+  git(repo, "add", "-A");
+  vlab(repo, "commit", "-m", "other work");
+  const otherTip = git(repo, "rev-parse", "other");
+  git(repo, "switch", "main");
+  const mainTip = git(repo, "rev-parse", "main");
+
+  const paused = vlabResult(repo, ["reconcile", "feature", "--json"]);
+  assert.notEqual(paused.status, 0, "the fixture must pause on a conflict");
+  // The fixture applies one clean change before the conflict, so the paused
+  // tip is ahead of `targetBefore`; a refusal must leave it exactly there.
+  const pausedTip = git(repo, "rev-parse", "main");
+  assert.notEqual(pausedTip, mainTip);
+  const status = JSON.parse(vlab(repo, "reconcile", "--status", "--json"));
+  assert.equal(status.targetBranchRef, "refs/heads/main", "the journal records its branch");
+  assert.equal(status.recovery.branchMatches, true);
+
+  git(repo, "checkout", "-f", "other");
+  const movedStatus = JSON.parse(vlab(repo, "reconcile", "--status", "--json"));
+  assert.equal(movedStatus.recovery.actualBranchRef, "refs/heads/other");
+  assert.equal(movedStatus.recovery.branchMatches, false, "status names the disagreement");
+
+  for (const verb of ["--abort", "--continue"]) {
+    const refused = refusal(vlabResult(repo, ["reconcile", verb, "--json"]));
+    assert.equal(refused.code, "out-of-band-change", `${verb} from the wrong branch is refused`);
+    assert.match(refused.message, /belongs to branch 'main', not 'other'/);
+    assert.equal(git(repo, "rev-parse", "other"), otherTip, `${verb} left 'other' where it was`);
+    assert.equal(git(repo, "rev-parse", "main"), pausedTip, `${verb} left 'main' where it was`);
+    assert.ok(fs.existsSync(journalPath(repo)), `${verb} kept the journal for recovery`);
+  }
+
+  // Back on the operation's branch the abort completes, and only that branch moves.
+  git(repo, "switch", "main");
+  const aborted = JSON.parse(vlab(repo, "reconcile", "--abort", "--json"));
+  assert.equal(aborted.aborted, true);
+  assert.equal(aborted.restoredHead, mainTip);
+  assert.equal(git(repo, "rev-parse", "other"), otherTip);
+  assert.ok(!fs.existsSync(journalPath(repo)), "the journal is cleared after a real abort");
+});
+
+test("a journal without a branch record is trusted only while Git still holds its pick", () => {
+  // Journals written before `targetBranchRef` existed cannot say which branch
+  // they belong to. While Git's sequencer still holds the exact pick the
+  // journal is paused on, the worktree is provably in the operation's state and
+  // the abort is safe; once a forced checkout has discarded that pick, nothing
+  // proves it, and the abort must refuse rather than guess.
+  const repo = conflictOnSharedFile(makeReconcilable());
+  git(repo, "switch", "-c", "other", "main");
+  write(repo, "o.txt", "other work\n");
+  git(repo, "add", "-A");
+  vlab(repo, "commit", "-m", "other work");
+  const otherTip = git(repo, "rev-parse", "other");
+  git(repo, "switch", "main");
+  const mainTip = git(repo, "rev-parse", "main");
+
+  const pauseWithLegacyJournal = () => {
+    assert.notEqual(vlabResult(repo, ["reconcile", "feature", "--json"]).status, 0);
+    const journal = JSON.parse(fs.readFileSync(journalPath(repo), "utf8"));
+    assert.ok(Object.hasOwn(journal, "targetBranchRef"), "a current journal records its branch");
+    delete journal.targetBranchRef;
+    fs.writeFileSync(journalPath(repo), JSON.stringify(journal, null, 2));
+  };
+
+  // With the pick still pending on the operation's branch, the legacy journal
+  // is abortable: an upgrade must not strand an in-flight operation.
+  pauseWithLegacyJournal();
+  const status = JSON.parse(vlab(repo, "reconcile", "--status", "--json"));
+  assert.equal(status.targetBranchRef, null);
+  assert.equal(status.recovery.branchMatches, null, "status does not pretend to know");
+  const aborted = JSON.parse(vlab(repo, "reconcile", "--abort", "--json"));
+  assert.equal(aborted.aborted, true);
+  assert.equal(git(repo, "rev-parse", "main"), mainTip);
+
+  // Once a forced checkout has discarded the pick, nothing proves which branch
+  // the journal belongs to, and the abort refuses instead of resetting `other`.
+  pauseWithLegacyJournal();
+  git(repo, "checkout", "-f", "other");
+  const refused = refusal(vlabResult(repo, ["reconcile", "--abort", "--json"]));
+  assert.equal(refused.code, "out-of-band-change");
+  assert.match(refused.message, /does not record its branch/);
+  assert.match(refused.details, new RegExp(mainTip), "the details name the tip to restore by hand");
+  assert.equal(git(repo, "rev-parse", "other"), otherTip, "the unrelated branch is untouched");
+  assert.ok(fs.existsSync(journalPath(repo)), "the journal is kept for hand recovery");
+});

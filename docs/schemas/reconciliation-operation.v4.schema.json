@@ -22,6 +22,10 @@
     "sourceRef": { "type": "string", "minLength": 1 },
     "sourceHead": { "$ref": "#/$defs/oid" },
     "targetBefore": { "$ref": "#/$defs/oid" },
+    "targetBranchRef": {
+      "type": ["string", "null"],
+      "description": "The symbolic ref HEAD pointed at when the operation started (null for a detached HEAD). Continue and abort refuse a worktree on any other branch, because abort restores targetBefore with a hard reset of whatever HEAD points at. Optional: journals written before v0.13.2 lack it and are trusted only while Git still holds the pick they are paused on."
+    },
     "acceptCandidates": { "type": "boolean" },
     "forecastId": { "type": ["string", "null"] },
     "forecastApproval": {

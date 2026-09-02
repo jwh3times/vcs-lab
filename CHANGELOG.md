@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- Fix `vlab reconcile --abort` and `--continue` acting on whichever branch is
+  checked out. Abort restores the target's original tip with a hard reset of
+  whatever HEAD points at, and the reconciliation journal never recorded which
+  branch that was. Pause on a conflict on `main`, `git checkout -f other`, run
+  the abort, and `other` was reset to `main`'s old tip with its own commits
+  left only in the reflog. The rebase path has guarded against this from the
+  start; the reconciliation path did not.
+  - `vcs-lab.reconciliation-operation/v4` gains an optional `targetBranchRef`
+    (the symbolic ref of HEAD at start, null when detached), an additive
+    change inside the version under `docs/schemas/compatibility.md` §1.
+    Continue and abort refuse a worktree on any other branch with
+    `out-of-band-change`, and `reconcile --status` gains a `recovery` block
+    naming the expected and actual branch, as the rebase status already did.
+  - A journal written before the member existed cannot answer the question, so
+    it is trusted only while Git's own sequencer still holds the pick the
+    journal is paused on. A forced checkout removes `CHERRY_PICK_HEAD`, so that
+    is exactly the shape that is refused, with the tip to restore by hand
+    named in the details. An in-flight operation across the upgrade is
+    therefore still abortable from its own branch.
+  - Abort now also verifies that the restored head is `targetBefore` before
+    clearing the journal, as the rebase abort does.
+
+- Fix the error code for a missing revision depending on the Git transport.
+  The object session path classified `vlab merge-plan no-such-ref` as
+  `revision-not-resolved`; the one-process fallback let `git rev-parse` fail
+  and reported `git-command-failed`. The session is the default on Windows
+  only, so the same command published different codes on the two platforms,
+  against the ADR-0021 contract, and `test/error-envelope.test.js` and the
+  `unresolved-revision` conformance fixture failed in every session-off mode
+  on POSIX from v0.13.0 on. The release gate ran where the session is on and
+  could not see it.
+  - `resolveRevision`, `resolveObjectIds`, `treeId`, `commitMessage`, and
+    `readGitBlob` now classify the process path the way the session path does,
+    carrying Git's stderr in `details`. A new test runs the failure on both
+    transports and requires the same code and message.
+
 - Accept
   [ADR-0023](docs/adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
   (issue #16). The causal fact substrate is the only part a native store is

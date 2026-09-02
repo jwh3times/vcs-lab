@@ -274,3 +274,28 @@ test("the ADR-0020 refusals are readable without matching English", () => {
   assert.notEqual(missingArgument.status, 0);
   assert.equal(JSON.parse(missingArgument.stdout).code, "usage-missing-argument");
 });
+
+test("a missing revision is classified the same way on both Git transports", () => {
+  // The object session answers reads in-process on Windows by default and is
+  // off by default elsewhere. The session path always said
+  // `revision-not-resolved`; the one-process fallback let `git rev-parse` fail
+  // and reported `git-command-failed`, so the same command published different
+  // codes on the two platforms and the release gate, run where the session is
+  // on, could not see it.
+  const repo = makeRepo();
+  const codes = {};
+  for (const session of ["0", "1"]) {
+    const failed = spawnSync(process.execPath, [cli, "merge-plan", "does-not-exist", "--json"], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_GIT_SESSION: session },
+    });
+    assert.notEqual(failed.status, 0);
+    assert.equal(failed.stderr, "");
+    const envelope = JSON.parse(failed.stdout);
+    codes[session] = envelope;
+  }
+  assert.equal(codes["0"].code, "revision-not-resolved", "process transport");
+  assert.equal(codes["1"].code, "revision-not-resolved", "session transport");
+  assert.equal(codes["0"].message, codes["1"].message, "and the message does not depend on the transport");
+});
