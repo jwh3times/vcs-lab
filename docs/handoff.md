@@ -66,6 +66,10 @@ Two properties of the workflow to keep in mind:
 - The benchmark is not in CI because its baseline is per-host. Demos,
   metadata validation, and the packed-install smoke test remain release-time
   steps in [testing.md](testing.md#release-gate).
+- The v0.13.2 gate re-recorded the `linux` publication process count (57:
+  the abort guard's one `symbolic-ref` read per reconciliation). The `win32`
+  baseline entry still says 41 and will report a one-process regression
+  until `npm run benchmark:record` is run on the Windows host.
 
 These four commits shipped in **v0.13.2**. Its release gate was the one in
 [testing.md](testing.md#release-gate), with item 3 satisfied by the CI run

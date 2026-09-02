@@ -2,6 +2,17 @@
 
 ## 0.13.2
 
+- Record one more Git process in the benchmark's `publication` phase for the
+  `linux` baseline entry (56 to 57). The reconcile abort guard above reads
+  `HEAD`'s symbolic ref once when an operation starts, so the journal can
+  name its branch; the object session cannot answer that read, so it is one
+  process per reconciliation on either transport. The regression check
+  caught it during the release gate, as ADR-0017 intends, and the count is
+  re-recorded deliberately rather than avoided: a branch record is what the
+  guard rests on. Only the one deterministic value changed, so the `linux`
+  latency figures still describe the host that recorded them. The `win32`
+  entry will report the same +1 until it is re-recorded on that host.
+
 - Fix path checks failing when a Windows process starts inside an 8.3 alias
   of its directory. The first CI run on a GitHub Windows runner, whose
   temporary directory is `C:\Users\RUNNER~1\...`, failed 26 tests in every
