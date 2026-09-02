@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Make every text file LF in the working tree as well as in the index.
+  `.gitattributes` set `text=auto`, which normalises what Git stores but leaves
+  the checkout to the platform, and then pinned `eol=lf` for three extensions.
+  Everything else was missed: `scripts/*.mjs` were CRLF on Windows while
+  `src/*.js` were LF, `LICENSE` and `.gitattributes` itself were CRLF, and
+  `.gitignore` had drifted to mixed endings.
+  - The rule is now `* text=auto eol=lf`, and the per-extension lines are gone.
+    They were the defect: an enumeration silently stops covering the file type
+    nobody added to it, which is how `.mjs` — every script in this repository —
+    ended up on the other convention from every source file.
+  - No committed content changes. All 139 tracked files were already LF in the
+    index, so this alters what a checkout produces, not what Git stores;
+    `git add --renormalize .` stages nothing but `.gitattributes`.
+  - Not cosmetic: a patch script written for one convention corrupts a file
+    written in the other, which cost real time while editing the benchmark
+    script during this release.
+
 - Add `npm run demo:clean`, which removes the demonstration fixtures the
   `demo:*` scripts leave in the OS temporary directory. Each demo ends by
   printing `Inspect it with: cd <path>` and nothing ever removed them, so they
