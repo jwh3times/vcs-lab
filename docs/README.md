@@ -27,6 +27,8 @@ the versioned record of delivered behavior.
   policy.
 - [Architecture decision records](adr/README.md) — decisions whose constraints
   should survive refactoring.
+- [Continuation brief](handoff.md) — the owner's maintained brief for work in
+  progress after the 2026-09-02 evaluation; deleted when its items close.
 
 ## Documentation lifecycle
 
