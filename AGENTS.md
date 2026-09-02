@@ -31,6 +31,9 @@ or build step.
 
 - `npm test` runs the complete Node integration suite.
 - `npm run test:docs` checks local Markdown link targets.
+- `.github/workflows/ci.yml` runs the static checks and every suite mode on
+  Ubuntu and Windows for each push and pull request; the benchmark is not part
+  of it because its baseline is per-host.
 - `npm run test:benchmark` compares bounded benchmarks against the committed
   per-host baseline in `benchmarks/baseline.json`; `npm run benchmark:record`
   refreshes this host's entry on a quiet machine.
@@ -60,7 +63,8 @@ Tests use `node:test` and descriptive behavior names such as
 `test("stale forecasts fail before starting a reconciliation", ...)`. Add
 regression coverage for observable changes and use temporary repositories for
 history-changing cases. For Git-session, forecast, read-path, or cross-cutting
-changes, run `npm test`, `VLAB_GIT_SESSION=1 npm test`,
+changes, run `npm test`, `VLAB_GIT_SESSION=1 npm test`, `VLAB_GIT_SESSION=0 npm test`
+(the session default differs by platform, so both are forced on every host),
 `VLAB_FORECAST_ENGINE=worktree npm test`, `VLAB_FORECAST_ENGINE=merge-tree npm test`
 (the default forecast engine differs by platform), and `VLAB_ENGINE=native npm test`
 (every read must pass through `src/engine.js`; never call `runGit` for a read

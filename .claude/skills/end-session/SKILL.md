@@ -216,10 +216,12 @@ Show findings before acting. Work through:
   Fix skill drift with `npm run sync:agents`; never hand-edit
   `.claude/skills/`, it is generated from `.agents/skills/`. If source changed
   and was not qualified, remind the user that `npm test`,
-  `VLAB_GIT_SESSION=1 npm test`, `VLAB_FORECAST_ENGINE=worktree npm test`,
+  `VLAB_GIT_SESSION=1 npm test`, `VLAB_GIT_SESSION=0 npm test`,
+  `VLAB_FORECAST_ENGINE=worktree npm test`,
   `VLAB_FORECAST_ENGINE=merge-tree npm test`, and `VLAB_ENGINE=native npm test`
-  are the qualification commands (about 50 seconds each on Linux, five
-  minutes on Windows); run them only if asked.
+  are the qualification commands (about 60 seconds each on Linux, five
+  minutes on Windows); run them only if asked. A pushed commit gets the same
+  matrix on both platforms from `.github/workflows/ci.yml`.
 - **Nothing staged that must never be committed**: `git diff --cached
   --name-only` must contain no benchmark JSON, gate or review logs, packed
   tarballs, bundles, scratch scripts, or files with machine-local paths.

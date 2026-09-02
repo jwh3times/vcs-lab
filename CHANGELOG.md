@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Add a GitHub Actions workflow (`.github/workflows/ci.yml`) and a sixth
+  suite mode, `VLAB_GIT_SESSION=0`. The release gate had run by hand on one
+  host, and "ordinary mode" on that host is not ordinary mode on the other
+  platform: the Git object session is the default on Windows and off
+  elsewhere, so a Windows gate never exercised the one-process fallback that
+  every POSIX user runs by default, which is how v0.13.0 shipped with two
+  tests red there.
+  - The workflow runs the static checks and one job per suite mode per
+    platform (Ubuntu and Windows on Node 24, plus the Node 20 floor in both
+    session modes), fails a suite job unless exactly one test self-skipped —
+    so a runner whose Git cannot run the merge-tree engine is reported rather
+    than silently green — and fails the Linux jobs if a session worker or
+    `cat-file` process survives the suite (release-gate item 7).
+  - The benchmark is deliberately not in it: its baseline is per-host and the
+    latency rule compares against the maintainer's machines.
+  - `docs/testing.md`, `AGENTS.md`, the README, and the end-session skill list
+    the new mode; release-gate item 3 now names both session settings and both
+    platforms, and says a green run on the release commit satisfies it.
+
 - Fix `vlab reconcile --abort` and `--continue` acting on whichever branch is
   checked out. Abort restores the target's original tip with a hard reset of
   whatever HEAD points at, and the reconciliation journal never recorded which

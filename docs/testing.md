@@ -37,6 +37,23 @@ On POSIX shells:
 VLAB_GIT_SESSION=1 npm test
 ```
 
+Run it with the session forced off as well. "Ordinary mode" is not one mode:
+the session is the default on Windows and off elsewhere, so an ordinary run
+on a Windows host never exercises the one-process fallback that every POSIX
+user runs by default. v0.13.0 shipped with two tests red in exactly that
+path because the gate ran where the session is on. Forcing both settings on
+every host closes the gap:
+
+```powershell
+$env:VLAB_GIT_SESSION = "0"
+npm test
+Remove-Item Env:VLAB_GIT_SESSION -ErrorAction SilentlyContinue
+```
+
+```bash
+VLAB_GIT_SESSION=0 npm test
+```
+
 Run it with each forecast engine forced. The default engine differs by
 platform (`merge-tree` on Windows, `worktree` elsewhere), so both runs are
 needed on every host: the merge-tree run simulates every clean forecast step
@@ -190,7 +207,7 @@ npm run demo:git-session
 ```
 
 Use targeted Node test-name patterns during development, but complete the
-ordinary, forced-session, both forced-forecast-engine, and native-engine runs
+ordinary, both forced-session, both forced-forecast-engine, and native-engine runs
 before treating a cross-cutting, forecast, or read-path change as qualified.
 `npm run demo:git-session` additionally compares the three forecast modes on
 one queue, and `vlab doctor --differential` compares the read engines
@@ -212,7 +229,7 @@ Since the `reduced-local-v3` profile it also measures the **publication loop**
 every Git process the whole `vlab reconcile` invocation starts and how many
 records it publishes. That is the one stretch whose work scales with the number
 of changes, and until v3 nothing covered it — a per-application `git notes list`
-was added there and passed the entire suite, all five suite modes, and this
+was added there and passed the entire suite, every suite mode, and this
 check. The count comes from the `VLAB_TRACE=1` trace rather than from the
 receipt, because the receipt's `timings.git` block covers the application phase
 only: the receipt is built before publication runs, so it cannot report its own
@@ -262,8 +279,10 @@ A release candidate is eligible only when:
 1. the source checkout begins and ends clean at the same candidate commit;
 2. every file in the checkout is text Git will diff — no file contains a NUL
    byte and none is hidden from review by a `binary` attribute;
-3. the integration suite passes in ordinary, forced-session, both forced
-   forecast-engine, and native read-engine modes;
+3. the integration suite passes in ordinary, session-on, session-off, both
+   forced forecast-engine, and native read-engine modes, on a Windows host
+   and a POSIX host — the continuous-integration workflow below runs exactly
+   this matrix, and a green run on the release commit satisfies the item;
 4. all maintained demos complete;
 5. metadata validation reports no unexpected errors;
 6. expected-failure cases leave protected refs and worktrees unchanged;
@@ -291,6 +310,22 @@ New schemas, migration behavior, replay algorithms, or performance decisions
 require focused disposable-repository coverage in addition to this general
 gate. Release qualification does not establish production readiness, security
 review, service-level objectives, or broad platform performance.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull
+request: the static checks, and one job per suite mode per platform
+(Ubuntu and Windows on Node 24, plus the Node 20 floor in the two session
+modes on Ubuntu). Each suite job fails unless exactly one test self-skipped —
+the too-old-Git case, which is covered with a spoofed version — so a runner
+whose toolchain cannot run the merge-tree engine or SHA-256 repositories is
+reported rather than silently green. The Linux jobs also fail if a
+session worker or `cat-file` process survives the suite (release-gate item 7).
+
+The workflow does not run `npm run test:benchmark`: the baseline is per-host
+and its latency rule compares against the maintainer's machines, so a runner
+would report noise as regression. Demos, metadata validation, and the
+packed-install smoke test stay release-time steps.
 
 ## Evidence retention
 

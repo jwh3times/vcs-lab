@@ -830,8 +830,11 @@ portable unreachable origins, plus a caller-isolated repository-scale fixture
 that verifies semantic scan results, process-amplification decisions, privacy,
 and cleanup, and the engine seam's import discipline, passthrough equality,
 bypass refusal, and differential report. The complete suite is also run with
-`VLAB_GIT_SESSION=1` to exercise the Windows-default session path, with each
+`VLAB_GIT_SESSION=1` and `VLAB_GIT_SESSION=0` to exercise the Windows-default
+session path and the POSIX-default one-process path on every host, with each
 forecast engine forced (`VLAB_FORECAST_ENGINE=worktree` and
 `VLAB_FORECAST_ENGINE=merge-tree`) because the default engine differs by
 platform, and with `VLAB_ENGINE=native`, which refuses any repository read
-that does not pass through `src/engine.js`.
+that does not pass through `src/engine.js`. The GitHub Actions workflow in
+`.github/workflows/ci.yml` runs that whole matrix on Ubuntu and Windows for
+every push and pull request.

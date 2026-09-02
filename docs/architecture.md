@@ -1227,7 +1227,7 @@ optional. The read-side engine seam of phase 0b is implemented
 ([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md), §14.4):
 every repository read is one of 38 cataloged operations, the native engine
 is selectable and passes through to Git with recorded fallbacks until its
-binding exists, and the suite's third mode refuses any read outside the seam.
+binding exists, and the suite's `VLAB_ENGINE=native` mode refuses any read outside the seam.
 The contract catalog and canonical-JSON profile that complete phase 0b are
 next. A canonical fact log with
 Git notes and refs as projections, private draft stacks, and any gateway
