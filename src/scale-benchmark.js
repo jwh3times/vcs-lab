@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
@@ -24,6 +23,7 @@ import {
   readWorkspaces,
 } from "./workspaces.js";
 import { CliError } from "./errors.js";
+import { temporaryDirectory } from "./store.js";
 
 const SCALE_BENCHMARK_SCHEMA = "vcs-lab.repository-scale-benchmark/v1";
 // A batched scan costs a small fixed number of processes regardless of entity
@@ -316,9 +316,7 @@ export function benchmarkRepositoryScale(options = {}) {
     );
   }
 
-  const benchmarkRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), "vcs-lab-scale-benchmark-"),
-  );
+  const benchmarkRoot = temporaryDirectory("vcs-lab-scale-benchmark-");
   const repo = path.join(benchmarkRoot, "repo");
   const worktreeRoot = path.join(benchmarkRoot, "worktrees");
   const setupCollector = beginGitMetrics("scale-fixture-setup");

@@ -1,12 +1,11 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { deflateSync } from "node:zlib";
 import { gitBlobId, newId, sha256, slug } from "./ids.js";
 import { runGit } from "./git.js";
 import { pathInventory, readGitObjects, repoContext } from "./engine.js";
-import { readJson } from "./store.js";
+import { readJson, temporaryDirectory } from "./store.js";
 import {
   readPendingOperation,
   writePendingOperation,
@@ -1237,7 +1236,7 @@ export function benchmarkSpecIndex(options = {}) {
     throw new CliError("The benchmark is limited to 100,000 generated blocks.",
       { code: "usage-invalid-option-value" });
   }
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-spec-benchmark-"));
+  const temporary = temporaryDirectory("vcs-lab-spec-benchmark-");
   try {
     runGit(["init", "-q", "-b", "main"], { cwd: temporary });
     const context = repoContext(temporary);

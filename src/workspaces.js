@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { extractTrailer, gitText, runGit } from "./git.js";
 import {
@@ -17,7 +16,7 @@ import {
   workspaceStatus,
 } from "./engine.js";
 import { newId, sha256, slug } from "./ids.js";
-import { ensureLabRuntime, readJson, writeJson } from "./store.js";
+import { ensureLabRuntime, readJson, temporaryDirectory, writeJson } from "./store.js";
 import { CliError } from "./errors.js";
 import { assertReadableSchema } from "./schemas.js";
 
@@ -316,8 +315,8 @@ export function checkpointWorkspace(label, options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const context = repoContext(cwd);
   const workspace = currentWorkspace(cwd);
-  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "vlab-index-"));
-  const indexPath = path.join(temporaryDirectory, "index");
+  const scratchDirectory = temporaryDirectory("vlab-index-");
+  const indexPath = path.join(scratchDirectory, "index");
   const env = { GIT_INDEX_FILE: indexPath };
   const ref = workspaceCheckpointRef(workspace);
 
@@ -380,7 +379,7 @@ export function checkpointWorkspace(label, options = {}) {
       createdAt: new Date().toISOString(),
     };
   } finally {
-    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    fs.rmSync(scratchDirectory, { recursive: true, force: true });
   }
 }
 

@@ -14,6 +14,12 @@
     `fs.realpathSync.native`, so the rest of the process shares Git's view of
     the directory. On POSIX the working directory is already physical and
     nothing changes.
+  - The temporary repositories, worktrees, and corpora vlab creates itself —
+    forecast worktrees, spec and scale benchmarks, envelope inspection, the
+    workspace index scratch — come from one `temporaryDirectory` helper that
+    returns the canonical path, since the entry-point fix cannot reach a
+    directory created after entry. Eight tests stayed red on the runner until
+    it did.
   - The test fixtures canonicalize their temporary directories the same way,
     so expectations built from the fixture path agree with what the CLI
     reports.

@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
@@ -36,7 +35,7 @@ import {
   unmergedPaths,
 } from "./reconcile-state.js";
 import { readRebaseState } from "./rebase-state.js";
-import { readJson, writeJson } from "./store.js";
+import { readJson, temporaryDirectory, writeJson } from "./store.js";
 import {
   latestWorkspaceCheckpoint,
   listWorkspaces,
@@ -99,9 +98,7 @@ function saveForecast(forecast, cwd) {
 
 function withTemporaryWorktree(targetHead, cwd, callback) {
   const totalStarted = performance.now();
-  const temporaryRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), "vcs-lab-forecast-"),
-  );
+  const temporaryRoot = temporaryDirectory("vcs-lab-forecast-");
   const temporaryWorktree = path.join(temporaryRoot, "worktree");
   let added = false;
   let pruneAfterRemoval = false;

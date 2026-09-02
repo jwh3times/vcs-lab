@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { beginGitMetrics, endGitMetrics, runGit } from "./git.js";
 import {
@@ -25,6 +24,7 @@ import {
 } from "./metadata-envelope.js";
 import { referencedObjectsForRecord } from "./schemas.js";
 import { CliError } from "./errors.js";
+import { temporaryDirectory } from "./store.js";
 
 const NOTES_REF = "refs/notes/vcs-lab";
 const RESOLUTION_PREFIX = "refs/vcs-lab/resolutions/";
@@ -74,7 +74,7 @@ function collapseCommitParents(parents, tree, cwd, env, message) {
 }
 
 function buildNotesCommit(entries, cwd, options = {}) {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "vlab-metadata-index-"));
+  const temporary = temporaryDirectory("vlab-metadata-index-");
   const indexPath = path.join(temporary, "index");
   const env = {
     GIT_INDEX_FILE: indexPath,
@@ -258,7 +258,7 @@ export function exportMetadata(envelopePath, options = {}) {
 }
 
 function initInspectionRepository() {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "vlab-envelope-inspect-"));
+  const parent = temporaryDirectory("vlab-envelope-inspect-");
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);
   runGit(["init", "-b", "main"], { cwd: repo });
