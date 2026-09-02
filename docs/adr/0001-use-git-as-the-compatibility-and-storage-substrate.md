@@ -74,6 +74,18 @@ The PRD's native implementation gate is satisfied and measured Git constraints
 cannot be addressed through batching, explicit metadata transport, or a narrow
 gateway.
 
+**Amendment 2026-09-02 (ADR-0023):** this decision is refined rather than
+superseded. Going concept by concept through the PRD identity model against the
+implementation,
+[ADR-0023](0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
+found that every distortion a native store would remove is on the **causal
+fact** side — edges with no representation, facts whose identity is their
+attachment point, validity inherited from an unrelated object's reachability —
+and none on the **content** side. Git stays the substrate for blobs, trees,
+commits and ancestry indefinitely, and additionally carries the correctness
+oracle every semantics claim rests on. Only the fact substrate is a candidate
+for replacement, and only under Gate B.
+
 **Amendment 2026-08-28 (ADR-0014):** the gate named above is Gate B of
 [ADR-0014](0014-split-the-native-implementation-gate-into-engine-and-store-gates.md).
 A semantics-preserving native engine under Gate A does not reconsider this

@@ -1,6 +1,6 @@
 # ADR-0023: Locate the model/substrate mismatch in causal facts, not content
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-01
 - **Owners:** Repository maintainers
 - **Related requirements:** GP-01, GP-12, FR-ID-02, FR-ID-06, FR-ID-07,
@@ -168,3 +168,25 @@ part a native store is justified in replacing. Git's content substrate stays.**
   `benchmarks/baseline.json`
 - Distortions inventoried in code: `src/notes.js`, `src/identity-audit.js`,
   `src/workspaces.js`, `src/specs.js`, `src/metadata-transfer.js`
+
+## Amendment 2026-09-02: accepted, and one correction
+
+Accepted after the decision was tracked on
+[issue #16](https://github.com/jwh3times/vcs-lab/issues/16). Nothing in the
+analysis changed; one thing said about *how to test it* did, and it matters
+enough to record here rather than only on the issue.
+
+This ADR names sub-commit authorship provenance as the first serious candidate
+for a model concept the content substrate cannot express, and the proposed way
+to find out was to ship commit-level provenance and dogfood it. Commit-level
+provenance shipped in v0.12.0. **Dogfooding it in this repository cannot
+produce the evidence**: the repository has 71 commits, 67 of them
+single-parent, zero squash landings and zero `Change-Id` trailers. It never
+rewrites, so provenance is only ever *declared* here and never *carried* — and
+the carry is the whole point, the part Git cannot do. Neither signal the
+question turns on can appear.
+
+The prerequisite is therefore a branch-and-land workflow, here or on another
+repository, not the `vlab init` that was first proposed as a small step. Until
+that exists, the content half of this decision stands unchallenged by evidence
+rather than confirmed by it, which is the honest description of its status.

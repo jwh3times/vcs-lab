@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+- Accept
+  [ADR-0023](docs/adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
+  (issue #16). The causal fact substrate is the only part a native store is
+  justified in replacing; Git's content substrate stays. ADR-0001 is refined
+  rather than superseded and gains an amendment saying so.
+  - The finding the decision rests on: going concept by concept through the PRD
+    identity model against the implementation, every distortion a native store
+    would remove is on the **fact** side — a causal edge with no representation,
+    facts whose identity is their attachment point, validity inherited from an
+    unrelated object's reachability — and **none** on the content side. Git's
+    content model additionally carries the correctness oracle every semantics
+    claim rests on.
+  - Performance is explicitly not the argument. It measures process creation,
+    which an in-process engine addresses and a native format does not.
+  - The acceptance amendment records one correction. This ADR named sub-commit
+    provenance as the trigger for revisiting the content half, and proposed
+    dogfooding commit-level provenance to find out. **That cannot produce the
+    evidence here**: this repository has 71 commits, 67 single-parent, zero
+    squash landings and zero `Change-Id` trailers, so provenance is only ever
+    declared and never carried — and the carry is the part Git cannot do. The
+    prerequisite is a branch-and-land workflow, not a configuration change.
+
 ## 0.13.1
 
 - Make every text file LF in the working tree as well as in the index.

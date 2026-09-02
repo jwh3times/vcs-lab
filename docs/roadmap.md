@@ -505,6 +505,13 @@ back. The suite pins the case Git cannot answer: after a hard squash `git blame`
 attributes every absorbed line to the landing author, while the carried record
 still names the actors of both absorbed commits.
 
+[ADR-0023](adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
+is **Accepted** as of 2026-09-02: the fact substrate is the only part a native
+store is justified in replacing, Git's content substrate stays, and ADR-0001 is
+refined rather than superseded. Its amendment records that dogfooding
+provenance *in this repository* cannot produce the evidence the content half
+would need, because this history never rewrites.
+
 The open design question is anchoring granularity (product question 11).
 Commit-level attribution is delivered with the existing receipt machinery and
 survives rewrite through the same identity rules. Sub-commit attribution needs
