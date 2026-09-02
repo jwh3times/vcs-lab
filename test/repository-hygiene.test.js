@@ -26,6 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { fixturePrefixes } from "../scripts/clean-demo-fixtures.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -131,5 +132,34 @@ test("Git agrees that every file in the checkout is text", () => {
     [],
     "files Git will not treat as text, so they cannot be reviewed in a diff:\n" +
     opaque.join("\n"),
+  );
+});
+
+test("every demo's fixture prefix is one demo:clean will sweep", () => {
+  // `npm run demo:clean` derives its prefixes from the demo scripts rather
+  // than listing them, because a hardcoded list stops covering a demo the day
+  // someone adds one and fails invisibly: fixtures simply keep accumulating.
+  // This asserts the derivation still finds every demo, so a new demo whose
+  // fixture is named differently — or a regex that stops matching — fails here
+  // rather than silently leaving repositories in the temporary directory.
+  const scriptsDir = path.join(projectRoot, "scripts");
+  const demos = fs
+    .readdirSync(scriptsDir)
+    .filter((name) => name.endsWith(".mjs") && name.includes("demo") && name !== "clean-demo-fixtures.mjs");
+  assert.ok(demos.length >= 6, `expected the demo scripts, found ${demos.length}`);
+
+  const swept = fixturePrefixes();
+  const uncovered = [];
+  for (const name of demos) {
+    const source = fs.readFileSync(path.join(scriptsDir, name), "utf8");
+    const match = source.match(/mkdtempSync\(\s*path\.join\(\s*os\.tmpdir\(\)\s*,\s*"([^"]+)"/);
+    assert.ok(match, `${name}: no temporary-fixture prefix found`);
+    if (!swept.includes(match[1])) uncovered.push(`${name} -> ${match[1]}`);
+  }
+
+  assert.deepEqual(
+    uncovered,
+    [],
+    "demo fixtures npm run demo:clean would not remove:\n" + uncovered.join("\n"),
   );
 });

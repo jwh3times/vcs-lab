@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- Add `npm run demo:clean`, which removes the demonstration fixtures the
+  `demo:*` scripts leave in the OS temporary directory. Each demo ends by
+  printing `Inspect it with: cd <path>` and nothing ever removed them, so they
+  accumulated one per demo per run — three release-gate runs leave eighteen.
+  - Listing is the default and `--apply` removes, matching `vlab workspace
+    prune` and `vlab metadata import`: a command that deletes directories
+    should say what it would delete first. `--all` widens the sweep to any
+    `vcs-lab-` fixture, which picks up what an interrupted test or benchmark
+    run left behind.
+  - The prefixes are **derived from the demo scripts** rather than listed,
+    because a hardcoded list stops covering a demo the day someone adds one and
+    fails invisibly — fixtures simply keep accumulating.
+    `test/repository-hygiene.test.js` asserts the derivation still finds every
+    demo, and is mutation-verified against both drift shapes: a prefix outside
+    the `vcs-lab-` namespace, and one built from a variable the scan cannot
+    read.
+
 ## 0.13.0
 
 - Add a checkout-hygiene check to the suite and the release gate:

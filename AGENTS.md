@@ -38,6 +38,10 @@ or build step.
   `npm run sync:agents -- --check` reports drift without writing.
 - `npm run demo` runs the primary workflow demonstration; the other `demo:*`
   scripts exercise conflicts, resolutions, forecasts, specs, and Git sessions.
+  Each deliberately leaves its repository in the OS temporary directory for
+  inspection, so they accumulate; `npm run demo:clean` lists those fixtures and
+  `npm run demo:clean -- --apply` removes them (`-- --all` also sweeps fixtures
+  an interrupted test or benchmark run left behind).
 - `node ./bin/vlab.js --help` runs the CLI directly without installing it.
 - `npm link` optionally exposes `vlab` in the local shell.
 

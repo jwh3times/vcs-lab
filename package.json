@@ -10,6 +10,7 @@
     "test": "node --test",
     "test:docs": "node ./scripts/check-doc-links.mjs",
     "demo": "node ./scripts/demo.mjs",
+    "demo:clean": "node ./scripts/clean-demo-fixtures.mjs",
     "demo:conflict": "node ./scripts/conflict-demo.mjs",
     "demo:resolution": "node ./scripts/resolution-demo.mjs",
     "demo:forecast": "node ./scripts/forecast-demo.mjs",
