@@ -24,6 +24,7 @@ import {
 } from "./metadata-envelope.js";
 import { referencedObjectsForRecord } from "./schemas.js";
 import { CliError } from "./errors.js";
+import { withNotesLock } from "./notes.js";
 import { temporaryDirectory } from "./store.js";
 
 const NOTES_REF = "refs/notes/vcs-lab";
@@ -489,38 +490,43 @@ function applyImport(envelope, incoming, preview, cwd) {
   }
   const staged = stageEnvelopeRefs(envelope, cwd);
   try {
-    const commands = ["start"];
-    const notesStage = staged.find((entry) => entry.ref === NOTES_REF);
-    const existingNotes = refTarget(NOTES_REF, cwd);
-    const notesPreview = preview.refs.find((entry) => entry.ref === NOTES_REF);
-    if (notesStage && notesPreview?.action !== "noop") {
-      if (existingNotes === null) {
-        commands.push(`create ${NOTES_REF} ${notesStage.oid}`);
-      } else {
-        const combined = combineNoteEntries(NOTES_REF, incoming.records, cwd);
-        const existingTree = treeId(NOTES_REF, cwd);
-        const merged = buildNotesCommit(combined, cwd, {
-          baseRef: NOTES_REF,
-          parents: [existingNotes, notesStage.oid],
-          message: `Import vcs-lab metadata ${envelope.manifest.integrity.manifestHash.slice(0, 16)}`,
-        });
-        if (merged.tree !== existingTree) {
-          commands.push(`update ${NOTES_REF} ${merged.commit} ${existingNotes}`);
+    // The notes ref is read and then replaced in one transaction, under the
+    // lock every publisher holds (`withNotesLock`), so a receipt appended
+    // between the read and the update is merged rather than dropped.
+    withNotesLock(cwd, () => {
+      const commands = ["start"];
+      const notesStage = staged.find((entry) => entry.ref === NOTES_REF);
+      const existingNotes = refTarget(NOTES_REF, cwd);
+      const notesPreview = preview.refs.find((entry) => entry.ref === NOTES_REF);
+      if (notesStage && notesPreview?.action !== "noop") {
+        if (existingNotes === null) {
+          commands.push(`create ${NOTES_REF} ${notesStage.oid}`);
+        } else {
+          const combined = combineNoteEntries(NOTES_REF, incoming.records, cwd);
+          const existingTree = treeId(NOTES_REF, cwd);
+          const merged = buildNotesCommit(combined, cwd, {
+            baseRef: NOTES_REF,
+            parents: [existingNotes, notesStage.oid],
+            message: `Import vcs-lab metadata ${envelope.manifest.integrity.manifestHash.slice(0, 16)}`,
+          });
+          if (merged.tree !== existingTree) {
+            commands.push(`update ${NOTES_REF} ${merged.commit} ${existingNotes}`);
+          }
         }
       }
-    }
-    for (const entry of staged.filter((item) => item.ref.startsWith(RESOLUTION_PREFIX))) {
-      const current = refTarget(entry.ref, cwd);
-      if (current === null) {
-        commands.push(`create ${entry.ref} ${entry.oid}`);
-      } else if (current !== entry.oid) {
-        throw new CliError(`Resolution ref '${entry.ref}' changed or conflicts during import.`,
-          { code: "stale-input" });
+      for (const entry of staged.filter((item) => item.ref.startsWith(RESOLUTION_PREFIX))) {
+        const current = refTarget(entry.ref, cwd);
+        if (current === null) {
+          commands.push(`create ${entry.ref} ${entry.oid}`);
+        } else if (current !== entry.oid) {
+          throw new CliError(`Resolution ref '${entry.ref}' changed or conflicts during import.`,
+            { code: "stale-input" });
+        }
       }
-    }
-    for (const entry of staged) commands.push(`delete ${entry.stageRef} ${entry.oid}`);
-    commands.push("prepare", "commit");
-    runGit(["update-ref", "--stdin"], { cwd, input: `${commands.join("\n")}\n` });
+      for (const entry of staged) commands.push(`delete ${entry.stageRef} ${entry.oid}`);
+      commands.push("prepare", "commit");
+      runGit(["update-ref", "--stdin"], { cwd, input: `${commands.join("\n")}\n` });
+    });
     return {
       ...preview,
       schema: "vcs-lab.metadata-import/v1",

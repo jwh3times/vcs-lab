@@ -138,6 +138,16 @@ or the operation could neither continue nor be abandoned. The same file also
 covers out-of-band Git: a `cherry-pick --continue`, `--skip`, or `--abort`
 driven behind vlab's back during a paused operation must leave the resume
 refusing, publishing nothing, and still recoverable through vlab's own abort.
+The same file proves the notes lock closes the publication race:
+`VLAB_TEST_GATE=notes:after-read` parks one publisher between reading a
+commit's note container and writing it back (the gated process creates
+`<VLAB_TEST_GATE_FILE>.reached` on arrival and proceeds once
+`<VLAB_TEST_GATE_FILE>` exists), a second publisher must wait rather than
+complete, and both records are present afterwards; with the lock removed the
+same test shows the second record lost. A lock left by a process that is gone,
+or a minute-old lock from a host that cannot be checked, is abandoned, while a
+lock a running process holds makes the next publisher wait and then refuse
+with `notes-locked`.
 The same file pins the object session's response-buffer bound. Overflowing
 the real 64 MiB content buffer needs a blob of roughly 48 MiB, far too large to
 build on every suite run, so `VLAB_TEST_SESSION_BUFFER_BYTES` shrinks the
@@ -160,7 +170,8 @@ fallback and reruns the whole queue in the worktree simulator with identical
 trees. `VLAB_TEST_MERGE_TREE_GIT_VERSION=<version>` makes the merge-tree
 session report that Git version instead of the one its trace2 event names,
 which is how the `git-too-old` fallback is exercised on a host whose Git is new
-enough. Like `VLAB_TEST_FAULT`, each is inert unless it is set exactly.
+enough. Like `VLAB_TEST_FAULT` and `VLAB_TEST_GATE`, each is inert unless it is
+set exactly.
 `test/error-envelope.test.js` covers the failure contract (ADR-0021). Two of
 its checks are **static**: they scan `src/` for every `new CliError` and fail
 if one carries no code or a code outside `ERROR_CODES`, and fail in the other

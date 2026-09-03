@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { FAULT_EXIT_CODE } from "../src/faults.js";
 import { testEnv } from "../test-support/git-environment.js";
 
@@ -784,4 +784,118 @@ test("a journal without a branch record is trusted only while Git still holds it
   assert.match(refused.details, new RegExp(mainTip), "the details name the tip to restore by hand");
   assert.equal(git(repo, "rev-parse", "other"), otherTip, "the unrelated branch is untouched");
   assert.ok(fs.existsSync(journalPath(repo)), "the journal is kept for hand recovery");
+});
+
+/**
+ * A publisher: one process appending one record to `commit` through the real
+ * `appendNote`, the path every receipt takes. No command appends to a commit
+ * its caller names, so the publisher is a script rather than the CLI; the
+ * race under test is between processes, so it is a process.
+ */
+function publisher(repo, commit, recordId, env = {}) {
+  const notes = pathToFileURL(path.join(projectRoot, "src", "notes.js")).href;
+  const script = [
+    `import { appendNote } from ${JSON.stringify(notes)};`,
+    `appendNote(${JSON.stringify(commit)}, {`,
+    `  type: "test-record", id: ${JSON.stringify(recordId)},`,
+    "  createdAt: new Date().toISOString(),",
+    "});",
+  ].join("\n");
+  const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: repo,
+    env: testEnv(env),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  const done = new Promise((resolve) => {
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+  return { child, done };
+}
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function until(condition, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error("timed out waiting for the condition");
+    await pause(20);
+  }
+}
+
+const noteRecordIds = (repo, commit) =>
+  JSON.parse(git(repo, "notes", "--ref=vcs-lab", "show", commit)).records
+    .map((record) => record.id);
+
+test("two publishers appending to one commit at once lose no record", async () => {
+  const repo = makeReconcilable();
+  const commit = git(repo, "rev-parse", "HEAD");
+  const gate = path.join(path.dirname(repo), "gate");
+  const first = publisher(repo, commit, "first", {
+    VLAB_TEST_GATE: "notes:after-read",
+    VLAB_TEST_GATE_FILE: gate,
+  });
+  await until(() => fs.existsSync(`${gate}.reached`));
+
+  // The first publisher has read the container and is about to write it
+  // back. Without the lock the second would run to completion here, and the
+  // first's write would then replace the container the second appended to.
+  const second = publisher(repo, commit, "second");
+  const early = await Promise.race([second.done, pause(1_500).then(() => null)]);
+  assert.equal(
+    early,
+    null,
+    `the second publisher completed inside the first's critical section: ${JSON.stringify(early)}`,
+  );
+
+  fs.writeFileSync(gate, "");
+  const [firstResult, secondResult] = await Promise.all([first.done, second.done]);
+  assert.equal(firstResult.status, 0, firstResult.stderr);
+  assert.equal(secondResult.status, 0, secondResult.stderr);
+  assert.deepEqual(noteRecordIds(repo, commit).sort(), ["first", "second"]);
+  assert.equal(fs.existsSync(path.join(repo, ".git", "vcs-lab", "notes.lock")), false);
+});
+
+test("a lock whose holder is gone is abandoned, and a live holder's is respected", async () => {
+  const repo = makeReconcilable();
+  const commit = git(repo, "rev-parse", "HEAD");
+  const lockPath = path.join(repo, ".git", "vcs-lab", "notes.lock");
+  const claim = (pid, hostname) =>
+    `${JSON.stringify({ pid, hostname, createdAt: new Date().toISOString() })}\n`;
+
+  // Linux caps pids at 2^22 and Windows allots multiples of four, so this pid
+  // belongs to no process on any supported host: a publisher that crashed.
+  fs.writeFileSync(lockPath, claim(4_194_305, os.hostname()));
+  const afterCrash = await publisher(repo, commit, "after-crash").done;
+  assert.equal(afterCrash.status, 0, afterCrash.stderr);
+  assert.equal(fs.existsSync(lockPath), false);
+
+  // A holder on another host cannot be checked, so its lock stands until it
+  // is old enough to be judged abandoned.
+  fs.writeFileSync(lockPath, claim(1, "elsewhere.invalid"));
+  const old = new Date(Date.now() - 120_000);
+  fs.utimesSync(lockPath, old, old);
+  const afterRemote = await publisher(repo, commit, "after-remote").done;
+  assert.equal(afterRemote.status, 0, afterRemote.stderr);
+  assert.equal(fs.existsSync(lockPath), false);
+
+  // This test process holds the lock and is running, so a publisher waits its
+  // budget and refuses rather than taking the lock from it. Through the CLI,
+  // the refusal is the envelope's own code.
+  fs.writeFileSync(lockPath, claim(process.pid, os.hostname()));
+  write(repo, "held.txt", "held\n");
+  git(repo, "add", "-A");
+  const refused = refusal(vlabResult(
+    repo,
+    ["commit", "-m", "held", "--generated-by", "agent:test", "--json"],
+  ));
+  assert.equal(refused.code, "notes-locked");
+  assert.match(refused.message, new RegExp(`locked by process ${process.pid} on `));
+  assert.equal(fs.existsSync(lockPath), true);
+  fs.rmSync(lockPath);
+
+  assert.deepEqual(noteRecordIds(repo, commit), ["after-crash", "after-remote"]);
 });

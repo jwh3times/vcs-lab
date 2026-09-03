@@ -52,6 +52,7 @@ export const ERROR_CODES = Object.freeze({
   "dirty-worktree": "The worktree has uncommitted changes and this operation requires a clean one.",
   "precondition-not-met": "A stated precondition does not hold yet. The message names the step that establishes it.",
   "operation-in-progress": "A VCS Lab operation is already pending in this worktree. Finish or abort it first.",
+  "notes-locked": "Another vcs-lab process holds the causal notes lock. Wait for it to finish and retry; remove the lock file only if that process is gone.",
   "no-operation-pending": "No VCS Lab operation is pending, so there is nothing to continue or abort.",
   "operation-state-invalid": "The pending operation is in a state this command cannot act on. The message names the state.",
   "git-operation-active": "Git itself has a replay or sequencer operation in progress. Resolve it before continuing.",

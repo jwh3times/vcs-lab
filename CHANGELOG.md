@@ -23,6 +23,23 @@
     Change-ID scope question was still open after the identity protocol
     answered it, and issue #17 was mentioned in no document.
 
+- Serialize every writer of the causal notes ref on one lock file,
+  `<common-git-dir>/vcs-lab/notes.lock`. `appendNote` read a commit's note
+  container, appended, and wrote the whole blob back with `git notes add -f`,
+  and `git notes add` itself builds its tree from the ref as it stood when
+  the command started and updates the ref unconditionally, so two publishers
+  running at once in two worktrees of one repository could each lose the
+  other's record. The lock is created exclusively the way Git creates its own
+  `.lock` files and costs no Git process. A lock whose holder is on this host
+  and no longer running, or a minute-old lock whose holder is on another
+  host, is abandoned; a lock a running process holds is waited for five
+  seconds and then refused with the new code `notes-locked`, additive within
+  `vcs-lab.error/v1`. The metadata import holds the same lock around its
+  notes transaction. `test/failure-boundary.test.js` proves the window is
+  closed with a new test-only switch, `VLAB_TEST_GATE`, which parks one
+  process at a named point (`notes:after-read`) until the test releases it;
+  with the lock removed the same test shows the lost record.
+
 - Resolve a `ch_*` argument to one commit deterministically. When several
   commits carry a `Change-Id`, as after a pick or a `cherry-pick --repeat`,
   `vlab cherry-pick <change-id>` named whichever bearer `git log --all`

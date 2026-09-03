@@ -129,7 +129,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/git-session-worker.js` | Owns asynchronous `git cat-file --batch-command` stream for a synchronous caller | Worker threads, Git |
 | `src/merge-tree-session-worker.js` | Owns one asynchronous `git merge-tree --stdin` stream for the synchronous merge-tree forecast engine | Worker threads, Git |
 | `src/store.js` | Common runtime directory and atomic JSON read/write | `src/git.js` |
-| `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab`, including one batched read for many targets | `src/git.js` |
+| `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab`, including one batched read for many targets; every writer of the ref is serialized on the notes lock in the shared runtime directory | `src/git.js`, `src/store.js` |
 | `src/provenance.js` | Declared authorship provenance (`vcs-lab.provenance/v1`): the closed role vocabulary, `VLAB_AGENT`, declaration at commit time, and exact carry onto rewritten commits | Notes, IDs, schemas |
 | `src/schemas.js` | Supported schema registry, structural record validation, object-reference and resolution-signature rules | IDs |
 | `src/metadata.js` | Deterministic inventory, scope classification, integrity diagnostics, lineage, and accepted-record filtering | Git, schemas, specs |
@@ -145,7 +145,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts | Rebase plan/forecast, Git, notes, specs, resolutions |
 | `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
 | `src/pending-operation.js` | Safe reconciliation/rebase journal routing for shared conflict tools | Reconciliation and rebase state |
-| `src/faults.js` | Test-only deterministic fault injection: `VLAB_TEST_FAULT` turns one named point on a mutating path into a hard `process.exit` | None |
+| `src/faults.js` | Test-only deterministic fault injection: `VLAB_TEST_FAULT` turns one named point on a mutating path into a hard `process.exit`; `VLAB_TEST_GATE` holds a process at a named point until a test releases it | None |
 | `src/forecasts.js` | Plan fingerprint, merge-tree and temporary-worktree simulation engines with recorded fallback, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
@@ -235,6 +235,7 @@ identity belongs in tracked files.
 | Pending reconciliation | One linked worktree | `<worktree-git-dir>/vcs-lab/reconciliation.json` | Cleared on complete/abort |
 | Pending causal rebase | One linked worktree | `<worktree-git-dir>/vcs-lab/rebase.json` | Cleared on complete/abort |
 | Saved forecasts | One linked worktree | `<worktree-git-dir>/vcs-lab/forecasts/<id>.json` | Private approval artifact |
+| Notes lock | Shared repository installation | `<common-git-dir>/vcs-lab/notes.lock` | Held for one append or one import; abandoned when its holder is gone (§15.4) |
 | Spec identity manifest | Tracked/repository portable | `.vcs-lab/specs/<source>.json` | Versioned with Markdown |
 | Persistent object session | One CLI invocation and worktree | Memory plus worker process | Closed at invocation end |
 
@@ -1017,6 +1018,19 @@ leaves inert records behind. They are not a correctness problem and
 `metadata validate` does not report them, which is consistent with how any
 history rewrite orphans records; they are also not collected.
 
+Publication is also the one stretch two worktrees can enter at once. Every
+record reaches the notes ref through a read-modify-write, and `git notes add`
+builds its tree from the ref as it stood when the command started and then
+updates the ref unconditionally, so two publishers running at once could each
+lose the other's record. `appendNote` and the metadata import therefore hold
+one lock file, `<common-git-dir>/vcs-lab/notes.lock`, created exclusively
+the way Git creates its own lock files and costing no Git process. A lock
+whose holder is on this host and no longer running, or a minute-old lock
+whose holder cannot be checked, is abandoned; a running holder's lock is
+waited for five seconds and then refused with `notes-locked`. The
+failure-boundary suite proves the window is closed by parking one publisher
+inside it with `VLAB_TEST_GATE` while another runs.
+
 ## 16. Failure handling
 
 | Failure | Behavior |
@@ -1035,6 +1049,7 @@ history rewrite orphans records; they are also not collected.
 | Envelope payload or inventory mismatch | Reject before destination mutation. |
 | Import ID/ref conflict | Report exact conflict during dry-run; never overwrite silently. |
 | Import publication race/failure | Checked atomic ref transaction fails; existing destination facts remain intact. |
+| Two publishers write the notes ref at once | Serialized on the notes lock (§15.4); a lock whose holder is gone is abandoned, a running holder's is waited for and then refused with `notes-locked`. |
 | Temporary forecast worktree cleanup encounters in-progress Git state | Abort it best-effort, remove worktree, prune metadata. |
 | JSON state write is interrupted | Temporary file avoids replacing last complete record. |
 | Any failure under `--json` | Print a `vcs-lab.error/v1` envelope on stdout with a code from the closed vocabulary in `docs/schemas/errors.md`; stderr stays empty and the exit code is unchanged (ADR-0021). |
