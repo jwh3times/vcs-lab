@@ -21,6 +21,32 @@ import { fileURLToPath } from "node:url";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
 
+/**
+ * The environment for every Git and CLI process this suite spawns. Besides
+ * disabling credential prompts, it isolates the suite from the host's Git
+ * configuration: the system file is disabled and the global file is an empty
+ * one created for this run, so a `commit.gpgsign`, `core.hooksPath`,
+ * `init.defaultBranch`, or `core.autocrlf` set on the host cannot reach a
+ * fixture. Fixtures set `user.name` and `user.email` locally. The CLI itself
+ * is not changed: outside the suite it reads the user's real configuration.
+ */
+const isolatedGitConfigDir = fs.realpathSync.native(
+  fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-gitconfig-")),
+);
+const isolatedGitConfig = path.join(isolatedGitConfigDir, "gitconfig");
+fs.writeFileSync(isolatedGitConfig, "");
+after(() => fs.rmSync(isolatedGitConfigDir, { recursive: true, force: true }));
+
+function testEnv(overrides = {}) {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: isolatedGitConfig,
+    ...overrides,
+  };
+}
+
 const created = [];
 after(() => {
   for (const directory of created) {
@@ -32,7 +58,7 @@ function exec(command, args, cwd) {
   return execFileSync(command, args, {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: testEnv(),
   }).trim();
 }
 
@@ -81,7 +107,7 @@ const supportsSha256 = (() => {
     const attempt = spawnSync(
       "git",
       ["init", "-b", "main", "--object-format=sha256", probe],
-      { encoding: "utf8" },
+      { encoding: "utf8", env: testEnv() },
     );
     return attempt.status === 0;
   } finally {

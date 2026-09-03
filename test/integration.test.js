@@ -4,19 +4,46 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { MERGE_TREE_ENGINE_MIN_GIT } from "../src/git.js";
+import { VERSION } from "../src/version.js";
 import { pseudoRefTarget, reachableCommits } from "../src/engine.js";
 import { recordsReachableFrom } from "../src/notes.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
 
+/**
+ * The environment for every Git and CLI process this suite spawns. Besides
+ * disabling credential prompts, it isolates the suite from the host's Git
+ * configuration: the system file is disabled and the global file is an empty
+ * one created for this run, so a `commit.gpgsign`, `core.hooksPath`,
+ * `init.defaultBranch`, or `core.autocrlf` set on the host cannot reach a
+ * fixture. Fixtures set `user.name` and `user.email` locally. The CLI itself
+ * is not changed: outside the suite it reads the user's real configuration.
+ */
+const isolatedGitConfigDir = fs.realpathSync.native(
+  fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-gitconfig-")),
+);
+const isolatedGitConfig = path.join(isolatedGitConfigDir, "gitconfig");
+fs.writeFileSync(isolatedGitConfig, "");
+after(() => fs.rmSync(isolatedGitConfigDir, { recursive: true, force: true }));
+
+function testEnv(overrides = {}) {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: isolatedGitConfig,
+    ...overrides,
+  };
+}
+
 test("CLI reports the package version", () => {
   assert.equal(
     exec(process.execPath, [cli, "--version"], projectRoot),
-    "vcs-lab 0.13.2",
+    `vcs-lab ${VERSION}`,
   );
 });
 
@@ -24,7 +51,7 @@ function exec(command, args, cwd, options = {}) {
   return execFileSync(command, args, {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: testEnv(),
     ...options,
   }).trim();
 }
@@ -66,7 +93,7 @@ function vlabResult(cwd, ...args) {
   return spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: testEnv(),
   });
 }
 
@@ -188,7 +215,7 @@ function tracedGitCommands(cwd, ...args) {
   const result = spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_TRACE: "1" },
+    env: testEnv({ VLAB_TRACE: "1" }),
   });
   assert.equal(result.status, 0, result.stderr);
   const commands = [];
@@ -245,6 +272,35 @@ test("init keeps an existing worktree clean", (t) => {
     JSON.parse(vlab(repo, "reconcile", "--status", "--json")).active,
     false,
   );
+});
+
+test("doctor diagnoses a repository without initializing it", (t) => {
+  // A diagnostic must not change what it diagnoses. Before this was pinned,
+  // `vlab doctor` ran `initLab()`, so asking a repository what state it was in
+  // wrote `notes.displayRef` and `notes.rewriteRef` into its config and
+  // created `.git/vcs-lab/`.
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "base");
+  const configBefore = readText(repo, ".git/config");
+
+  const doctor = JSON.parse(vlab(repo, "doctor"));
+  assert.equal(doctor.ok, true);
+  assert.equal(doctor.version, VERSION);
+  assert.equal(path.resolve(doctor.repository), repo);
+
+  for (const key of ["notes.displayRef", "notes.rewriteRef"]) {
+    const lookup = spawnSync("git", ["config", "--get", key], {
+      cwd: repo,
+      encoding: "utf8",
+      env: testEnv(),
+    });
+    assert.equal(lookup.status, 1, `${key} must stay unset, got '${lookup.stdout.trim()}'`);
+  }
+  assert.equal(readText(repo, ".git/config"), configBefore);
+  assert.equal(fs.existsSync(path.join(repo, ".git", "vcs-lab")), false);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
 });
 
 test("hard squash receipts suppress absorbed changes during reconciliation", (t) => {
@@ -740,7 +796,7 @@ test("causal rebase applies a reviewed continuation and ports unreachable origin
   const missingOrigin = spawnSync(
     "git",
     ["cat-file", "-e", `${continuation.commit}^{commit}`],
-    { cwd: destination, encoding: "utf8" },
+    { cwd: destination, encoding: "utf8", env: testEnv() },
   );
   assert.notEqual(missingOrigin.status, 0);
   const preview = JSON.parse(
@@ -1027,6 +1083,89 @@ test("compact landing is one first-parent unit with a real causal parent", (t) =
   assert.doesNotThrow(() => git(repo, "merge-base", "--is-ancestor", "feature", "main"));
 });
 
+test("vlab merge lands compact by default, hard-squash on request, and compact when both flags are given", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+
+  // Three sources from the same base, one per landing, so every landing has
+  // real work to absorb and none is already up to date.
+  const sources = {};
+  for (const name of ["default", "squash", "both"]) {
+    git(repo, "switch", "-c", `feature-${name}`, "main");
+    write(repo, `${name}.txt`, `${name}\n`);
+    git(repo, "add", ".");
+    sources[name] = JSON.parse(vlab(repo, "commit", "-m", `feature ${name}`));
+  }
+  git(repo, "switch", "main");
+
+  const landingMode = () =>
+    git(repo, "show", "-s", "--format=%B", "HEAD").match(/^Landing-Mode: (.+)$/m)[1];
+  const parentCount = () =>
+    git(repo, "show", "-s", "--format=%P", "HEAD").split(/\s+/).filter(Boolean).length;
+  const isAncestor = (source) =>
+    spawnSync("git", ["merge-base", "--is-ancestor", source, "main"], {
+      cwd: repo,
+      encoding: "utf8",
+      env: testEnv(),
+    }).status === 0;
+
+  // No flag: a compact merge, one first-parent unit whose second parent is
+  // the source head, so the source becomes an ancestor.
+  const compact = JSON.parse(vlab(repo, "merge", "feature-default", "--json"));
+  assert.equal(compact.mode, "compact");
+  assert.equal(compact.sourceHead, sources.default.commit);
+  assert.deepEqual(compact.absorbedChanges, [sources.default.changeId]);
+  assert.equal(compact.landingCommit, git(repo, "rev-parse", "HEAD"));
+  assert.equal(parentCount(), 2);
+  assert.equal(git(repo, "rev-parse", "HEAD^2"), sources.default.commit);
+  assert.equal(landingMode(), "compact");
+  assert.equal(isAncestor("feature-default"), true);
+
+  // --hard-squash: a single-parent commit that absorbs the source without
+  // making it an ancestor.
+  const squash = JSON.parse(
+    vlab(repo, "merge", "feature-squash", "--hard-squash", "--json"),
+  );
+  assert.equal(squash.mode, "hard-squash");
+  assert.equal(squash.sourceHead, sources.squash.commit);
+  assert.deepEqual(squash.absorbedChanges, [sources.squash.changeId]);
+  assert.equal(squash.landingCommit, git(repo, "rev-parse", "HEAD"));
+  assert.equal(parentCount(), 1);
+  assert.equal(landingMode(), "hard-squash");
+  assert.equal(isAncestor("feature-squash"), false);
+  assert.equal(readText(repo, "squash.txt"), "squash\n");
+
+  // Both flags: the handler lets --compact win rather than refusing, and the
+  // receipt and the commit agree on the mode it chose.
+  const both = JSON.parse(
+    vlab(repo, "merge", "feature-both", "--compact", "--hard-squash", "--json"),
+  );
+  assert.equal(both.mode, "compact");
+  assert.equal(parentCount(), 2);
+  assert.equal(git(repo, "rev-parse", "HEAD^2"), sources.both.commit);
+  assert.equal(landingMode(), "compact");
+
+  // Every landing left a receipt naming its mode, and the tree holds all
+  // three sources' work.
+  const landings = JSON.parse(vlab(repo, "receipts", "--json"))
+    .filter((record) => record.type === "landing");
+  assert.deepEqual(
+    landings.map((record) => record.mode).sort(),
+    ["compact", "compact", "hard-squash"],
+  );
+  assert.deepEqual(
+    landings.map((record) => record.landingCommit).sort(),
+    [compact.landingCommit, squash.landingCommit, both.landingCommit].sort(),
+  );
+  for (const name of ["default", "squash", "both"]) {
+    assert.equal(readText(repo, `${name}.txt`), `${name}\n`);
+  }
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
 test("cherry-pick preserves logical identity and fork makes divergence explicit", (t) => {
   const { repo } = makeRepo(t);
   write(repo, "base.txt", "base\n");
@@ -1053,6 +1192,78 @@ test("cherry-pick preserves logical identity and fork makes divergence explicit"
   assert.equal(fork.originChangeId, origin.changeId);
   assert.notEqual(fork.appliedChangeId, origin.changeId);
   assert.equal(fork.relation, "derived-fork");
+});
+
+test("cherry-pick --repeat re-applies a change the target's history already covers", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+
+  vlab(repo, "branch", "feature");
+  write(repo, "picked.txt", "portable change\n");
+  git(repo, "add", ".");
+  const origin = JSON.parse(vlab(repo, "commit", "-m", "portable change"));
+  git(repo, "switch", "main");
+  const first = JSON.parse(vlab(repo, "cherry-pick", origin.changeId, "--json"));
+  assert.equal(first.appliedChangeId, origin.changeId);
+
+  // The change is then backed out, so its Change-Id stays in history while
+  // its content is gone: the case in which repeating it is a real request.
+  git(repo, "rm", "-q", "picked.txt");
+  vlab(repo, "commit", "-m", "back out the portable change");
+  const headBefore = git(repo, "rev-parse", "HEAD");
+  assert.equal(fs.existsSync(path.join(repo, "picked.txt")), false);
+
+  // Without --repeat, coverage by Change-Id makes this a no-op that moves
+  // nothing.
+  const covered = JSON.parse(vlab(repo, "cherry-pick", origin.changeId, "--json"));
+  assert.equal(covered.noOp, true);
+  assert.equal(covered.reason, "target-already-covers-change-id");
+  assert.equal(covered.targetBefore, headBefore);
+  assert.equal(git(repo, "rev-parse", "HEAD"), headBefore);
+  assert.equal(fs.existsSync(path.join(repo, "picked.txt")), false);
+
+  // With --repeat, the same logical change is applied again as itself: no
+  // fork, the origin's Change-Id, and a fresh application record.
+  const repeated = JSON.parse(
+    vlab(repo, "cherry-pick", origin.changeId, "--repeat", "--json"),
+  );
+  assert.equal(repeated.noOp, undefined);
+  assert.equal(repeated.schema, "vcs-lab.application/v1");
+  // A Change-Id names a logical change, and by now two commits carry this
+  // one: the original and its first pick. The resolver returns whichever
+  // `git log --all` lists first, and within one second that is either, so
+  // the record must name a bearer of the id rather than a particular one.
+  assert.ok(
+    [origin.commit, first.appliedCommit].includes(repeated.originCommit),
+    `${repeated.originCommit} does not carry ${origin.changeId}`,
+  );
+  assert.equal(repeated.originChangeId, origin.changeId);
+  assert.equal(repeated.appliedChangeId, origin.changeId);
+  assert.equal(repeated.relation, "same-logical-change");
+  assert.equal(repeated.targetBefore, headBefore);
+  const head = git(repo, "rev-parse", "HEAD");
+  assert.equal(repeated.appliedCommit, head);
+  assert.notEqual(head, headBefore);
+  assert.equal(git(repo, "rev-parse", "HEAD~1"), headBefore);
+  assert.equal(readText(repo, "picked.txt"), "portable change\n");
+  assert.match(
+    git(repo, "show", "-s", "--format=%B", "HEAD"),
+    new RegExp(`^Change-Id: ${origin.changeId}$`, "m"),
+  );
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+
+  // Both applications are on record against the same origin.
+  const applications = JSON.parse(vlab(repo, "receipts", "--json")).filter(
+    (record) =>
+      record.type === "application" && record.originChangeId === origin.changeId,
+  );
+  assert.deepEqual(
+    applications.map((record) => record.appliedCommit).sort(),
+    [first.appliedCommit, head].sort(),
+  );
 });
 
 test("a sparse cone materializes only its directories and survives archive and restore", (t) => {
@@ -1130,6 +1341,73 @@ test("a sparse cone materializes only its directories and survives archive and r
   const escaping = vlabResult(repo, "workspace", "create", "bad-ws", "--cone", "../outside");
   assert.notEqual(escaping.status, 0);
   assert.match(escaping.stderr, /must stay inside the repository/);
+});
+
+test("workspace create records the declared owner and focus", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+  const head = git(repo, "rev-parse", "HEAD");
+
+  const declared = JSON.parse(
+    vlab(
+      repo,
+      "workspace",
+      "create",
+      "agent-seven",
+      "--owner",
+      "agent-seven@example.test",
+      "--focus",
+      "spec merge for checkout",
+      "--json",
+    ),
+  );
+  assert.equal(declared.schema, "vcs-lab.workspace/v1");
+  assert.equal(declared.owner, "agent-seven@example.test");
+  assert.equal(declared.focus, "spec merge for checkout");
+  assert.equal(declared.compatibilityBranch, "vlab/ws/agent-seven");
+  assert.equal(declared.baseSnapshot, head);
+  assert.equal(declared.lifecycle, "active");
+
+  // Neither flag is required, and an undeclared value is null rather than
+  // absent or guessed.
+  const anonymous = JSON.parse(vlab(repo, "workspace", "create", "unowned", "--json"));
+  assert.equal(anonymous.owner, null);
+  assert.equal(anonymous.focus, null);
+
+  // The declarations are persisted in the registry and reported by the
+  // listing exactly as given.
+  const listed = new Map(
+    JSON.parse(vlab(repo, "workspace", "list", "--json"))
+      .map((workspace) => [workspace.name, workspace]),
+  );
+  assert.equal(listed.get("agent-seven").owner, "agent-seven@example.test");
+  assert.equal(listed.get("agent-seven").focus, "spec merge for checkout");
+  assert.equal(listed.get("agent-seven").status, "active");
+  assert.equal(listed.get("unowned").owner, null);
+  assert.equal(listed.get("unowned").focus, null);
+  const registry = JSON.parse(readText(repo, ".git/vcs-lab/workspaces.json"));
+  const stored = registry.workspaces.find((workspace) => workspace.name === "agent-seven");
+  assert.equal(stored.owner, "agent-seven@example.test");
+  assert.equal(stored.focus, "spec merge for checkout");
+
+  // Git sees the same worktree and branch whether or not an owner was named:
+  // owner and focus are vcs-lab facts, not Git ones.
+  const worktreePaths = git(repo, "worktree", "list", "--porcelain")
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => path.resolve(line.slice("worktree ".length)));
+  for (const workspace of [declared, anonymous]) {
+    assert.ok(
+      worktreePaths.includes(path.resolve(workspace.path)),
+      `${workspace.name} is a registered worktree`,
+    );
+    assert.equal(git(repo, "rev-parse", workspace.compatibilityBranch), head);
+    assert.equal(git(workspace.path, "status", "--porcelain=v1"), "");
+  }
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
 });
 
 test("workspace lifecycle preserves identity and checkpoints across move, archive, repair, and prune", (t) => {
@@ -1331,6 +1609,78 @@ test("annotated Markdown keeps stable block IDs across edits and moves", (t) => 
   assert.equal(third.cacheHit, true);
   assert.equal(third.written, false);
   assert.equal(fs.readFileSync(second.manifestPath, "utf8"), manifestBefore);
+});
+
+test("spec index --force rebuilds a manifest the caches would have kept", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+  write(
+    repo,
+    "docs/spec.md",
+    "# Checkout\n\nREQ-CHECKOUT-1: Orders must be idempotent.\n\n## Errors\n\nReturn a typed error.\n",
+  );
+
+  const first = JSON.parse(vlab(repo, "spec", "index", "docs/spec.md", "--json"));
+  assert.equal(first.cacheHit, false);
+  assert.equal(first.written, true);
+  const manifestBefore = fs.readFileSync(first.manifestPath, "utf8");
+  const blockIds = first.manifest.blocks.map((block) => block.id);
+  assert.ok(blockIds.length >= 2);
+  assert.doesNotThrow(() => git(repo, "cat-file", "-e", first.manifest.sourceBlob));
+
+  // Unchanged Markdown is a cache hit that writes nothing.
+  const cached = JSON.parse(vlab(repo, "spec", "index", "docs/spec.md", "--json"));
+  assert.equal(cached.cacheHit, true);
+  assert.equal(cached.written, false);
+
+  // --force reads and rebuilds anyway, and because the content is the same
+  // the rebuilt manifest is byte-identical: the same IDs, the same blob, and
+  // every block reported unchanged.
+  const forced = JSON.parse(
+    vlab(repo, "spec", "index", "docs/spec.md", "--force", "--json"),
+  );
+  assert.equal(forced.cacheHit, false);
+  assert.equal(forced.cacheMode, null);
+  assert.equal(forced.contentRead, true);
+  assert.equal(forced.written, true);
+  assert.deepEqual(forced.manifest.blocks.map((block) => block.id), blockIds);
+  assert.deepEqual(forced.changes, {
+    added: [],
+    removed: [],
+    changed: [],
+    moved: [],
+    unchanged: blockIds,
+  });
+  assert.equal(forced.manifest.sourceBlob, first.manifest.sourceBlob);
+  assert.equal(fs.readFileSync(forced.manifestPath, "utf8"), manifestBefore);
+
+  // The batch form behaves the same: nothing served from the blob or hash
+  // caches, every manifest rewritten, and a committed tree left clean.
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "spec and manifest");
+  const batchCached = JSON.parse(vlab(repo, "spec", "index", "--all", "--json"));
+  assert.equal(batchCached.files, 1);
+  assert.equal(batchCached.cacheHits, 1);
+  assert.equal(batchCached.manifestsWritten, 0);
+  const batchForced = JSON.parse(
+    vlab(repo, "spec", "index", "--all", "--force", "--json"),
+  );
+  assert.equal(batchForced.files, 1);
+  assert.equal(batchForced.cacheHits, 0);
+  assert.equal(batchForced.blobCacheHits, 0);
+  assert.equal(batchForced.contentReads, 1);
+  assert.equal(batchForced.manifestsWritten, 1);
+  assert.deepEqual(batchForced.changes, {
+    added: 0,
+    removed: 0,
+    changed: 0,
+    moved: 0,
+    unchanged: blockIds.length,
+  });
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
 });
 
 test("v2 manifests migrate to sparse v3 without changing logical IDs", (t) => {
@@ -1750,6 +2100,7 @@ test("heuristic candidates require explicit acceptance", (t) => {
   const attempt = spawnSync(process.execPath, [cli, "reconcile", "left"], {
     cwd: repo,
     encoding: "utf8",
+    env: testEnv(),
   });
   assert.notEqual(attempt.status, 0);
   assert.match(attempt.stderr, /heuristic patch-equivalence candidates/i);
@@ -2091,6 +2442,7 @@ test("Git rerere never resolves or records a conflict inside vlab operations", (
   const seeded = spawnSync("git", ["cherry-pick", "-x", source.commit], {
     cwd: repo,
     encoding: "utf8",
+    env: testEnv(),
   });
   assert.notEqual(seeded.status, 0);
   write(repo, "shared.txt", "one\nrerere\nthree\n");
@@ -2273,6 +2625,105 @@ test("modified and rejected suggestions create auditable resolution variants", (
   );
   assert.equal(rejected.receipt.applied[0].resolutions[0].decision, "rejected");
   assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 3);
+});
+
+test("resolve reject records an explicit rejection without touching the conflicted worktree", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", "shared.txt");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  const createPair = (suffix) => {
+    const source = `source-${suffix}`;
+    git(repo, "switch", "-c", source, base.commit);
+    write(repo, "shared.txt", "source\n");
+    git(repo, "add", "shared.txt");
+    vlab(repo, "commit", "-m", `source ${suffix}`);
+    git(repo, "switch", "-c", `target-${suffix}`, base.commit);
+    write(repo, "shared.txt", "target\n");
+    git(repo, "add", "shared.txt");
+    vlab(repo, "commit", "-m", `target ${suffix}`);
+    return source;
+  };
+
+  // One remembered resolution, so the next conflict has a candidate to
+  // reject.
+  assert.notEqual(vlabResult(repo, "reconcile", createPair("first")).status, 0);
+  write(repo, "shared.txt", "remembered\n");
+  git(repo, "add", "shared.txt");
+  vlab(repo, "reconcile", "--continue", "--json");
+  const [remembered] = JSON.parse(vlab(repo, "resolve", "list", "--json"));
+
+  const secondSource = createPair("second");
+  const targetHead = git(repo, "rev-parse", "HEAD");
+  assert.notEqual(vlabResult(repo, "reconcile", secondSource).status, 0);
+  const before = JSON.parse(vlab(repo, "resolve", "status", "--json"));
+  assert.equal(before.conflicts.length, 1);
+  assert.deepEqual(
+    before.conflicts[0].candidates.map((candidate) => candidate.id),
+    [remembered.id],
+  );
+  assert.equal(before.conflicts[0].decisionOverride, null);
+  const conflictedText = readText(repo, "shared.txt");
+  assert.match(conflictedText, /<<<<<<< HEAD/);
+
+  // Rejecting by path names the conflict and counts its candidates, and it
+  // changes only the journal: markers, index, and HEAD are untouched.
+  const rejected = JSON.parse(vlab(repo, "resolve", "reject", "shared.txt", "--json"));
+  assert.equal(rejected.operationId, before.operationId);
+  assert.deepEqual(rejected.rejected, [{ path: "shared.txt", candidates: 1 }]);
+  const after = JSON.parse(vlab(repo, "resolve", "status", "--json"));
+  assert.equal(after.active, true);
+  assert.equal(after.conflicts[0].decisionOverride, "rejected");
+  assert.equal(after.conflicts[0].selectionMethod, "explicit");
+  assert.equal(after.conflicts[0].selectedResolutionId, null);
+  assert.equal(readText(repo, "shared.txt"), conflictedText);
+  assert.match(git(repo, "status", "--porcelain=v1"), /^UU shared\.txt$/m);
+  assert.equal(git(repo, "rev-parse", "HEAD"), targetHead);
+
+  // Rejecting a named candidate records which one was declined; naming one
+  // that is not a candidate is refused and leaves the journal as it was.
+  const named = JSON.parse(
+    vlab(repo, "resolve", "reject", "--all", "--resolution", remembered.id, "--json"),
+  );
+  assert.deepEqual(named.rejected, [{ path: "shared.txt", candidates: 1 }]);
+  assert.equal(
+    JSON.parse(vlab(repo, "resolve", "status", "--json")).conflicts[0].selectedResolutionId,
+    remembered.id,
+  );
+  const unknown = vlabResult(
+    repo,
+    "resolve",
+    "reject",
+    "--all",
+    "--resolution",
+    "res_not_a_candidate",
+    "--json",
+  );
+  assert.notEqual(unknown.status, 0);
+  assert.equal(JSON.parse(unknown.stdout).code, "no-match");
+  assert.equal(
+    JSON.parse(vlab(repo, "resolve", "status", "--json")).conflicts[0].selectedResolutionId,
+    remembered.id,
+  );
+  assert.equal(readText(repo, "shared.txt"), conflictedText);
+
+  // The continuation audits the hand-written result as a rejection of the
+  // named candidate rather than a creation, and retains it as its own
+  // variant.
+  write(repo, "shared.txt", "hand-written\n");
+  git(repo, "add", "shared.txt");
+  const result = JSON.parse(vlab(repo, "reconcile", "--continue", "--json"));
+  const [outcome] = result.receipt.applied[0].resolutions;
+  assert.equal(outcome.path, "shared.txt");
+  assert.equal(outcome.decision, "rejected");
+  assert.equal(outcome.selectionMethod, "explicit");
+  assert.equal(outcome.selectedResolutionId, remembered.id);
+  assert.equal(outcome.reusedResolutionId, null);
+  assert.equal(readText(repo, "shared.txt"), "hand-written\n");
+  assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 2);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
 });
 
 test("doctor and repository-scale benchmarks expose process costs without repository content", (t) => {
@@ -2475,7 +2926,7 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
   const traced = spawnSync(process.execPath, [cli, "doctor"], {
     cwd: repo,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_TRACE: "1" },
+    env: testEnv({ VLAB_TRACE: "1" }),
   });
   assert.equal(traced.status, 0);
   assert.match(traced.stderr, /\[vlab trace\].*git --version/);
@@ -2486,7 +2937,7 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     {
       cwd: repo,
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      env: testEnv(),
     },
   );
   assert.equal(tracedOption.status, 0);
@@ -2505,12 +2956,10 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     {
       cwd: repo,
       encoding: "utf8",
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
+      env: testEnv({
         VLAB_GIT_SESSION_DIAGNOSTICS: "1",
         VLAB_GIT_SESSION_DIAGNOSTICS_FILE: shutdownDiagnosticsPath,
-      },
+      }),
     },
   );
   assert.equal(planned.status, 0);
@@ -2536,12 +2985,10 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     {
       cwd: repo,
       encoding: "utf8",
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
+      env: testEnv({
         VLAB_GIT_SESSION_DIAGNOSTICS: "1",
         VLAB_GIT_SESSION_DIAGNOSTICS_FILE: diagnosticsPath,
-      },
+      }),
     },
   );
   assert.notEqual(rejected.status, 0);
@@ -2590,7 +3037,7 @@ test("merge planning batches commit metadata instead of spawning per commit", (t
     {
       cwd: repo,
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      env: testEnv(),
     },
   );
   assert.equal(planned.status, 0);
@@ -2605,17 +3052,41 @@ test("merge planning batches commit metadata instead of spawning per commit", (t
   );
   assert.deepEqual(fallback, plan);
 
+  // The forced-session suite modes are self-checking here. With the session
+  // chosen by the environment alone, `VLAB_GIT_SESSION=1` must show the
+  // persistent process answering reads and `VLAB_GIT_SESSION=0` must show no
+  // session at all; unset, the default is platform-specific and not claimed.
+  const inherited = spawnSync(
+    process.execPath,
+    [cli, "merge-plan", "feature", "--trace-git", "--json"],
+    { cwd: repo, encoding: "utf8", env: testEnv() },
+  );
+  assert.equal(inherited.status, 0, inherited.stderr);
+  assert.deepEqual(JSON.parse(inherited.stdout), plan);
+  const sessionTraces =
+    (inherited.stderr.match(/persistent process|cache hit/g) ?? []).length;
+  if (process.env.VLAB_GIT_SESSION === "1") {
+    assert.ok(
+      sessionTraces > 0,
+      `VLAB_GIT_SESSION=1 must answer reads through the object session:\n${inherited.stderr}`,
+    );
+  } else if (process.env.VLAB_GIT_SESSION === "0") {
+    assert.equal(
+      sessionTraces,
+      0,
+      `VLAB_GIT_SESSION=0 must not open an object session:\n${inherited.stderr}`,
+    );
+  }
+
   const failedSession = spawnSync(
     process.execPath,
     [cli, "merge-plan", "feature", "--git-session", "--trace-git", "--json"],
     {
       cwd: repo,
       encoding: "utf8",
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
+      env: testEnv({
         VLAB_TEST_GIT_SESSION_FAILURE: "1",
-      },
+      }),
     },
   );
   assert.equal(failedSession.status, 0);
@@ -3356,7 +3827,7 @@ test("workspace listing batches one status query per existing path and preserves
     {
       cwd: repo,
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_TRACE: "1" },
+      env: testEnv({ VLAB_TRACE: "1" }),
     },
   );
 
@@ -3389,7 +3860,7 @@ test("workspace listing batches one status query per existing path and preserves
   const conflicted = spawnSync("git", ["merge", "conflicting"], {
     cwd: paths.dirty,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: testEnv(),
   });
   assert.notEqual(conflicted.status, 0);
   assert.equal(fs.existsSync(path.join(paths.dirty, ".git")), true);
@@ -3406,7 +3877,7 @@ test("workspace listing batches one status query per existing path and preserves
   const porcelainStatus = (cwd) => execFileSync(
     "git",
     ["status", "--porcelain=v1"],
-    { cwd, encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+    { cwd, encoding: "utf8", env: testEnv() },
   ).replace(/\r?\n$/, "");
   const dirtyStatusBefore = porcelainStatus(paths.dirty);
   assert.match(dirtyStatusBefore, /^UU shared\.txt$/m);
@@ -3429,7 +3900,7 @@ test("workspace listing batches one status query per existing path and preserves
   // Unborn: an orphan branch has no HEAD commit yet, so the exact head is
   // null while the path stays an active worktree and its staged files count.
   git(paths.unborn, "checkout", "--orphan", "fresh-start");
-  assert.notEqual(spawnSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: paths.unborn }).status, 0);
+  assert.notEqual(spawnSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: paths.unborn, env: testEnv() }).status, 0);
   const unbornStatus = porcelainStatus(paths.unborn);
   assert.match(unbornStatus, /^A  base\.txt$/m);
   const unbornLines = unbornStatus.split("\n");
@@ -3754,7 +4225,7 @@ test("batched resolution catalog lists retained records newest-first and quarant
     const result = spawnSync(process.execPath, [cli, "resolve", "list", "--json"], {
       cwd: repo,
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_GIT_SESSION },
+      env: testEnv({ VLAB_GIT_SESSION }),
     });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), catalog);
@@ -4034,11 +4505,9 @@ function vlabWithEngine(cwd, engine, ...args) {
   const result = spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: "0",
+    env: testEnv({
       VLAB_FORECAST_ENGINE: engine,
-    },
+    }),
   });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
@@ -4609,12 +5078,10 @@ test("merge-tree forecasts fall back with a reason when the merge-tree session i
   const failed = spawnSync(process.execPath, [cli, "forecast", "feature", "--json"], {
     cwd: repo,
     encoding: "utf8",
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: "0",
+    env: testEnv({
       VLAB_FORECAST_ENGINE: "merge-tree",
       VLAB_TEST_MERGE_TREE_SESSION_FAILURE: "1",
-    },
+    }),
   });
   assert.equal(failed.status, 0, failed.stderr);
   const mergeTree = JSON.parse(failed.stdout);
@@ -4664,7 +5131,7 @@ function mergeTreeForecastWithEnv(repo, env) {
     {
       cwd: repo,
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
+      env: testEnv({ ...env }),
     },
   );
   const elapsedMs = Date.now() - started;
@@ -4726,7 +5193,7 @@ test("merge-tree forecasts fall back to git-too-old before the first request on 
 
 test("the default forecast engine is merge-tree on Windows and the worktree simulator elsewhere", (t) => {
   const { repo } = tooOldFixture(t);
-  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  const env = testEnv();
   delete env.VLAB_FORECAST_ENGINE;
   const result = spawnSync(process.execPath, [cli, "forecast", "feature", "--json"], {
     cwd: repo,
@@ -4787,11 +5254,9 @@ test("unknown merge-tree or worktree engine selections fail before any forecast 
     {
       cwd: repo,
       encoding: "utf8",
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
+      env: testEnv({
         VLAB_FORECAST_ENGINE: "bogus",
-      },
+      }),
     },
   );
   assert.notEqual(viaEnvironment.status, 0);
@@ -4828,11 +5293,9 @@ test("unknown merge-tree or worktree engine selections fail before any forecast 
     {
       cwd: repo,
       encoding: "utf8",
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
+      env: testEnv({
         VLAB_FORECAST_ENGINE: "bogus",
-      },
+      }),
     },
   );
   assert.equal(overridden.status, 0, overridden.stderr);
@@ -5060,6 +5523,7 @@ test("the identity audit separates preserved identity from a real collision", (t
       cwd: repo,
       input: `${JSON.stringify(note, null, 2)}\n`,
       encoding: "utf8",
+      env: testEnv(),
     });
     injected = true;
     break;
@@ -5545,7 +6009,7 @@ test("every repository read passes through the engine seam and the native engine
     const result = spawnSync(process.execPath, [cli, ...args], {
       cwd: repo,
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_ENGINE: engineName },
+      env: testEnv({ VLAB_ENGINE: engineName }),
     });
     assert.equal(result.status, 0, result.stderr);
     return JSON.parse(result.stdout);
@@ -5681,7 +6145,7 @@ test("every repository read passes through the engine seam and the native engine
   const badEnv = spawnSync(process.execPath, [cli, "doctor"], {
     cwd: repo,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_ENGINE: "bogus" },
+    env: testEnv({ VLAB_ENGINE: "bogus" }),
   });
   assert.notEqual(badEnv.status, 0);
   assert.match(badEnv.stderr, /Unknown engine 'bogus'\. Use one of: git, native/);
@@ -5745,7 +6209,7 @@ test("a branch named CHERRY_PICK_HEAD does not pass for a pending cherry-pick", 
   const picked = spawnSync("git", ["cherry-pick", side.commit], {
     cwd: repo,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: testEnv(),
   });
   assert.notEqual(picked.status, 0, "the pick must conflict so it stays pending");
   assert.equal(pseudoRefTarget("CHERRY_PICK_HEAD", repo), side.commit);

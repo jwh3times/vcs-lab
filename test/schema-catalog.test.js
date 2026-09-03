@@ -3,13 +3,39 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 import { RECORD_FAMILIES, schemaClassification, validateNoteRecord } from "../src/schemas.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const schemasDir = path.join(projectRoot, "docs", "schemas");
 const cli = path.join(projectRoot, "bin", "vlab.js");
+
+/**
+ * The environment for every Git and CLI process this suite spawns. Besides
+ * disabling credential prompts, it isolates the suite from the host's Git
+ * configuration: the system file is disabled and the global file is an empty
+ * one created for this run, so a `commit.gpgsign`, `core.hooksPath`,
+ * `init.defaultBranch`, or `core.autocrlf` set on the host cannot reach a
+ * fixture. Fixtures set `user.name` and `user.email` locally. The CLI itself
+ * is not changed: outside the suite it reads the user's real configuration.
+ */
+const isolatedGitConfigDir = fs.realpathSync.native(
+  fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-gitconfig-")),
+);
+const isolatedGitConfig = path.join(isolatedGitConfigDir, "gitconfig");
+fs.writeFileSync(isolatedGitConfig, "");
+after(() => fs.rmSync(isolatedGitConfigDir, { recursive: true, force: true }));
+
+function testEnv(overrides = {}) {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: isolatedGitConfig,
+    ...overrides,
+  };
+}
 
 // vcs-lab.forecast/v1 is accepted when reading stored forecasts but never
 // written; the catalog lists it as superseded without a document.
@@ -243,7 +269,7 @@ function exec(command, args, cwd, options = {}) {
   return execFileSync(command, args, {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: testEnv(),
     ...options,
   }).trim();
 }
@@ -264,7 +290,7 @@ function vlabResult(cwd, ...args) {
   return spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: testEnv(),
   });
 }
 
@@ -280,15 +306,24 @@ function commit(repo, message) {
 }
 
 let scenarioState = null;
+let scenarioParent = null;
+
+// Registered at module scope, not from inside a test: the scenario is built
+// once and shared by every test below, so a hook registered while the first
+// one runs would delete the repository the rest still need.
+after(() => {
+  if (scenarioParent) fs.rmSync(scenarioParent, { recursive: true, force: true });
+});
 
 /**
  * One disposable repository exercised through the real CLI so that every
  * persisted family and every schema-bearing CLI output exists as a genuine
  * record. Built once and shared by the agreement tests below.
  */
-function scenario(t) {
+function scenario() {
   if (scenarioState) return scenarioState;
   const parent = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-schema-catalog-")));
+  scenarioParent = parent;
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);
   git(repo, "init", "-b", "main");
@@ -296,7 +331,6 @@ function scenario(t) {
   git(repo, "config", "core.eol", "lf");
   git(repo, "config", "user.name", "VCS Lab Schema Catalog Test");
   git(repo, "config", "user.email", "vcs-lab-schema@example.invalid");
-  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
 
   const captured = {
     repo,
@@ -421,8 +455,8 @@ function scenario(t) {
   return captured;
 }
 
-test("live CLI records and outputs match their catalog documents", { timeout: 600_000 }, (t) => {
-  const state = scenario(t);
+test("live CLI records and outputs match their catalog documents", { timeout: 600_000 }, () => {
+  const state = scenario();
   const cases = [
     ["vcs-lab.note/v1", "note-container"],
     ["vcs-lab.merge-plan/v1", "merge-plan"],
@@ -465,8 +499,8 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
   }
 });
 
-test("every published note record satisfies its document and the runtime validator", { timeout: 600_000 }, (t) => {
-  const state = scenario(t);
+test("every published note record satisfies its document and the runtime validator", { timeout: 600_000 }, () => {
+  const state = scenario();
   const families = new Set();
   for (const record of state.noteRecords) {
     const classification = schemaClassification(record.schema);
@@ -492,8 +526,8 @@ test("every published note record satisfies its document and the runtime validat
   );
 });
 
-test("documents are at least as strict as the runtime validator on missing fields", { timeout: 600_000 }, (t) => {
-  const state = scenario(t);
+test("documents are at least as strict as the runtime validator on missing fields", { timeout: 600_000 }, () => {
+  const state = scenario();
   const sampleByFamily = new Map();
   for (const record of state.noteRecords) {
     if (!sampleByFamily.has(record.schema)) sampleByFamily.set(record.schema, record);

@@ -10,6 +10,32 @@ import { FAULT_EXIT_CODE } from "../src/faults.js";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
 
+/**
+ * The environment for every Git and CLI process this suite spawns. Besides
+ * disabling credential prompts, it isolates the suite from the host's Git
+ * configuration: the system file is disabled and the global file is an empty
+ * one created for this run, so a `commit.gpgsign`, `core.hooksPath`,
+ * `init.defaultBranch`, or `core.autocrlf` set on the host cannot reach a
+ * fixture. Fixtures set `user.name` and `user.email` locally. The CLI itself
+ * is not changed: outside the suite it reads the user's real configuration.
+ */
+const isolatedGitConfigDir = fs.realpathSync.native(
+  fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-gitconfig-")),
+);
+const isolatedGitConfig = path.join(isolatedGitConfigDir, "gitconfig");
+fs.writeFileSync(isolatedGitConfig, "");
+after(() => fs.rmSync(isolatedGitConfigDir, { recursive: true, force: true }));
+
+function testEnv(overrides = {}) {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: isolatedGitConfig,
+    ...overrides,
+  };
+}
+
 const created = [];
 after(() => {
   for (const directory of created) {
@@ -21,7 +47,7 @@ function exec(command, args, cwd, options = {}) {
   return execFileSync(command, args, {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: testEnv(),
     ...options,
   }).trim();
 }
@@ -33,7 +59,7 @@ function vlabResult(cwd, args, env = {}) {
   return spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
+    env: testEnv({ ...env }),
   });
 }
 
@@ -88,7 +114,7 @@ function makeReconcilable() {
 const receipts = (repo) => JSON.parse(vlab(repo, "receipts", "--json"));
 const journalPath = (repo) => path.join(repo, ".git", "vcs-lab", "reconciliation.json");
 const notesRef = (repo) =>
-  spawnSync("git", ["rev-parse", "refs/notes/vcs-lab"], { cwd: repo, encoding: "utf8" })
+  spawnSync("git", ["rev-parse", "refs/notes/vcs-lab"], { cwd: repo, encoding: "utf8", env: testEnv() })
     .stdout.trim();
 
 test("an interrupted publication leaves a recoverable journal and no duplicate records", () => {
@@ -174,7 +200,7 @@ test("aborting an interrupted publication restores the head and leaves no effect
     const reachable = spawnSync(
       "git",
       ["merge-base", "--is-ancestor", record.attachedTo, "HEAD"],
-      { cwd: repo, encoding: "utf8" },
+      { cwd: repo, encoding: "utf8", env: testEnv() },
     );
     assert.notEqual(
       reachable.status,
@@ -210,7 +236,7 @@ test("out-of-band Git actions during a paused operation fail closed", () => {
 
   // Abort the cherry-pick behind vlab's back, leaving the journal claiming a
   // conflict that Git no longer has.
-  const outOfBand = spawnSync("git", ["cherry-pick", "--abort"], { cwd: repo, encoding: "utf8" });
+  const outOfBand = spawnSync("git", ["cherry-pick", "--abort"], { cwd: repo, encoding: "utf8", env: testEnv() });
   assert.equal(outOfBand.status, 0, "the out-of-band abort itself succeeds");
 
   const resumed = vlabResult(repo, ["reconcile", "--continue", "--json"]);
@@ -359,7 +385,7 @@ test("aborting an interrupted rebase restores the branch and leaves no effective
     const reachable = spawnSync(
       "git",
       ["merge-base", "--is-ancestor", record.attachedTo, "feature"],
-      { cwd: repo, encoding: "utf8" },
+      { cwd: repo, encoding: "utf8", env: testEnv() },
     );
     assert.notEqual(
       reachable.status,
@@ -392,12 +418,12 @@ test("out-of-band continue and skip during a paused reconciliation fail closed",
       const advanced = spawnSync("git", ["cherry-pick", "--continue"], {
         cwd: repo,
         encoding: "utf8",
-        env: { ...process.env, GIT_EDITOR: "true" },
+        env: testEnv({ GIT_EDITOR: "true" }),
       });
       assert.equal(advanced.status, 0, "the out-of-band continue itself succeeds");
     } else {
       assert.equal(
-        spawnSync("git", ["cherry-pick", "--skip"], { cwd: repo, encoding: "utf8" }).status,
+        spawnSync("git", ["cherry-pick", "--skip"], { cwd: repo, encoding: "utf8", env: testEnv() }).status,
         0,
         "the out-of-band skip itself succeeds",
       );
@@ -437,14 +463,14 @@ test("out-of-band Git actions during a paused rebase fail closed and stay recove
         spawnSync("git", ["cherry-pick", "--continue"], {
           cwd: repo,
           encoding: "utf8",
-          env: { ...process.env, GIT_EDITOR: "true" },
+          env: testEnv({ GIT_EDITOR: "true" }),
         }).status,
         0,
         "the out-of-band continue itself succeeds",
       );
     } else {
       assert.equal(
-        spawnSync("git", ["cherry-pick", `--${action}`], { cwd: repo, encoding: "utf8" }).status,
+        spawnSync("git", ["cherry-pick", `--${action}`], { cwd: repo, encoding: "utf8", env: testEnv() }).status,
         0,
         `the out-of-band ${action} itself succeeds`,
       );

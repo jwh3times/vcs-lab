@@ -23,6 +23,32 @@ import { ERROR_CODES, ERROR_ENVELOPE_SCHEMA } from "../src/errors.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
+
+/**
+ * The environment for every Git and CLI process this suite spawns. Besides
+ * disabling credential prompts, it isolates the suite from the host's Git
+ * configuration: the system file is disabled and the global file is an empty
+ * one created for this run, so a `commit.gpgsign`, `core.hooksPath`,
+ * `init.defaultBranch`, or `core.autocrlf` set on the host cannot reach a
+ * fixture. Fixtures set `user.name` and `user.email` locally. The CLI itself
+ * is not changed: outside the suite it reads the user's real configuration.
+ */
+const isolatedGitConfigDir = fs.realpathSync.native(
+  fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-gitconfig-")),
+);
+const isolatedGitConfig = path.join(isolatedGitConfigDir, "gitconfig");
+fs.writeFileSync(isolatedGitConfig, "");
+after(() => fs.rmSync(isolatedGitConfigDir, { recursive: true, force: true }));
+
+function testEnv(overrides = {}) {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: isolatedGitConfig,
+    ...overrides,
+  };
+}
 const sourceDir = path.join(projectRoot, "src");
 
 const created = [];
@@ -89,15 +115,15 @@ function makeRepo() {
   created.push(parent);
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);
-  const git = (...args) => execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+  const git = (...args) => execFileSync("git", args, { cwd: repo, encoding: "utf8", env: testEnv() });
   git("init", "-b", "main");
   git("config", "core.autocrlf", "false");
   git("config", "user.name", "VCS Lab Error Test");
   git("config", "user.email", "vcs-lab-error@example.invalid");
   fs.writeFileSync(path.join(repo, "a.txt"), "base\n");
   git("add", "-A");
-  execFileSync(process.execPath, [cli, "commit", "-m", "base"], { cwd: repo, encoding: "utf8" });
-  execFileSync(process.execPath, [cli, "init"], { cwd: repo, encoding: "utf8" });
+  execFileSync(process.execPath, [cli, "commit", "-m", "base"], { cwd: repo, encoding: "utf8", env: testEnv() });
+  execFileSync(process.execPath, [cli, "init"], { cwd: repo, encoding: "utf8", env: testEnv() });
   return repo;
 }
 
@@ -105,7 +131,7 @@ const run = (repo, ...args) =>
   spawnSync(process.execPath, [cli, ...args], {
     cwd: repo,
     encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: testEnv(),
   });
 
 test("every raise site carries a code from the published vocabulary", () => {
@@ -288,7 +314,7 @@ test("a missing revision is classified the same way on both Git transports", () 
     const failed = spawnSync(process.execPath, [cli, "merge-plan", "does-not-exist", "--json"], {
       cwd: repo,
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", VLAB_GIT_SESSION: session },
+      env: testEnv({ VLAB_GIT_SESSION: session }),
     });
     assert.notEqual(failed.status, 0);
     assert.equal(failed.stderr, "");
@@ -306,13 +332,15 @@ test("a conflicted landing, a duplicate workspace, and a stale manifest carry th
   // not-found, and the stale manifest said stale-forecast.
   const repo = makeRepo();
   const parent = path.dirname(repo);
-  const git = (...args) => execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: repo, encoding: "utf8", env: testEnv() }).trim();
   const vlab = (...args) =>
-    execFileSync(process.execPath, [cli, ...args], { cwd: repo, encoding: "utf8" }).trim();
+    execFileSync(process.execPath, [cli, ...args], { cwd: repo, encoding: "utf8", env: testEnv() }).trim();
   const notesRef = () =>
     spawnSync("git", ["rev-parse", "--verify", "--quiet", "refs/notes/vcs-lab"], {
       cwd: repo,
       encoding: "utf8",
+      env: testEnv(),
     }).stdout.trim();
 
   git("switch", "-c", "feature");

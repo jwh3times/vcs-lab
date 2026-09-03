@@ -23,6 +23,13 @@ Run the complete integration suite in ordinary mode:
 npm test
 ```
 
+Every suite file spawns Git and the CLI with `GIT_CONFIG_NOSYSTEM=1` and
+`GIT_CONFIG_GLOBAL` pointing at an empty file it creates for the run, so a
+host's global `commit.gpgsign`, `core.hooksPath`, `init.defaultBranch`, or
+`core.autocrlf` cannot reach a fixture; fixtures set their own identity and
+line-ending settings. The CLI itself still reads the user's real
+configuration.
+
 Run it again with the invocation-scoped Git object session forced:
 
 ```powershell
