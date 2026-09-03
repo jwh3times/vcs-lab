@@ -7,7 +7,7 @@
 | Baseline | v0.13.2 released |
 | Status | Maintained until every item below is closed, then deleted |
 | Written | 2026-09-02, from a full evaluation of the repository at v0.13.1 |
-| Updated | 2026-09-03, after the session that worked the brief landed it |
+| Updated | 2026-09-03, after the brief's work landed; again the same day when items 4, 6, and 7 closed in a working tree (changelog, Unreleased) |
 
 This brief exists so the work started on 2026-09-02 can be picked up in a
 later session without re-deriving it. It is deliberately independent of any
@@ -34,8 +34,10 @@ the two most severe findings reproduced in disposable repositories.
    Proposed; see [item 1](#1-make-the-synced-onedrive-measurement-then-accept-or-amend-adr-0024).
 5. **Documentation drift.** Reconciled; see
    [what landed on 2026-09-03](#landed-on-main-on-2026-09-03).
-6. **Smaller defects and test gaps.** All but one closed; the remainder is
-   [item 4](#4-give-appendnote-a-compare-and-swap).
+6. **Smaller defects and test gaps.** All closed; the last, `appendNote`'s
+   compare-and-swap, closed on 2026-09-03 as a lock (changelog, Unreleased),
+   together with the Change-Id resolver's determinism and the suites' shared
+   Git environment, which the brief had listed as items 6 and 7.
 
 ## What is done
 
@@ -160,25 +162,7 @@ exclude publication) real data to decide on. Retain telemetry per
 owner's decision: it requires `vlab init` against the real checkout, which
 the rules below otherwise forbid.
 
-### 4. Give `appendNote` a compare-and-swap
-
-The one Step 6 item not closed, because it was never reproduced. `appendNote`
-in `src/notes.js` reads a commit's note container, appends a record, and
-writes the whole blob back with `git notes add -f`. Git serializes the ref
-update but not the read-modify-write, so two publishers appending to the same
-commit between each other's reads and writes lose a record. Reconciliation and
-rebase hold their worktree, so the exposure is two worktrees publishing onto
-one commit at once.
-
-Two shapes are possible: a lock ref created atomically (`git update-ref
-refs/vcs-lab/locks/notes <oid> <zero-oid>` fails when it exists) and deleted
-after the write, with a stale-lock policy; or a post-write check that the new
-notes commit's parent is the tip observed before the read, repairing by
-re-merging records when it is not. Either needs a deterministic concurrency
-test first, two `vlab` processes gated at a named point in the style of
-`VLAB_TEST_FAULT`, so the fix can be seen to go red before it goes green.
-
-### 5. Structural suggestion from the evaluation
+### 4. Structural suggestion from the evaluation
 
 Not started, and a maintainer's call: the roadmap, changelog, and ADR
 amendments each narrate the same events, so every release has to be rewritten
@@ -186,33 +170,6 @@ in three or four places and was not. Prefer moving dated progress out of the
 roadmap into issues, and consider generating the architecture document's
 schema and module tables from `src/schemas.js` and the source tree so the
 test that keeps them honest is mechanical.
-
-### 6. Make the Change-Id resolver deterministic
-
-Found on 2026-09-02 by the new `cherry-pick --repeat` test, and not in the
-evaluation's list. `resolveChangeOrCommit` in `src/operations.js` turns a
-`ch_*` argument into a commit through `findCommitByChangeId` in `src/git.js`,
-which returns the first commit `git log --all` lists with that trailer: the
-most recent bearer by commit date, and within one second whichever Git
-happens to walk first. After a pick two commits carry the id, so `vlab
-cherry-pick <change-id>` records a nondeterministic `originCommit`; the test
-accepts either bearer for now. Every same-id bearer is an exact copy under
-FR-ID-02, so the applied tree is the same whichever is chosen, but the
-record and the provenance carried from it are not. Candidate rules: the
-group's origin under the FR-ID-06 identity model (the bearer that is no
-application record's `appliedCommit`), or the earliest bearer with a stated
-tie-break. Which commit "the logical change" names is a product decision;
-choose one, state it in the identity protocol, and pin it with a test.
-
-### 7. Deduplicate the suite's isolated Git environment
-
-The isolated-config block (a temporary empty `gitconfig`, `GIT_CONFIG_NOSYSTEM`,
-the `testEnv` helper, and its cleanup) is pasted into all nine suite files
-that spawn Git, because `node --test`'s default patterns run every `.js`
-under `test/` as a test file and a shared module there would be executed as
-one. Extract it once, either under a directory the patterns ignore or as an
-explicit file list in the `test` script, so the next environment change is
-made in one place.
 
 ## Rules for whoever continues
 
