@@ -9,6 +9,7 @@ import {
   resolveRevision,
   treeId,
 } from "./engine.js";
+import { CliError } from "./errors.js";
 import { newId } from "./ids.js";
 import { appendNote } from "./notes.js";
 import { carryProvenanceSafely } from "./provenance.js";
@@ -59,11 +60,9 @@ export function land(sourceRef, mode, options = {}) {
       : [...GIT_NO_RERERE, "merge", "--squash", inputs.sourceHead];
   const merged = runGit(mergeArgs, { cwd, allowFailure: true });
   if (!merged.ok) {
-    throw Object.assign(
-      new Error(
-        `The ${mode} landing produced conflicts. Resolve them with Git, then commit manually; no receipt was recorded.`,
-      ),
-      { details: merged.output },
+    throw new CliError(
+      `The ${mode} landing produced conflicts. Resolve them with Git, then commit manually; no receipt was recorded.`,
+      { code: "conflict-blocked", details: merged.output },
     );
   }
 

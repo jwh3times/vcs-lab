@@ -168,17 +168,21 @@ export function listNoteRecords(cwd = process.cwd()) {
   );
 }
 
+/**
+ * Records attached to commits reachable from `ref`. A caller that already
+ * holds the reachable set passes it as `reachable` (a Set or an array of
+ * commits); the two-argument form derives it here.
+ */
 export function recordsReachableFrom(
   ref,
   cwd = process.cwd(),
-  reachableCommits = null,
+  reachable = null,
 ) {
-  let reachable = reachableCommits;
-  if (!reachable) {
-    reachable = new Set(reachableCommits(ref, cwd));
-  }
+  const commits = reachable instanceof Set
+    ? reachable
+    : new Set(reachable ?? reachableCommits(ref, cwd));
   const entries = listNoteEntries(cwd).filter((entry) =>
-    reachable.has(entry.target),
+    commits.has(entry.target),
   );
   return recordsForEntries(entries, cwd);
 }

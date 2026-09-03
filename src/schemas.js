@@ -200,6 +200,8 @@ export const RESOURCE_BOUNDS = Object.freeze({
    * can accumulate before the claim stops being reviewable by a person.
    */
   provenanceActors: 64,
+  /** Bytes of one `vcs-lab.proof-bundle/v1` document handed to `vlab verify-proof`. */
+  proofBundleBytes: 16 * 1024 * 1024,
 });
 
 /**

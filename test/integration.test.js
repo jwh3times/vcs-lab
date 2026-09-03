@@ -7,6 +7,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { MERGE_TREE_ENGINE_MIN_GIT } from "../src/git.js";
+import { pseudoRefTarget, reachableCommits } from "../src/engine.js";
+import { recordsReachableFrom } from "../src/notes.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
@@ -5685,4 +5687,68 @@ test("every repository read passes through the engine seam and the native engine
   assert.match(badEnv.stderr, /Unknown engine 'bogus'\. Use one of: git, native/);
   assert.equal(git(repo, "rev-parse", "HEAD"), head);
   assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
+
+test("recordsReachableFrom derives the reachable set when a caller does not pass one", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "app.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+  vlab(repo, "branch", "feature");
+  write(repo, "feature.txt", "one\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "feature one");
+  git(repo, "switch", "main");
+  const landing = JSON.parse(vlab(repo, "hard-squash", "feature", "--json"));
+
+  // The two-argument form used to throw: its third parameter shadowed the
+  // imported reachableCommits it needed to derive the set from, so only the
+  // one caller that passed a set ever worked.
+  const derived = recordsReachableFrom("HEAD", repo);
+  const commits = reachableCommits("HEAD", repo);
+  const fromSet = recordsReachableFrom("HEAD", repo, new Set(commits));
+  const fromArray = recordsReachableFrom("HEAD", repo, commits);
+  assert.deepEqual(derived, fromSet);
+  assert.deepEqual(derived, fromArray);
+  assert.ok(
+    derived.some((record) => record.id === landing.id),
+    "the landing receipt is reachable from the target",
+  );
+  assert.ok(
+    !recordsReachableFrom("feature", repo).some((record) => record.id === landing.id),
+    "the receipt sits on the landing commit, which the source does not reach",
+  );
+});
+
+test("a branch named CHERRY_PICK_HEAD does not pass for a pending cherry-pick", (t) => {
+  // Git metadata is untrusted input. `rev-parse CHERRY_PICK_HEAD` resolves a
+  // branch of that name when no pick is pending, which the sequencer-state
+  // reads must not mistake for one; and when a pick is pending the branch
+  // must not hide it.
+  const { repo } = makeRepo(t);
+  write(repo, "a.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+  git(repo, "branch", "CHERRY_PICK_HEAD");
+  assert.equal(pseudoRefTarget("CHERRY_PICK_HEAD", repo), null);
+
+  git(repo, "switch", "-c", "side");
+  write(repo, "a.txt", "side\n");
+  git(repo, "add", ".");
+  const side = JSON.parse(vlab(repo, "commit", "-m", "side"));
+  git(repo, "switch", "main");
+  write(repo, "a.txt", "main\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "main");
+  const picked = spawnSync("git", ["cherry-pick", side.commit], {
+    cwd: repo,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+  assert.notEqual(picked.status, 0, "the pick must conflict so it stays pending");
+  assert.equal(pseudoRefTarget("CHERRY_PICK_HEAD", repo), side.commit);
+  git(repo, "cherry-pick", "--abort");
+  assert.equal(pseudoRefTarget("CHERRY_PICK_HEAD", repo), null);
 });

@@ -11,6 +11,7 @@ import {
 } from "./operations.js";
 import { buildMergePlan, formatMergePlan } from "./merge-plan.js";
 import {
+  assertProofBundleDocument,
   buildProofBundle,
   verifyAgainstRepository,
   verifyProofBundle,
@@ -47,6 +48,7 @@ import {
   gitVersion,
   historyGraph,
   reachableCommits,
+  repoContext,
   resolveRevision,
   runDifferential,
   treeId,
@@ -79,6 +81,7 @@ import {
 } from "./provenance.js";
 import { auditIdentity } from "./identity-audit.js";
 import { CliError, requestJsonErrors } from "./errors.js";
+import { assertWithinBound } from "./schemas.js";
 import { VERSION } from "./version.js";
 import {
   applyResolution,
@@ -134,8 +137,8 @@ Usage:
   vlab metadata import <directory> --dry-run [--json]
   vlab metadata import <directory> --apply [--json]
   vlab metadata benchmark [--history <n>] [--workspaces <n>] [--notes <n>] [--resolutions <n>] [--areas <n>] [--files-per-area <n>] [--samples <n>] [--budget-ms <n>] [--json]
-  vlab workspace create <name> [--from <ref>] [--path <directory>] [--owner <name>] [--focus <text>] [--cone <dir,dir>]
-  vlab workspace list [--json]
+  vlab workspace create <name> [--from <ref>] [--path <directory>] [--owner <name>] [--focus <text>] [--cone <dir,dir>] [--json]
+  vlab workspace list
   vlab workspace checkpoint [--label <text>] [--json]
   vlab workspace move <name> <directory> [--json]
   vlab workspace archive <name> [--json]
@@ -145,11 +148,11 @@ Usage:
   vlab workspace forecast <target> <source> [--source-checkpoint] [--accept-candidates] [--json]
   vlab spec index <markdown-file> [--force] [--json]
   vlab spec index --all [--force] [--json]
-  vlab spec show <markdown-file> [--json]
+  vlab spec show <markdown-file>
   vlab spec merge-plan <markdown-file> <base> <ours> <theirs> [--json]
   vlab spec status [--json]
   vlab spec resolve [markdown-file] [--all] [--json]
-  vlab spec benchmark [--documents <n>] [--blocks <n>] [--json]
+  vlab spec benchmark [--documents <n>] [--blocks <n>]
   vlab doctor [--benchmark] [--samples <n>] [--warmup <n>] [--differential]
   vlab version
 
@@ -1106,16 +1109,32 @@ export async function main(rawArgs) {
     }
     case "verify-proof": {
       const file = requireValue(positionals[0], "vlab verify-proof <file>");
-      let bundle;
+      const bundlePath = path.resolve(file);
+      let raw;
       try {
-        bundle = JSON.parse(fs.readFileSync(path.resolve(file), "utf8"));
+        // The bundle is another party's document, so its size is checked
+        // against the published bound before any of it is read (ADR-0020).
+        assertWithinBound("proofBundleBytes", fs.statSync(bundlePath).size, `Proof bundle '${file}'`);
+        raw = fs.readFileSync(bundlePath, "utf8");
       } catch (error) {
-        if (error?.code === "ENOENT") {
+        if (error instanceof CliError) throw error;
+        if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
           throw new CliError(`Proof bundle not found: ${file}`, { code: "not-found" });
         }
+        throw new CliError(`Proof bundle '${file}' could not be read.`,
+          { code: "malformed-input", details: error?.message ?? "" });
+      }
+      let bundle;
+      try {
+        bundle = JSON.parse(raw);
+      } catch {
         throw new CliError(`Proof bundle '${file}' is not valid JSON.`,
           { code: "malformed-input" });
       }
+      // The document is refused here, before the repository comparison, so
+      // that the comparison's catch below (which turns "not a repository"
+      // into a reported reason) can never swallow a malformed bundle.
+      assertProofBundleDocument(bundle);
       // Check the evidence against this repository unless asked not to. A
       // verifier holding only the file can still run with --offline; the
       // difference is reported rather than hidden, because only the
@@ -1510,7 +1529,9 @@ export async function main(rawArgs) {
         { code: "usage-unknown-command" });
     }
     case "doctor": {
-      const context = initLab();
+      // A diagnostic must not change what it diagnoses: the doctor reads the
+      // repository context and never runs `vlab init`'s configuration writes.
+      const context = repoContext();
       print({
         ok: true,
         // `vlab version` is text-only, so the doctor is the machine-readable

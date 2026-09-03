@@ -299,3 +299,56 @@ test("a missing revision is classified the same way on both Git transports", () 
   assert.equal(codes["1"].code, "revision-not-resolved", "session transport");
   assert.equal(codes["0"].message, codes["1"].message, "and the message does not depend on the transport");
 });
+
+test("a conflicted landing, a duplicate workspace, and a stale manifest carry their own codes", () => {
+  // Three refusals that hid behind the wrong code: the landing threw a bare
+  // Error (so the envelope reported null), the duplicate workspace said
+  // not-found, and the stale manifest said stale-forecast.
+  const repo = makeRepo();
+  const parent = path.dirname(repo);
+  const git = (...args) => execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+  const vlab = (...args) =>
+    execFileSync(process.execPath, [cli, ...args], { cwd: repo, encoding: "utf8" }).trim();
+  const notesRef = () =>
+    spawnSync("git", ["rev-parse", "--verify", "--quiet", "refs/notes/vcs-lab"], {
+      cwd: repo,
+      encoding: "utf8",
+    }).stdout.trim();
+
+  git("switch", "-c", "feature");
+  fs.writeFileSync(path.join(repo, "a.txt"), "feature\n");
+  git("add", "-A");
+  vlab("commit", "-m", "feature side");
+  git("switch", "main");
+  fs.writeFileSync(path.join(repo, "a.txt"), "main\n");
+  git("add", "-A");
+  vlab("commit", "-m", "main side");
+  const notesBefore = notesRef();
+
+  const landing = run(repo, "compact-merge", "feature", "-m", "land feature", "--json");
+  assert.notEqual(landing.status, 0);
+  assert.equal(JSON.parse(landing.stdout).code, "conflict-blocked");
+  assert.equal(notesRef(), notesBefore, "no receipt is recorded for a conflicted landing");
+  git("merge", "--abort");
+  assert.equal(git("status", "--porcelain=v1"), "");
+
+  const created = run(repo, "workspace", "create", "w1", "--path", path.join(parent, "w1"), "--json");
+  assert.equal(created.status, 0, created.stderr);
+  const duplicate = run(
+    repo, "workspace", "create", "w1", "--path", path.join(parent, "w1-again"), "--json",
+  );
+  assert.notEqual(duplicate.status, 0);
+  assert.equal(JSON.parse(duplicate.stdout).code, "already-exists");
+
+  fs.writeFileSync(path.join(repo, "spec.md"), "# Spec\n\nREQ-E-01: Codes are stable.\n");
+  vlab("spec", "index", "spec.md");
+  git("add", "-A");
+  vlab("commit", "-m", "spec");
+  fs.writeFileSync(
+    path.join(repo, "spec.md"),
+    "# Spec\n\nREQ-E-01: Codes are stable and published.\n",
+  );
+  const stale = run(repo, "spec", "show", "spec.md", "--json");
+  assert.notEqual(stale.status, 0);
+  assert.equal(JSON.parse(stale.stdout).code, "stale-manifest");
+});

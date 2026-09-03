@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
+import { RESOURCE_BOUNDS } from "../src/schemas.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(projectRoot, "bin", "vlab.js");
@@ -365,5 +366,110 @@ test("hostile manifests, identifiers, and object expressions fail closed", () =>
     "workspace cone escaping the repository",
     ["workspace", "create", "escaping", "--cone", "../outside"],
     /must stay inside the repository/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Proof bundles
+// ---------------------------------------------------------------------------
+
+test("hostile proof bundles fail closed before any member is dereferenced", () => {
+  const { repo } = scenario();
+  const genuine = JSON.parse(vlab(repo, "proof-bundle", "feature"));
+  const bundles = path.join(scenarioParent, "bundles");
+  fs.mkdirSync(bundles, { recursive: true });
+  const written = (name, mutate) => {
+    const bundle = JSON.parse(JSON.stringify(genuine));
+    const value = mutate(bundle) ?? bundle;
+    const file = path.join(bundles, `${name}.json`);
+    fs.writeFileSync(file, `${JSON.stringify(value)}\n`);
+    return file;
+  };
+
+  // The untouched bundle verifies, so every refusal below is the tampering.
+  const genuineResult = vlabResult(repo, "verify-proof", written("genuine", (b) => b), "--offline");
+  assert.equal(genuineResult.status, 0, genuineResult.stderr);
+
+  // A member of the wrong shape used to surface as a TypeError from inside
+  // the classification ("receipts.flatMap is not a function").
+  const receiptsObject = written("receipts-object", (b) => {
+    b.evidence.receipts = { absorbedCommits: [] };
+  });
+  assertRefusedCleanly(
+    repo,
+    "receipts is not an array",
+    ["verify-proof", receiptsObject, "--offline"],
+    /not structurally valid/,
+  );
+  const envelope = JSON.parse(
+    vlabResult(repo, "verify-proof", receiptsObject, "--offline", "--json").stdout,
+  );
+  assert.equal(envelope.code, "malformed-input");
+  assert.match(envelope.details, /evidence\.receipts must be an array/);
+
+  assertRefusedCleanly(
+    repo,
+    "evidence is not an object",
+    ["verify-proof", written("evidence-string", (b) => { b.evidence = "trust me"; })],
+    /not structurally valid/,
+  );
+  assertRefusedCleanly(
+    repo,
+    "changes is not an array",
+    ["verify-proof", written("changes-object", (b) => { b.changes = {}; })],
+    /not structurally valid/,
+  );
+  assertRefusedCleanly(
+    repo,
+    "a receipt is not an object",
+    ["verify-proof", written("receipt-string", (b) => { b.evidence.receipts = ["rcpt"]; })],
+    /not structurally valid/,
+  );
+  assertRefusedCleanly(
+    repo,
+    "the document is an array",
+    ["verify-proof", written("array", () => [])],
+    /not a JSON object/,
+  );
+  assertRefusedCleanly(
+    repo,
+    "a bundle from another family",
+    ["verify-proof", written("family", (b) => { b.schema = "vcs-lab.proof-bundle/v99"; })],
+    /Not a vcs-lab\.proof-bundle\/v1 document/,
+  );
+
+  // The canonical profile refuses floats; the refusal is a domain diagnostic,
+  // not the profile's TypeError.
+  assertRefusedCleanly(
+    repo,
+    "a float in the evidence",
+    ["verify-proof", written("float", (b) => { b.evidence.targetCommits = [0.5]; }), "--offline"],
+    /cannot be hashed under the canonical JSON profile/,
+  );
+
+  // A document that names the family but carries none of the members the
+  // published schema requires is malformed, not a bundle whose integrity
+  // check happens to fail.
+  const bare = vlabResult(
+    repo,
+    "verify-proof",
+    written("bare", () => ({ schema: "vcs-lab.proof-bundle/v1" })),
+    "--offline",
+    "--json",
+  );
+  assert.notEqual(bare.status, 0);
+  const bareEnvelope = JSON.parse(bare.stdout);
+  assert.equal(bareEnvelope.code, "malformed-input");
+  assert.match(bareEnvelope.details, /evidence is required/);
+  assert.match(bareEnvelope.details, /integrity is required/);
+
+  // Size is checked against the published bound before the file is read.
+  const oversize = path.join(bundles, "oversize.json");
+  fs.writeFileSync(oversize, Buffer.alloc(RESOURCE_BOUNDS.proofBundleBytes + 1, 0x20));
+  assertRefusedCleanly(
+    repo,
+    "an oversize bundle",
+    ["verify-proof", oversize, "--offline"],
+    /exceeds the proofBundleBytes resource bound/,
   );
 });

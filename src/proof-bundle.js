@@ -97,7 +97,100 @@ export function classifyFromEvidence(change, indexed) {
 /** The bundle's hash covers everything except its own `integrity` member. */
 export function bundleHash(bundle) {
   const { integrity, signatures, ...payload } = bundle;
-  return sha256(canonicalJson(payload));
+  try {
+    return sha256(canonicalJson(payload));
+  } catch (error) {
+    // The canonical profile refuses floats, unsafe integers, and non-JSON
+    // values. A bundle carrying them is malformed input, not a defect here.
+    throw new CliError(
+      "The proof bundle cannot be hashed under the canonical JSON profile.",
+      { code: "malformed-input", details: error.message },
+    );
+  }
+}
+
+const isPlainObject = (value) =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+/**
+ * Refuse a document that is not a proof bundle, or one whose members are not
+ * the shapes the lattice and the repository comparison read. The bundle is
+ * another party's document, so a wrong shape is `malformed-input` reported
+ * before any member is dereferenced, never a runtime error from inside the
+ * classification.
+ */
+export function assertProofBundleDocument(bundle) {
+  if (!isPlainObject(bundle)) {
+    throw new CliError("The proof bundle is not a JSON object.", { code: "malformed-input" });
+  }
+  if (bundle.schema !== PROOF_BUNDLE_SCHEMA) {
+    throw new CliError(
+      `Not a ${PROOF_BUNDLE_SCHEMA} document (found ${JSON.stringify(bundle.schema ?? null)}).`,
+        { code: "wrong-record-family" },
+    );
+  }
+  // The members and shapes below are the ones docs/schemas/proof-bundle.v1
+  // .schema.json requires; a bundle missing one is malformed, not merely
+  // failing its integrity check.
+  const problems = [];
+  const expectObject = (value, name, required = true) => {
+    if (value === undefined) {
+      if (required) problems.push(`${name} is required`);
+    } else if (!isPlainObject(value)) problems.push(`${name} must be an object`);
+  };
+  const expectArray = (value, name, required = true) => {
+    if (value === undefined) {
+      if (required) problems.push(`${name} is required`);
+    } else if (!Array.isArray(value)) problems.push(`${name} must be an array`);
+  };
+  const expectString = (value, name) => {
+    if (typeof value !== "string" || value.length === 0) problems.push(`${name} must be a non-empty string`);
+  };
+  for (const name of ["repository", "target", "source", "effectiveBase", "evidence", "counts", "integrity"]) {
+    expectObject(bundle[name], name);
+  }
+  expectString(bundle.physicalBase, "physicalBase");
+  expectArray(bundle.changes, "changes");
+  if (Array.isArray(bundle.changes)) {
+    bundle.changes.forEach((change, index) => {
+      expectObject(change, `changes[${index}]`);
+      if (isPlainObject(change)) {
+        expectString(change.commit, `changes[${index}].commit`);
+        expectString(change.changeId, `changes[${index}].changeId`);
+        if (typeof change.subject !== "string") {
+          problems.push(`changes[${index}].subject must be a string`);
+        }
+        if (!["covered", "candidate-equivalent", "new"].includes(change.status)) {
+          problems.push(`changes[${index}].status must be covered, candidate-equivalent, or new`);
+        }
+        // Null is the proof of new work; anything else must name a proof.
+        if (change.proof !== null && (typeof change.proof !== "string" || change.proof.length === 0)) {
+          problems.push(`changes[${index}].proof must be a non-empty string or null`);
+        }
+      }
+    });
+  }
+  if (isPlainObject(bundle.evidence)) {
+    const { evidence } = bundle;
+    for (const name of ["receipts", "targetCommits", "targetChangeIds", "patchEquivalentCommits"]) {
+      expectArray(evidence[name], `evidence.${name}`);
+    }
+    if (Array.isArray(evidence.receipts)) {
+      evidence.receipts.forEach((receipt, index) => {
+        expectObject(receipt, `evidence.receipts[${index}]`);
+        if (isPlainObject(receipt)) {
+          expectArray(receipt.absorbedCommits, `evidence.receipts[${index}].absorbedCommits`, false);
+          expectArray(receipt.absorbedChanges, `evidence.receipts[${index}].absorbedChanges`, false);
+        }
+      });
+    }
+  }
+  if (problems.length) {
+    throw new CliError("The proof bundle is not structurally valid.", {
+      code: "malformed-input",
+      details: problems.join("\n"),
+    });
+  }
 }
 
 /**
@@ -228,12 +321,7 @@ export function verifyAgainstRepository(bundle, cwd = process.cwd()) {
  * what `verifyAgainstRepository` adds.
  */
 export function verifyProofBundle(bundle, repository = null) {
-  if (bundle?.schema !== PROOF_BUNDLE_SCHEMA) {
-    throw new CliError(
-      `Not a ${PROOF_BUNDLE_SCHEMA} document (found ${JSON.stringify(bundle?.schema ?? null)}).`,
-        { code: "wrong-record-family" },
-    );
-  }
+  assertProofBundleDocument(bundle);
   const expected = bundle.integrity?.bundleHash ?? null;
   const actual = bundleHash(bundle);
   const indexed = indexEvidence(bundle.evidence ?? {});

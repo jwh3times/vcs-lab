@@ -161,6 +161,7 @@ tracked, or imported input refuses the command.
 | `envelopeBundleBytes` | 2147483648 | The `objects.bundle` size an envelope declares | Refuse |
 | `envelopeRecords` | 1000000 | Records one envelope declares | Refuse |
 | `provenanceActors` | 64 | Actors in one `vcs-lab.provenance/v1` record | Refuse the write; a landing's provenance is the union of every absorbed commit's actors, so this bounds what one branch can accumulate before the claim stops being reviewable by a person |
+| `proofBundleBytes` | 16777216 | One `vcs-lab.proof-bundle/v1` document handed to `vlab verify-proof` | Refuse before reading the file |
 
 `readJson` in `src/store.js` is the single reader for every worktree-private and
 shared-local document, which is why `localStateBytes` is enforced there and

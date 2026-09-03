@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { repoContext } from "./engine.js";
+import { pseudoRefTarget, repoContext } from "./engine.js";
 
 export { unmergedPaths } from "./engine.js";
 import { readJson, writeJson } from "./store.js";
@@ -43,19 +43,22 @@ export function clearReconciliationState(cwd = process.cwd()) {
   fs.rmSync(reconciliationStatePath(cwd), { force: true });
 }
 
+/**
+ * The commit of Git's pending cherry-pick, or null when none is pending.
+ * Read through the engine seam like every other repository fact, so a
+ * native engine answers it too and so it is correct on every ref backend.
+ */
 export function cherryPickHead(cwd = process.cwd()) {
-  try {
-    const value = fs.readFileSync(
-      path.join(repoContext(cwd).gitDir, "CHERRY_PICK_HEAD"),
-      "utf8",
-    ).trim();
-    return /^[0-9a-f]+$/i.test(value) ? value : null;
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw error;
-  }
+  return pseudoRefTarget("CHERRY_PICK_HEAD", cwd);
 }
 
+/**
+ * Where the sequencer keeps the message of the pending pick. This is a path
+ * into the sequencer's own state, which a contextual fork rewrites before
+ * `cherry-pick --continue` reads it; the Git directory it hangs off is the
+ * engine's `repoContext` fact, and the sequencer itself stays with the Git
+ * executable under ADR-0015.
+ */
 export function mergeMessagePath(cwd = process.cwd()) {
   return path.join(repoContext(cwd).gitDir, "MERGE_MSG");
 }

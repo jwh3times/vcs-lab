@@ -6,7 +6,6 @@ import {
   inspectGitObjects,
   listRefs,
   readGitBlob,
-  readGitObjects,
   refExists,
   resolveRevision,
 } from "./engine.js";
@@ -105,7 +104,9 @@ export function listResolutionRecords(cwd = process.cwd()) {
     record.resolutionCommit === record.commit &&
     resolutionSignatureFor(record) === record.signature,
   );
-  const retained = readGitObjects(
+  // Only existence, type, and identity are checked, so the retained results
+  // are inspected rather than read: their contents are never needed here.
+  const retained = inspectGitObjects(
     accepted.filter((record) => record.resultBlob).map((record) => `${record.commit}:result`),
     cwd,
   );
@@ -119,13 +120,14 @@ export function listResolutionRecords(cwd = process.cwd()) {
   );
 }
 
-export function resolutionCandidates(signature, cwd = process.cwd()) {
-  return listResolutionRecords(cwd)
-    .filter((record) => record.signature === signature)
-    .map(compactResolution);
-}
-
 export function captureConflictDescriptors(paths, cwd = process.cwd()) {
+  if (paths.length === 0) return [];
+  // The catalog is a property of the repository, not of the path, so it is
+  // scanned once per capture; scanning it per conflicted path repeated the
+  // ref scan, the note reads, and the retained-result checks for each one.
+  const catalog = listResolutionRecords(cwd);
+  const candidatesFor = (signature) =>
+    catalog.filter((record) => record.signature === signature).map(compactResolution);
   return paths.map((filePath) => {
     const stages = conflictStages(filePath, cwd);
     const signature = resolutionSignatureFor(stages);
@@ -134,7 +136,7 @@ export function captureConflictDescriptors(paths, cwd = process.cwd()) {
       signature,
       algorithm: RESOLUTION_SIGNATURE_ALGORITHM,
       ...stages,
-      candidates: resolutionCandidates(signature, cwd),
+      candidates: candidatesFor(signature),
       selectedResolutionId: null,
       decisionOverride: null,
     };

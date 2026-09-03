@@ -29,11 +29,7 @@ import {
   captureResolutionOutcomes,
   materializeResolutionCandidate,
 } from "./resolutions.js";
-import {
-  cherryPickHead,
-  readReconciliationState,
-  unmergedPaths,
-} from "./reconcile-state.js";
+import { readReconciliationState, unmergedPaths } from "./reconcile-state.js";
 import { readRebaseState } from "./rebase-state.js";
 import { readJson, temporaryDirectory, writeJson } from "./store.js";
 import {
@@ -125,7 +121,13 @@ function withTemporaryWorktree(targetHead, cwd, callback) {
   } finally {
     const cleanupStarted = performance.now();
     if (added) {
-      if (fs.existsSync(temporaryWorktree) && cherryPickHead(temporaryWorktree)) {
+      // A run that completed left no pick pending: every step either applied
+      // cleanly or was continued. Only a blocked run, or one that threw and
+      // so never assigned `value`, can leave one; the abort is harmless when
+      // nothing is pending, so it is simply attempted then, and a clean
+      // forecast's process count is unchanged. (The callback is the forecast
+      // loop, whose result carries `status`.)
+      if (value?.status !== "complete" && fs.existsSync(temporaryWorktree)) {
         runGit(["cherry-pick", "--abort"], {
           cwd: temporaryWorktree,
           allowFailure: true,

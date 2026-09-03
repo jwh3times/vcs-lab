@@ -94,6 +94,7 @@ code is a defect, not a category.
 | --- | --- |
 | `stale-forecast` | A forecast no longer matches the repository it was pinned to. Regenerate and re-approve it. |
 | `stale-input` | An input changed while the operation was running. Retry from a quiet repository. |
+| `stale-manifest` | A specification manifest no longer matches the Markdown it describes. Re-index it with vlab spec index, then stage or commit the result. |
 
 ### Conflicts and decisions that need a person
 

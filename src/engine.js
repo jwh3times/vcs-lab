@@ -52,6 +52,7 @@ const GIT_OPERATIONS = Object.freeze({
   refTarget: git.refTarget,
   listRefs: git.listRefs,
   symbolicRef: git.symbolicRef,
+  pseudoRefTarget: git.pseudoRefTarget,
   listNoteEntries: git.listNoteEntries,
   readNoteText: git.readNoteText,
   // Worktree, index, and status
@@ -162,6 +163,7 @@ export function refExists(...args) { return dispatch("refExists", args); }
 export function refTarget(...args) { return dispatch("refTarget", args); }
 export function listRefs(...args) { return dispatch("listRefs", args); }
 export function symbolicRef(...args) { return dispatch("symbolicRef", args); }
+export function pseudoRefTarget(...args) { return dispatch("pseudoRefTarget", args); }
 export function listNoteEntries(...args) { return dispatch("listNoteEntries", args); }
 export function readNoteText(...args) { return dispatch("readNoteText", args); }
 // Worktree, index, and status
@@ -295,6 +297,7 @@ function differentialProbes(cwd) {
     { operation: "refTarget", run: () => refTarget(`refs/notes/${notesRef}`, cwd) },
     { operation: "listRefs", run: () => listRefs("refs/heads/", cwd) },
     { operation: "symbolicRef", run: () => symbolicRef("HEAD", cwd, { short: true }) },
+    { operation: "pseudoRefTarget", run: () => pseudoRefTarget("CHERRY_PICK_HEAD", cwd) },
     { operation: "listNoteEntries", run: () => listNoteEntries(notesRef, cwd) },
     { operation: "readNoteText", ...needsHead(() => readNoteText(notesRef, head, cwd)) },
     { operation: "workspaceStatus", run: () => workspaceStatus(cwd) },

@@ -252,7 +252,7 @@ export function createWorkspace(name, options = {}) {
 
   const state = readWorkspaces(cwd);
   if (state.workspaces.some((workspace) => workspace.name === name)) {
-    throw new CliError(`Workspace '${name}' already exists.`, { code: "not-found" });
+    throw new CliError(`Workspace '${name}' already exists.`, { code: "already-exists" });
   }
 
   const parent = path.dirname(context.root);
@@ -262,7 +262,7 @@ export function createWorkspace(name, options = {}) {
   );
   if (branchObject.exists) {
     throw new CliError(`The compatibility branch '${branch}' already exists.`,
-      { code: "not-found" });
+      { code: "already-exists" });
   }
   const cone = normalizeCone(options.cone);
   fs.mkdirSync(path.dirname(workspacePath), { recursive: true });
@@ -448,7 +448,7 @@ export function moveWorkspace(value, destination, options = {}) {
   }
   if (fs.existsSync(nextPath)) {
     throw new CliError(`Workspace destination already exists: ${nextPath}`,
-      { code: "not-found" });
+      { code: "already-exists" });
   }
   fs.mkdirSync(path.dirname(nextPath), { recursive: true });
   runGit(["worktree", "move", workspace.path, nextPath], {
@@ -516,7 +516,7 @@ export function restoreWorkspace(value, options = {}) {
   const restoredPath = path.resolve(options.path ?? workspace.path);
   if (fs.existsSync(restoredPath)) {
     throw new CliError(`Workspace restore path already exists: ${restoredPath}`,
-      { code: "not-found" });
+      { code: "already-exists" });
   }
   fs.mkdirSync(path.dirname(restoredPath), { recursive: true });
   // Restoring re-materializes the worktree, so it must reapply the cone the

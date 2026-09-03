@@ -553,7 +553,7 @@ export function readSpecManifest(file, cwd = process.cwd()) {
   const raw = normalizeMarkdown(fs.readFileSync(absolute, "utf8"));
   if (sha256(raw) !== storedManifest.sourceHash) {
     throw new CliError(`Spec manifest for '${file}' is stale.`, {
-      code: "stale-forecast",
+      code: "stale-manifest",
       details: `Re-index it with: vlab spec index ${file}`,
     });
   }
@@ -651,7 +651,7 @@ function revisionStageFromObjects(file, revision, sourceObject, manifestObject) 
   }
   if (!compatibleHashes.includes(storedManifest.sourceHash)) {
     throw new CliError(`Spec manifest for '${file}' is stale at ${revision}.`, {
-      code: "stale-forecast",
+      code: "stale-manifest",
       details: `Re-index and commit it with: vlab spec index ${file}`,
     });
   }
@@ -1117,7 +1117,7 @@ export function captureSpecMergeOutcomes(merges, cwd = process.cwd()) {
         storedManifest.sourceHash !== sha256(markdown)
       ) {
         throw new CliError(`Staged manifest for '${merge.path}' is stale.`, {
-          code: "stale-forecast",
+          code: "stale-manifest",
           details: `Run 'vlab spec index ${merge.path}', stage both files, and continue again.`,
         });
       }

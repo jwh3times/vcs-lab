@@ -1244,6 +1244,29 @@ export function symbolicRef(name, cwd = process.cwd(), options = {}) {
   return result.ok && result.stdout ? result.stdout : null;
 }
 
+/**
+ * The commit a pseudo-ref such as `CHERRY_PICK_HEAD` names, or null when it
+ * is not set. Always a fresh `rev-parse`: the sequencer creates and removes
+ * these refs within one invocation, so neither the object session nor a
+ * file under the Git directory may stand in for Git's own answer (with the
+ * reftable backend they are not files at all).
+ */
+export function pseudoRefTarget(name, cwd = process.cwd()) {
+  const result = readGit(
+    ["rev-parse", `${name}^{commit}`, "--symbolic-full-name", name],
+    { cwd, allowFailure: true },
+  );
+  if (!result.ok) return null;
+  const [oid = "", fullName = ""] = result.stdout.split(/\r?\n/);
+  // A branch or tag that carries the pseudo-ref's name resolves too, and Git
+  // reports it as `refs/heads/<name>`; only a name outside `refs/` is the
+  // sequencer's. When both exist Git answers with the sequencer's ref and,
+  // calling the name ambiguous, prints no full name at all. Git metadata is
+  // untrusted input, so the branch must not pass for a pending operation.
+  if (fullName.startsWith("refs/")) return null;
+  return /^[0-9a-f]{40,64}$/i.test(oid) ? oid : null;
+}
+
 /** Whether `name` (a ref, pseudo-ref, or revision) resolves to an object. */
 export function revisionResolves(name, cwd = process.cwd()) {
   return readGit(["rev-parse", "--verify", "--quiet", name], {
