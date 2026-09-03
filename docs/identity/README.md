@@ -132,10 +132,37 @@ one. The import stops and says which identifier disagrees.
 carries no document in the [schema catalog](../schemas/README.md) — the same
 arrangement as the canonical JSON profile.
 
-## 5. Versioning this specification
+## 5. Naming a commit by its logical change
 
-`vcs-lab.logical-id/v1` covers the form, the namespace set, the entropy, and
-the import rule above. Under the
+A `ch_*` argument to `vlab cherry-pick` names a logical change, and after an
+identity-preserving pick or rebase more than one reachable commit carries the
+trailer. Every bearer is an exact copy under FR-ID-02, so the tree an
+application produces is the same whichever is chosen; what has to be
+deterministic is the `originCommit` the application record carries and the
+provenance carried from it. The rule:
+
+1. **The origin.** Among the commits reachable from any ref that carry the
+   `Change-Id`, the change's origin is the bearer no identity-preserving
+   application record names as its applied commit: a `vcs-lab.application`
+   or `vcs-lab.rebase-application` record whose origin and applied
+   `Change-Id` are the same. These records are the identity model
+   `vlab audit identity` (FR-ID-06) checks, so the resolver and the audit
+   agree about which commit is the origin.
+2. **The earliest bearer.** When the records single out no bearer, because
+   none exist (a plain `git cherry-pick` copies the trailer and records
+   nothing) or because the origin is no longer reachable (a rebase moved the
+   branch), the earliest bearer by committer date is named, and equal dates
+   are ordered by ascending commit id. Both keys are content of the commits,
+   so the choice is the same on every host that reaches the same commits.
+
+`findCommitsByChangeId` in `src/git.js` returns every bearer in the order of
+rule 2, `resolveChangeOrCommit` in `src/operations.js` applies rule 1, and
+`test/integration.test.js` pins both.
+
+## 6. Versioning this specification
+
+`vcs-lab.logical-id/v1` covers the form, the namespace set, the entropy, the
+import rule, and the resolution rule above. Under the
 [compatibility contract](../schemas/compatibility.md):
 
 - **adding a namespace** is additive and stays within `v1`, because readers
@@ -143,7 +170,10 @@ the import rule above. Under the
   ones;
 - **changing the form, the entropy, or the import rule** is a new version,
   because every existing identifier and every stored record would have to be
-  re-read under it.
+  re-read under it;
+- **changing the resolution rule** changes what new application records claim
+  as their origin and re-reads nothing, so it is a change to state here and
+  in the changelog rather than a new version.
 
 Raising the entropy would be a version bump and would not change the trust
 boundary of §3, so it should only be done for a measured reason.

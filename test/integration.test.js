@@ -1208,13 +1208,10 @@ test("cherry-pick --repeat re-applies a change the target's history already cove
   assert.equal(repeated.noOp, undefined);
   assert.equal(repeated.schema, "vcs-lab.application/v1");
   // A Change-Id names a logical change, and by now two commits carry this
-  // one: the original and its first pick. The resolver returns whichever
-  // `git log --all` lists first, and within one second that is either, so
-  // the record must name a bearer of the id rather than a particular one.
-  assert.ok(
-    [origin.commit, first.appliedCommit].includes(repeated.originCommit),
-    `${repeated.originCommit} does not carry ${origin.changeId}`,
-  );
+  // one: the original and its first pick. The argument resolves to the
+  // change's origin, the bearer no application record names as its applied
+  // commit (identity protocol §5), so the record names the original.
+  assert.equal(repeated.originCommit, origin.commit);
   assert.equal(repeated.originChangeId, origin.changeId);
   assert.equal(repeated.appliedChangeId, origin.changeId);
   assert.equal(repeated.relation, "same-logical-change");
@@ -1239,6 +1236,65 @@ test("cherry-pick --repeat re-applies a change the target's history already cove
     applications.map((record) => record.appliedCommit).sort(),
     [first.appliedCommit, head].sort(),
   );
+});
+
+test("a Change-Id argument names the change's origin, then the earliest bearer", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+  const dated = (date) => ({
+    env: testEnv({ GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }),
+  });
+  // main covers the change throughout, so the pick is the no-op projection:
+  // it reports what the argument resolved to and moves nothing.
+  const resolved = (changeId) => {
+    const projection = JSON.parse(vlab(repo, "cherry-pick", changeId, "--json"));
+    assert.equal(projection.noOp, true);
+    assert.equal(projection.reason, "target-already-covers-change-id");
+    return projection.originCommit;
+  };
+
+  // The origin is committed at T+10 and its identity-preserving pick at T+0,
+  // so date order alone would name the pick.
+  vlab(repo, "branch", "feature");
+  write(repo, "picked.txt", "portable change\n");
+  git(repo, "add", ".");
+  const origin = JSON.parse(exec(
+    process.execPath, [cli, "commit", "-m", "portable change"], repo,
+    dated("2026-01-01T00:00:10Z"),
+  ));
+  git(repo, "switch", "main");
+  const picked = JSON.parse(exec(
+    process.execPath, [cli, "cherry-pick", origin.changeId, "--json"], repo,
+    dated("2026-01-01T00:00:00Z"),
+  ));
+  assert.equal(picked.appliedChangeId, origin.changeId);
+  // The pick is on record as applied from the origin, so the origin is named
+  // whatever the dates say.
+  assert.equal(resolved(origin.changeId), origin.commit);
+
+  // A plain `git cherry-pick` copies the trailer and leaves no record, so
+  // nothing says which of the origin and the copy came first except their
+  // dates: the earliest bearer is named, here the copy.
+  git(repo, "switch", "-c", "copy-one", "main~1");
+  exec("git", ["cherry-pick", origin.commit], repo, dated("2025-12-31T23:59:50Z"));
+  const copyOne = git(repo, "rev-parse", "HEAD");
+  git(repo, "switch", "main");
+  assert.equal(resolved(origin.changeId), copyOne);
+
+  // Two bearers with the same date are ordered by commit id. The second copy
+  // sits on a different parent so it is a different commit.
+  git(repo, "switch", "-c", "copy-two", "main~1");
+  write(repo, "other.txt", "other\n");
+  git(repo, "add", ".");
+  exec("git", ["commit", "-m", "other"], repo, dated("2025-12-31T23:59:40Z"));
+  exec("git", ["cherry-pick", origin.commit], repo, dated("2025-12-31T23:59:50Z"));
+  const copyTwo = git(repo, "rev-parse", "HEAD");
+  git(repo, "switch", "main");
+  assert.notEqual(copyOne, copyTwo);
+  assert.equal(resolved(origin.changeId), [copyOne, copyTwo].sort()[0]);
 });
 
 test("a sparse cone materializes only its directories and survives archive and restore", (t) => {

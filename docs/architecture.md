@@ -211,6 +211,14 @@ Change ID and adds origin trailers. During conflict continuation, `--fork`
 likewise marks the target result as changed intent rather than a contextual
 adaptation of the same intent.
 
+A `ch_*` argument names one commit even when several carry the trailer: the
+change's origin, which is the bearer no identity-preserving application
+record names as its applied commit, and otherwise the earliest bearer by
+committer date, equal dates by commit id. The rule is stated in the
+[identity protocol](identity/README.md) §5 and depends only on the commits,
+so the `originCommit` an application record carries, and the provenance
+carried from it, do not depend on the order `git log` happens to walk.
+
 ## 5. Persistence topology
 
 The placement rule is: mutable, in-progress choices belong to one worktree;

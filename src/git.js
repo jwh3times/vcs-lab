@@ -1289,22 +1289,38 @@ export function isInsideWorkTree(cwd = process.cwd()) {
   return probe.ok && probe.stdout === "true";
 }
 
-export function findCommitByChangeId(changeId, cwd = process.cwd()) {
+/**
+ * Every commit reachable from a ref that carries `changeId` as its
+ * `Change-Id` trailer, in the order the identity protocol states
+ * (docs/identity/README.md §5): earliest committer date first, and equal
+ * dates by ascending commit id. Both keys are content of the commits, so the
+ * order is the same on every host that reaches the same commits. A caller
+ * that needs one bearer takes the first, or applies the protocol's origin
+ * preference to the whole list.
+ */
+export function findCommitsByChangeId(changeId, cwd = process.cwd()) {
   const output = readText(
-    ["log", "--all", "--format=%H%x1f%B%x1e"],
+    ["log", "--all", "--format=%H%x1f%ct%x1f%B%x1e"],
     { cwd, trim: false },
   );
+  const bearers = [];
   for (const record of output.split("\x1e")) {
     if (!record.trim()) continue;
-    const separator = record.indexOf("\x1f");
-    if (separator < 0) continue;
-    const commit = record.slice(0, separator).trim();
-    const message = record.slice(separator + 1);
+    const first = record.indexOf("\x1f");
+    const second = first < 0 ? -1 : record.indexOf("\x1f", first + 1);
+    if (second < 0) continue;
+    const commit = record.slice(0, first).trim();
+    const committedAt = Number(record.slice(first + 1, second));
+    const message = record.slice(second + 1);
     if (extractTrailer(message, "Change-Id") === changeId) {
-      return commit;
+      bearers.push({ commit, committedAt });
     }
   }
-  return null;
+  bearers.sort((left, right) =>
+    left.committedAt - right.committedAt ||
+    (left.commit < right.commit ? -1 : left.commit > right.commit ? 1 : 0),
+  );
+  return bearers.map((bearer) => bearer.commit);
 }
 
 /** The decorated `git log --graph` text of every ref, for `vlab graph`. */

@@ -44,7 +44,7 @@ const GIT_OPERATIONS = Object.freeze({
   commitHistory: git.commitHistory,
   commitMessage: git.commitMessage,
   commitSubject: git.commitSubject,
-  findCommitByChangeId: git.findCommitByChangeId,
+  findCommitsByChangeId: git.findCommitsByChangeId,
   patchEquivalentCommits: git.patchEquivalentCommits,
   historyGraph: git.historyGraph,
   // Refs and notes
@@ -155,7 +155,7 @@ export function rootCommits(...args) { return dispatch("rootCommits", args); }
 export function commitHistory(...args) { return dispatch("commitHistory", args); }
 export function commitMessage(...args) { return dispatch("commitMessage", args); }
 export function commitSubject(...args) { return dispatch("commitSubject", args); }
-export function findCommitByChangeId(...args) { return dispatch("findCommitByChangeId", args); }
+export function findCommitsByChangeId(...args) { return dispatch("findCommitsByChangeId", args); }
 export function patchEquivalentCommits(...args) { return dispatch("patchEquivalentCommits", args); }
 export function historyGraph(...args) { return dispatch("historyGraph", args); }
 // Refs and notes
@@ -285,8 +285,8 @@ function differentialProbes(cwd) {
     { operation: "commitMessage", ...needsHead(() => commitMessage(head, cwd)) },
     { operation: "commitSubject", ...needsHead(() => commitSubject(head, cwd)) },
     {
-      operation: "findCommitByChangeId",
-      ...needsHead(() => findCommitByChangeId(changeIdForCommit(head, cwd), cwd)),
+      operation: "findCommitsByChangeId",
+      ...needsHead(() => findCommitsByChangeId(changeIdForCommit(head, cwd), cwd)),
     },
     {
       operation: "patchEquivalentCommits",

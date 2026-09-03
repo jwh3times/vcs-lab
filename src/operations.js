@@ -15,14 +15,15 @@ import {
   commitMessage,
   commitSubject,
   currentHead,
-  findCommitByChangeId,
+  findCommitsByChangeId,
   repoContext,
   resolveObjectIds,
   resolveRevision,
   symbolicRef,
 } from "./engine.js";
 import { newId } from "./ids.js";
-import { appendNote } from "./notes.js";
+import { appendNote, listNoteRecords } from "./notes.js";
+import { identityPreservingEdges } from "./identity-audit.js";
 import { faultPoint } from "./faults.js";
 import {
   carryProvenanceForApplications,
@@ -55,13 +56,34 @@ import {
 } from "./specs.js";
 
 function resolveChangeOrCommit(value, cwd) {
-  if (value.startsWith("ch_")) {
-    const commit = findCommitByChangeId(value, cwd);
-    if (!commit) throw new CliError(`No commit with Change-Id '${value}' was found.`,
+  if (!value.startsWith("ch_")) return resolveRevision(value, cwd);
+  const bearers = findCommitsByChangeId(value, cwd);
+  if (bearers.length === 0) {
+    throw new CliError(`No commit with Change-Id '${value}' was found.`,
       { code: "revision-not-resolved" });
-    return commit;
   }
-  return resolveRevision(value, cwd);
+  return originOfChange(bearers, cwd);
+}
+
+/**
+ * The commit a `ch_*` argument names when several commits carry the id: the
+ * logical change's origin under the identity model FR-ID-06 audits, which is
+ * the bearer no identity-preserving application record names as its applied
+ * commit. When the records single out no bearer, because none exist or the
+ * origin is no longer reachable, the earliest bearer stands in, in the order
+ * `findCommitsByChangeId` states. Every bearer is an exact copy under
+ * FR-ID-02, so the tree applied is the same whichever is named; what this
+ * fixes is the `originCommit` a record carries, and the provenance carried
+ * from it, which used to be whichever bearer `git log` listed first
+ * (docs/identity/README.md §5).
+ */
+function originOfChange(bearers, cwd) {
+  if (bearers.length === 1) return bearers[0];
+  const applied = new Set(
+    identityPreservingEdges(listNoteRecords(cwd)).map((edge) => edge.applied),
+  );
+  const origins = bearers.filter((commit) => !applied.has(commit));
+  return (origins.length > 0 ? origins : bearers)[0];
 }
 
 function coveredChangeIds(ref, cwd) {

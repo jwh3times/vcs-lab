@@ -20,6 +20,30 @@ export function changeIdTrailers(message) {
   return trailers;
 }
 
+/**
+ * The identity-preserving application edges among `records`: each links an
+ * origin commit to the commit a cherry-pick or causal rebase produced from it
+ * under the same `Change-Id`. A fork deliberately changes the identity, so a
+ * fork edge is not one of these. The edges are the identity model of
+ * FR-ID-06: the audit unions them to find collisions, and the resolver of a
+ * `ch_*` argument follows them to a change's origin
+ * (docs/identity/README.md §5).
+ */
+export function identityPreservingEdges(records) {
+  const edges = [];
+  for (const record of records) {
+    if (!APPLICATION_TYPES.has(record.type)) continue;
+    const origin = record.originCommit;
+    const applied = record.appliedCommit ?? record.attachedTo;
+    if (!origin || !applied) continue;
+    if (record.originChangeId && record.appliedChangeId &&
+        record.originChangeId === record.appliedChangeId) {
+      edges.push({ origin, applied });
+    }
+  }
+  return edges;
+}
+
 /** Union-find over commits linked by identity-preserving application edges. */
 function makeComponents() {
   const parent = new Map();
@@ -98,14 +122,8 @@ export function auditIdentity(cwd = process.cwd()) {
   //    ID. A fork deliberately changes the identity, so a fork edge must not
   //    link its endpoints here.
   const components = makeComponents();
-  for (const record of applications) {
-    const origin = record.originCommit;
-    const applied = record.appliedCommit ?? record.attachedTo;
-    if (!origin || !applied) continue;
-    if (record.originChangeId && record.appliedChangeId &&
-        record.originChangeId === record.appliedChangeId) {
-      components.union(origin, applied);
-    }
+  for (const edge of identityPreservingEdges(applications)) {
+    components.union(edge.origin, edge.applied);
   }
 
   const commitsByChangeId = new Map();

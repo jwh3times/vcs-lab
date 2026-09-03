@@ -23,6 +23,18 @@
     Change-ID scope question was still open after the identity protocol
     answered it, and issue #17 was mentioned in no document.
 
+- Resolve a `ch_*` argument to one commit deterministically. When several
+  commits carry a `Change-Id`, as after a pick or a `cherry-pick --repeat`,
+  `vlab cherry-pick <change-id>` named whichever bearer `git log --all`
+  listed first, so the `originCommit` its record carried, and the provenance
+  carried from it, could differ between runs. The argument now names the
+  change's origin, the bearer no identity-preserving application record names
+  as its applied commit, and otherwise the earliest bearer by committer date,
+  equal dates by commit id; the rule is stated in the identity protocol (§5)
+  and pinned by tests. The read operation `findCommitByChangeId` is replaced
+  by `findCommitsByChangeId`, which returns every bearer in that order; the
+  catalog still has 39 operations.
+
 - Share the suites' isolated Git environment through
   `test-support/git-environment.js` instead of a block pasted into nine
   files. It lives outside `test/` because `node --test` runs every
