@@ -36,7 +36,7 @@ jobs:
           node-version: 24
       - name: Syntax
         run: |
-          for file in bin/*.js src/*.js scripts/*.mjs test/*.js; do
+          for file in bin/*.js src/*.js scripts/*.mjs test/*.js test-support/*.js; do
             node --check "$file"
           done
       - name: Documentation links

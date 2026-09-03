@@ -23,6 +23,12 @@
     Change-ID scope question was still open after the identity protocol
     answered it, and issue #17 was mentioned in no document.
 
+- Share the suites' isolated Git environment through
+  `test-support/git-environment.js` instead of a block pasted into nine
+  files. It lives outside `test/` because `node --test` runs every
+  JavaScript file under a directory named `test` as a test file, in Node 20
+  by the directory's name and in Node 22 and later by its glob.
+
 - Fix `vlab verify-proof` failing with a runtime `TypeError` instead of a
   refusal on a bundle whose members have the wrong shape (an
   `evidence.receipts` object rather than an array, a float in the evidence,

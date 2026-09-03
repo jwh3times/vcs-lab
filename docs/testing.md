@@ -23,12 +23,15 @@ Run the complete integration suite in ordinary mode:
 npm test
 ```
 
-Every suite file spawns Git and the CLI with `GIT_CONFIG_NOSYSTEM=1` and
-`GIT_CONFIG_GLOBAL` pointing at an empty file it creates for the run, so a
-host's global `commit.gpgsign`, `core.hooksPath`, `init.defaultBranch`, or
+Every suite file spawns Git and the CLI through `testEnv` from
+`test-support/git-environment.js`, which sets `GIT_CONFIG_NOSYSTEM=1` and
+points `GIT_CONFIG_GLOBAL` at an empty file created for the run, so a host's
+global `commit.gpgsign`, `core.hooksPath`, `init.defaultBranch`, or
 `core.autocrlf` cannot reach a fixture; fixtures set their own identity and
 line-ending settings. The CLI itself still reads the user's real
-configuration.
+configuration. The helper lives beside `test/` rather than inside it because
+`node --test` runs every JavaScript file under a directory named `test` as a
+test file, so a shared module there would be executed as one.
 
 Run it again with the invocation-scoped Git object session forced:
 

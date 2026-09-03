@@ -6,7 +6,7 @@
 | --- | --- |
 | Architecture baseline | v0.13.2 release |
 | Status | Current implementation reference |
-| Last updated | 2026-09-02 |
+| Last updated | 2026-09-03 |
 | Runtime | Node.js 20+ (ES modules), Git 2.40+ (merge-tree forecast engine: Git 2.49+) |
 | External runtime dependencies | None beyond Node.js and Git |
 
@@ -154,6 +154,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/specs.js` | Markdown parsing, sparse manifest migration/indexing, deterministic merge, semantic resolution, benchmark | Git adapter, IDs, reconciliation state |
 | `src/version.js` | Runtime version constant | None |
 | `test/*.test.js` | Disposable-repository end-to-end contract suite (`integration.test.js`) and the focused suites [testing.md](testing.md) describes: schema catalog, canonical JSON, conformance, compatibility, hostile input, failure boundary, error envelope, provenance, object format, and repository hygiene | CLI and Git |
+| `test-support/git-environment.js` | The isolated Git environment every suite file imports: no system configuration and an empty global one; outside `test/` because `node --test` would run it as a test file | `node:test` |
 | `scripts/*.mjs` | Reproducible user experiments and performance comparisons | Published CLI behavior |
 
 The code is intentionally dependency-free. Domain modules use synchronous APIs
