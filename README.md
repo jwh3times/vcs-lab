@@ -129,6 +129,11 @@ git add feature.txt
 vlab commit -m "feature part two"
 ```
 
+`vlab commit` passes `--all` and `--allow-empty` through to `git commit`:
+`--all` stages every tracked change first and `--allow-empty` records a
+commit whose tree is unchanged. Either way the commit receives its
+`Change-Id` trailer.
+
 ### Recommended compact landing
 
 ```bash
@@ -139,6 +144,8 @@ git show -s --format=%P HEAD
 ```
 
 The first-parent log contains one landing unit, while the commit has a real second parent. Stock Git can safely merge the branches later.
+
+`vlab compact-merge <source>` is the same landing as `vlab merge <source> --compact`, and `vlab hard-squash <source>` the same as `vlab merge <source> --hard-squash`; `vlab merge` without a mode flag lands compactly. All three print their `vcs-lab.landing/v1` receipt as JSON whatever the flags.
 
 ### Strict hard squash and causal reconciliation
 
@@ -220,6 +227,20 @@ The planner uses three statuses:
 - `+` new work.
 
 Similarity is deliberately advisory. Run `vlab reconcile <branch> --accept-candidates` only after reviewing candidate equivalence.
+
+### Proof bundles and the identity audit
+
+A plan's verdict can be handed to another party together with the evidence it rests on:
+
+```bash
+vlab proof-bundle hard-feature > proof.json
+vlab verify-proof proof.json
+vlab verify-proof proof.json --offline
+```
+
+`vlab proof-bundle` always prints JSON (`vcs-lab.proof-bundle/v1`): the merge plan with the target commits and change IDs, the reachable accepted receipts and what each absorbs, and the advisory patch-equivalent set, hashed under the canonical JSON profile. `vlab verify-proof` re-derives every classification from that evidence with its own copy of the proof lattice and reports three checks separately: `integrity` catches editing, `classification` catches a claim that does not follow from the stated evidence even when the hash was restated, and `repository` compares the evidence against the current repository, the only check that catches fabricated receipts. `--offline` skips the repository check and reports it as not requested rather than implying more than it proved; a bundle from an unrelated repository is reported as `different-repository`. The command exits non-zero when the bundle does not verify.
+
+`vlab audit identity` scans every commit reachable from any ref and every causal record. It reports commits carrying more than one `Change-Id` trailer, commits sharing a `Change-Id` with no identity-preserving application record linking them, applied commits with more than one claimed origin, and records that break the identity invariants, and it exits non-zero when it reports errors (`--json` emits `vcs-lab.identity-audit/v1`). A `Change-Id` is a line of text anyone with repository access can write, so identifiers coordinate work rather than authenticate it and the audit is the defence ([docs/identity](docs/identity/README.md)).
 
 ## Planning and forecasting a causal rebase
 
@@ -376,8 +397,8 @@ npm run demo:conflict
 
 ## Reusing an exact conflict resolution
 
-Version 0.3 records an exact signature for the ordered base, target, and source
-blobs involved in each conflict. The signature excludes the path, so a prior
+Each conflict is recorded under an exact signature of the ordered base, target,
+and source blobs involved. The signature excludes the path, so a prior
 resolution can be found on another branch or in another linked worktree when
 all three inputs are identical.
 
@@ -410,7 +431,7 @@ vlab reconcile --continue
 
 The application receipt distinguishes `created`, `accepted`, `modified`, and
 `rejected` outcomes. `vlab resolve list` shows the repository-shared catalog.
-An exact result is still never selected implicitly: v0.4 may batch-apply it only
+An exact result is still never selected implicitly: it is batch-applied only
 when `--use-forecast` names the reviewed, pinned forecast.
 Run the prepared two-conflict experiment, whose second occurrence is in a
 linked worktree, with:
@@ -422,12 +443,20 @@ npm run demo:resolution
 ## AI-oriented workspaces
 
 ```bash
-vlab workspace create agent-auth --from main --focus service:auth
+vlab workspace create agent-auth --from main --owner agent-7 --focus service:auth
 vlab workspace list
 cd ../vlab-playground.workspaces/agent-auth
 echo draft > agent-plan.md
 vlab workspace checkpoint --label "agent handoff"
 ```
+
+`--owner` and `--focus` are free-text labels recorded on the workspace
+descriptor. On a large tree, `--cone <dir,dir>` materializes only the named
+directory prefixes through Git's cone-mode sparse checkout: the workspace ID,
+compatibility branch, pinned base, checkpoints, and lifecycle are the same with
+or without it, a checkpoint still captures the full tree, restore reapplies the
+cone, and `git sparse-checkout disable` inside the worktree reverses it. Cone
+paths must be relative and inside the repository.
 
 From the original or another linked worktree, move or temporarily dematerialize
 a workspace without changing its identity:
@@ -494,7 +523,7 @@ vlab spec show docs/checkout.md
 
 The exact Markdown remains canonical. The tracked
 `.vcs-lab/specs/docs/checkout.md.json` sidecar assigns stable IDs to the
-preamble, headings, and explicit `REQ-*:` entries. Version 0.6 manifests are
+preamble, headings, and explicit `REQ-*:` entries. Manifests are
 sparse and deterministic: titles, positions, content hashes, and ordinary IDs
 are derived from Markdown rather than duplicated. The sidecar retains
 artifact/source identity, entity count, an optional Git blob identity, and only
@@ -509,9 +538,13 @@ tracked or non-ignored Markdown document in one pass:
 vlab spec index --all
 ```
 
+`--force`, on either form, re-parses the Markdown and re-derives the manifest
+even when the tracked blob or source hash reports it unchanged, which is how a
+sidecar is refreshed deliberately.
+
 ### Deterministic block reconciliation
 
-Version 0.5 introduced heading-delimited sections as disjoint merge units. `REQ-*`
+Heading-delimited sections are the disjoint merge units. `REQ-*`
 records remain independently addressable entities, but their text is merged as
 part of the containing section so overlapping units cannot produce inconsistent
 bytes.
@@ -570,19 +603,22 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab commit` | Stable logical change identity |
 | `vlab merge --compact` | First-parent compression without causal loss |
 | `vlab merge --hard-squash` | Git-compatible strict squash plus sideband receipt |
+| `vlab compact-merge`, `vlab hard-squash` | The same two landings as standalone commands |
 | `vlab merge-plan` | Proven coverage versus heuristic similarity |
+| `vlab proof-bundle`, `vlab verify-proof` | Portable coverage evidence and its independent verification |
 | `vlab rebase-plan` | Read-only causal omission/review/replay planning for a linear rebase |
 | `vlab rebase-forecast` | Non-mutating simulation and private pinning of a causal rebase plan |
 | `vlab rebase` | Supervised current-branch replay with stale checks, continue/fork/abort recovery, and completed receipts |
 | `vlab forecast` | Non-mutating reconciliation simulation and pinned approval |
 | `vlab reconcile` | Apply only proven-new changes with resumable conflicts |
 | `vlab resolve ...` | Inspect, apply, reject, and audit exact resolution suggestions |
-| `vlab cherry-pick` | Preserve or deliberately fork a Change ID |
+| `vlab cherry-pick` | Preserve or deliberately fork a Change ID; a change the target already covers is a no-op unless `--repeat` is given |
 | `vlab graph` | Branch history plus causal relationships, without metadata-ref noise |
 | `vlab workspace ...` | Worktree-backed lifecycle, checkpoints, and committed/checkpoint forecasts |
 | `vlab spec ...` | Incremental indexing, block merge planning, explicit resolution, and corpus benchmarks |
 | `vlab receipts` | Inspect causal records as text or JSON |
 | `vlab provenance` | Read declared authorship provenance, carried across rewrites |
+| `vlab audit identity` | Repository-wide Change-ID collision and duplicate-origin audit |
 | `vlab metadata ...` | Inventory, validate, transfer, and benchmark accepted metadata facts and scan paths |
 | `vlab doctor --benchmark` | Sample ordinary Git latency and persistent object-session reuse |
 
@@ -645,7 +681,7 @@ actor identity, landing authorization, or permission to execute content.
 - Reusable resolution blobs: `refs/vcs-lab/resolutions/<signature>/<result-blob>`
 - Portable spec manifests: `.vcs-lab/specs/**/*.json`
 
-The supported v0.8 transfer path is `vlab metadata export/import`. For low-level
+The supported transfer path is `vlab metadata export/import`. For low-level
 experimentation, the underlying namespaces remain:
 
 ```bash
@@ -659,8 +695,8 @@ does not perform envelope validation, conflict preview, or quarantine.
 
 ## Measuring the compatibility layer
 
-Version 0.7 keeps mutation commands as ordinary Git processes but can route
-repeated immutable object queries through one worktree-scoped
+Mutation commands stay ordinary Git processes, while repeated immutable object
+queries can be routed through one worktree-scoped
 `git cat-file --batch-command` process. It is enabled automatically on Windows,
 where the observed 80–130 ms process startup cost dominates these operations.
 On other platforms it remains opt-in because a local Git process may take only
@@ -728,7 +764,12 @@ Git metrics list each passthrough under `fallbacks` with the reason
 that bypassed the engine seam (always zero; such a read is refused in native
 mode). Trace output contains command names, durations, and whether a query
 started a process, reused a persistent process, or hit the immutable object
-cache; it never includes file content or commit messages.
+cache; it never includes file content or commit messages. For a hang or a
+leftover process, `VLAB_GIT_SESSION_DIAGNOSTICS=1` prints one JSON line per
+object-session and merge-tree-session lifecycle event (worker creation,
+request posting, shared-memory waits, Git responses, fallback, shutdown) to
+stderr, and `VLAB_GIT_SESSION_DIAGNOSTICS_FILE=<path>` appends the same lines
+to a file; both are off by default and never change session behaviour.
 
 Compare the read engines operation by operation in any repository with:
 
@@ -736,7 +777,7 @@ Compare the read engines operation by operation in any repository with:
 vlab doctor --differential
 ```
 
-The report runs each of the 38 cataloged read operations of `src/engine.js`
+The report runs each of the 39 cataloged read operations of `src/engine.js`
 through the Git engine and the native engine against the current repository
 and lists per-operation result digests, process counts, and fallbacks
 (ADR-0019); the plain `vlab doctor` output names the selected read and
@@ -781,8 +822,8 @@ The benchmark creates and removes a disposable repository. It reports cold,
 unchanged, and one-block-change indexing; Git-blob cache hits and actual content
 reads; semantic entity counts; sparse v3 bytes versus an equivalent expanded v2
 representation; and a deflate-based approximation of Git object compression.
-For the default 25-document, 2,025-entity corpus, v0.6 reduces the tracked
-manifest representation from 655,545 equivalent v2 bytes to 11,240 v3 bytes.
+For the default 25-document, 2,025-entity corpus, the sparse v3 manifests
+occupy 11,240 bytes against 655,545 equivalent expanded v2 bytes.
 
 ## What this prototype intentionally does not solve
 

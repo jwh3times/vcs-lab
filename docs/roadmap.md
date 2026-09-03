@@ -4,9 +4,9 @@
 
 | Field | Value |
 | --- | --- |
-| Baseline | v0.13.0 released |
+| Baseline | v0.13.2 released |
 | Status | Maintained execution guide |
-| Last reviewed | 2026-08-31 |
+| Last reviewed | 2026-09-02 |
 | Planning horizon | Next bounded increment through the phased native-core program |
 
 This roadmap synthesizes the current
@@ -50,7 +50,11 @@ attribution. v0.13.0 releases the failure envelope `vcs-lab.error/v1`
 (ADR-0021, issue #12), which completes the failure half of FR-GIT-06, together
 with the two controls that the provenance work showed were missing: a benchmark
 phase over the publication loop (issue #15) and a suite check that no file in
-the checkout is binary. On 2026-08-28
+the checkout is binary. v0.13.1 and v0.13.2 are maintenance releases: LF
+checkouts and demo-fixture cleanup, then the reconcile abort/continue branch
+guard, transport-independent error codes, 8.3-alias path canonicalization, the
+CI workflow with its sixth suite mode (`VLAB_GIT_SESSION=0`), and the
+acceptance of ADR-0023. On 2026-08-28
 [ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
 split the native implementation gate and
 [ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) adopted a
@@ -74,14 +78,16 @@ forecast steps run through a `git merge-tree` session
 the default on Windows since 2026-08-30, opt-in on POSIX hosts) with Windows
 and Linux differential evidence and a committed Linux benchmark baseline, and
 the Windows post-batching rerun is recorded in ADR-0013. The read-side engine
-seam that Gate A requires is implemented, unreleased
+seam that Gate A requires is delivered in v0.11.0
 ([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md)), as
 are the schema catalog (`docs/schemas/`), the frozen canonical-JSON profile
-(`docs/canonical-json/`), and the per-family compatibility contract
+(`docs/canonical-json/`), the per-family compatibility contract
 (`docs/schemas/compatibility.md`), and the human/JSON conformance fixtures
 (`docs/conformance/`), which complete Horizon 2 item 1 and program phase 0b.
-The next decision is the phase 1 ADR naming the Gate A item 3 budget. No
-storage layer or service is approved.
+[ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md) (Proposed) closes the program's native read-engine phases with a
+complete outcome, because the Git-best-mode baseline misses no budget on
+either host, and names the conditions that reopen it. No storage layer or
+service is approved.
 
 ## Horizon 1: close the current development line
 
@@ -260,47 +266,52 @@ Program phase 0b of ADR-0015 and Gate A item 1 of ADR-0014.
   fields; `src/canonical-json.js` implements it, the repository-lineage and
   envelope-manifest hashes compute through it with unchanged bytes, and
   `test/canonical-json.test.js` verifies the vectors.
-- Introduce a single read-side engine seam (`src/engine.js`) with an engine
-  selector, a third integration-suite mode, a differential doctor mode, and
-  `engine`/`fallbacks` fields in metrics.
+- **Done 2026-08-30 (ADR-0019):** introduce a single read-side engine seam
+  (`src/engine.js`) with an engine selector, a native-engine integration-suite
+  mode, a differential doctor mode, and `engine`/`fallbacks` fields in
+  metrics.
 - Exit criteria for program phase 0b: the suite passes in ordinary,
   forced-session, and passthrough-native modes; no domain module calls
   `runGit` for reads directly; Gate A item 1 is satisfied and item 2 is
   carried from Horizon 1.5; the phase 1 ADR names the Gate A item 3 budget
   from those runs before any phase 1 code, or the program stops here with a
-  complete outcome.
-- Publish standalone JSON Schema documents for persisted and automation-facing
-  records while retaining executable validators as the runtime authority.
-- Define compatibility, migration, resource-bound, and unknown-version behavior
-  for every shared, local, and worktree-private record family.
-- Add conformance fixtures that verify human/JSON parity for state required by
-  automation.
+  complete outcome ([ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md) takes the second branch).
+- **Done 2026-08-30:** publish standalone JSON Schema documents for persisted
+  and automation-facing records while retaining executable validators as the
+  runtime authority.
+- **Done 2026-08-31 (ADR-0020):** define compatibility, migration,
+  resource-bound, and unknown-version behavior for every shared, local, and
+  worktree-private record family.
+- **Done 2026-08-31:** add conformance fixtures that verify human/JSON parity
+  for state required by automation.
 
 Status on 2026-08-31 (tracked by
 [GitHub issue #11](https://github.com/jwh3times/vcs-lab/issues/11)): every
-item of this increment is implemented and unreleased, so program phase 0b is
+item of this increment is delivered in v0.11.0, so program phase 0b is
 complete. The engine seam is implemented under
 [ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md):
-`src/engine.js` catalogs 38 read operations, `VLAB_ENGINE`/`--engine`
+`src/engine.js` catalogs every read operation (38 then, 39 since
+`pseudoRefTarget` joined), `VLAB_ENGINE`/`--engine`
 selects `git` or the passthrough `native` engine, every Git metrics block
 reports `engine`, per-operation `fallbacks`, and `directReads`, `vlab doctor
 --differential` compares the engines operation by operation, and
-`VLAB_ENGINE=native npm test` is the third suite mode in which a read outside
-the seam is refused. No domain module calls `runGit` for a read. The
-versioned CLI output/schema catalog is published, unreleased, in
-`docs/schemas/` (2026-08-30): standalone JSON Schema documents for every
+`VLAB_ENGINE=native npm test` is the suite mode in which a read outside the
+seam is refused (one of the six modes [testing.md](testing.md) lists). No
+domain module calls `runGit` for a read. The versioned CLI output/schema
+catalog is published in `docs/schemas/` (2026-08-30): standalone JSON Schema
+documents for every
 persisted and automation-facing record family, a README that catalogs every
 `--json` command's output contract, and `test/schema-catalog.test.js`
 keeping the documents in agreement with the runtime validators, completing
-FR-GIT-06. The canonical JSON profile is frozen, unreleased, in
-`docs/canonical-json/` (2026-08-30): `vcs-lab.canonical-json/v1` restricts
+FR-GIT-06. The canonical JSON profile is frozen in `docs/canonical-json/`
+(2026-08-30): `vcs-lab.canonical-json/v1` restricts
 RFC 8785 to UTF-16-code-unit-sorted members and safe integers, reserves the
 `integrity`/`signatures` members and the repository-identity lineage fields,
 and is implemented by `src/canonical-json.js` with shared test vectors a
 future Rust implementation must reproduce byte for byte; the
 repository-lineage and envelope-manifest hashes now compute through it with
 unchanged bytes, while record digests keep their frozen legacy
-serialization. The per-family compatibility contract is frozen, unreleased, in
+serialization. The per-family compatibility contract is frozen in
 `docs/schemas/compatibility.md` (2026-08-31) under
 [ADR-0020](adr/0020-freeze-per-family-compatibility-and-resource-bounds.md):
 one registry (`RECORD_FAMILIES` in `src/schemas.js`) states each family's
@@ -313,8 +324,8 @@ overwrite a note container from a newer build, and an operation journal or
 workspace registry of an unknown version is refused instead of resumed.
 `test/schema-compatibility.test.js` keeps the published tables and the runtime
 registry in agreement and exercises each disposition against the real CLI. The
-human/JSON conformance fixtures complete the increment, unreleased, in
-`docs/conformance/` (2026-08-31): `fixtures.json` names, per command, the JSON
+human/JSON conformance fixtures complete the increment in `docs/conformance/`
+(2026-08-31): `fixtures.json` names, per command, the JSON
 members its human rendering must present and the members it deliberately does
 not, and `test/conformance.test.js` fails the suite in both directions. The
 exercise found that a command has a human rendering only when its handler
@@ -325,9 +336,10 @@ make the text contradict the JSON beside it; they now read the record, the
 rebase forecast gained the `same state` line its reconciliation counterpart
 had, and `vlab doctor` gained `version`, since `vlab version` is text-only and
 the build identity a peer needs for the ADR-0020 compatibility rules had no
-machine-readable home. Phase 0b is complete; the phase 1 ADR that names the
-Gate A item 3 budget is the next decision, or the program stops here with a
-complete outcome.
+machine-readable home. Phase 0b is complete, and [ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md)
+(Proposed) stops the program here with a complete outcome: the Git-best-mode
+baseline misses no budget on either host, so there is no Gate A item 3
+budget for a phase 1 ADR to name.
 
 ### 2. Strengthen identity and proof diagnostics
 
@@ -492,7 +504,7 @@ this addresses is **capture, not storage**: attribution that was never recorded
 at write time cannot be recovered by any substrate, so the requirement covers
 carrying a declaration faithfully rather than reconstructing one.
 
-**Commit-level provenance is implemented, unreleased (2026-09-01).**
+**Commit-level provenance is delivered in v0.12.0.**
 `vlab commit --authored-by/--generated-by/--reviewed-by` and the `VLAB_AGENT`
 environment variable declare `vcs-lab.provenance/v1`; the record is carried onto
 the result of a cherry-pick, reconciliation, causal rebase, and squash landing,
@@ -519,7 +531,7 @@ a stable anchor below commit granularity, which neither Git nor the current
 model has, and which
 [ADR-0023](adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
 names as the first serious candidate for a model concept the content substrate
-cannot express. Commit-level provenance should be delivered and used before
+cannot express. Commit-level provenance is delivered and should be used before
 sub-commit anchoring is designed.
 
 ### Lower-confidence resolution experiments
@@ -557,14 +569,22 @@ the open question "is a native subsystem warranted" with a sequence whose
 phases enter under the two gates of ADR-0014. No canonical native store,
 resident service, or wire protocol is approved before its phase and gate.
 
+[ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md) (Proposed, 2026-09-02) closes phases 1 through 4 with a complete
+outcome, because the Git-best-mode baseline of both hosts misses no budget
+and Gate A item 3 therefore has no candidate; it names three reopening
+conditions (a synced-OneDrive measurement that misses, a real workload
+naming a tighter budget that the measured path misses, or a raised
+per-process floor). Phases 5 and 6 remain Gate B questions under
+ADR-0023.
+
 | Phase | Gate | Scope | Exit criterion | Reversibility |
 | --- | --- | --- | --- | --- |
 | 0a Git-native wins | none | Horizon 1.5 | Horizon 1.5 exit criteria (met 2026-08-30: ADR-0016 with Windows and Linux evidence, the ADR-0013 rerun, and the Linux benchmark baseline) | Flag only; complete outcome on its own. |
-| 0b Contract freeze and engine seam | none | Horizon 2 item 1 | Horizon 2 item 1 exit criteria (engine seam implemented 2026-08-30, ADR-0019; the contract catalog and canonical-JSON profile are open) | Pure refactor. |
-| 1 Native read engine in Rust | Gate A | Repository context, batched object reads, peeling, history walks, merge-base, ancestry, refs, notes reads, and worktree-scoped status through `vlab-core` behind the seam; per-operation backend matrix in its ADR; bounded jj-lib spike | Suite green in native mode on Linux and Windows with identical JSON; zero Git processes for history, registry, note-catalog, resolution-catalog, and per-workspace status in the scale benchmark; the Gate A named budget met; `git fsck` clean; no lingering processes | Engine selector or uninstall the binding; kill switch and two-release sunset. |
-| 2 Native planning and status | Gate A | Merge-plan and rebase-plan construction, receipt reachability, Change-ID extraction, the advisory `git-patch-id-heuristic` proof (a stable patch-id proof, if wanted, gets its own ADR), spec blob-identity checks; FR-ID-06 audit; FR-PLAN-08 proof bundle and verifier | Plan fingerprints byte-identical across engines on the suite plus at least 1,000 generated histories; status semantics preserved at zero processes | Per-operation fallback. |
-| 3 Derived catalog | Gate A, plus the incremental-catalog row below (an already-batched path over a representative budget, per ADR-0013) | Deletable fact segments with per-record digests, rebuildable indexes, `builtFrom` stamps, reindex command, approval facts, advisory leases in a mutable side file; caches outside synced folders; notes and refs remain canonical | 5,000-fact benchmark under budget with zero processes on both hosts; deleting the catalog yields identical output; torn-tail and stale-catalog recovery pass; writer-lock waits under 10 ms at 16 concurrent agents | Delete the directory. |
-| 4 In-memory forecasts and native mutation | Gate A | Ref transactions and object writes for checkpoints and retained resolutions; virtual three-way merge applying exact-resolution memory and Markdown section merge, with `git merge-tree` as co-oracle | Predicted-tree equality on the suite plus at least 1,000 generated three-way cases; divergence always surfaces as a blocker; FR-REC-06 apply-time check retained | Flag; droppable after 0a evidence. |
+| 0b Contract freeze and engine seam | none | Horizon 2 item 1 | Horizon 2 item 1 exit criteria (met 2026-08-31 and released in v0.11.0: the engine seam of ADR-0019, the schema catalog, the canonical-JSON profile, the compatibility contract of ADR-0020, and the conformance fixtures) | Pure refactor. |
+| 1 Native read engine in Rust | Gate A; closed by ADR-0024 until a reopening condition fires | Repository context, batched object reads, peeling, history walks, merge-base, ancestry, refs, notes reads, and worktree-scoped status through `vlab-core` behind the seam; per-operation backend matrix in its ADR; bounded jj-lib spike | Suite green in native mode on Linux and Windows with identical JSON; zero Git processes for history, registry, note-catalog, resolution-catalog, and per-workspace status in the scale benchmark; the Gate A named budget met; `git fsck` clean; no lingering processes | Engine selector or uninstall the binding; kill switch and two-release sunset. |
+| 2 Native planning and status | Gate A; closed by ADR-0024 | Merge-plan and rebase-plan construction, receipt reachability, Change-ID extraction, the advisory `git-patch-id-heuristic` proof (a stable patch-id proof, if wanted, gets its own ADR), spec blob-identity checks; the FR-ID-06 audit and the FR-PLAN-08 proof bundle and verifier (both delivered in v0.12.0 over the Git engine; this phase re-implements them behind the seam) | Plan fingerprints byte-identical across engines on the suite plus at least 1,000 generated histories; status semantics preserved at zero processes | Per-operation fallback. |
+| 3 Derived catalog | Gate A, closed by ADR-0024, plus the incremental-catalog row below (an already-batched path over a representative budget, per ADR-0013) | Deletable fact segments with per-record digests, rebuildable indexes, `builtFrom` stamps, reindex command, approval facts, advisory leases in a mutable side file; caches outside synced folders; notes and refs remain canonical | 5,000-fact benchmark under budget with zero processes on both hosts; deleting the catalog yields identical output; torn-tail and stale-catalog recovery pass; writer-lock waits under 10 ms at 16 concurrent agents | Delete the directory. |
+| 4 In-memory forecasts and native mutation | Gate A; closed by ADR-0024 | Ref transactions and object writes for checkpoints and retained resolutions; virtual three-way merge applying exact-resolution memory and Markdown section merge, with `git merge-tree` as co-oracle | Predicted-tree equality on the suite plus at least 1,000 generated three-way cases; divergence always surfaces as a blocker; FR-REC-06 apply-time check retained | Flag; droppable after 0a evidence. |
 | 5 Canonical fact log, transport, draft stacks | Gate B | Fact log canonical with notes, refs, and registry regenerated at finalization; notes import; envelope v2 as a strict superset of v1; Git-carried fact transport; private draft stacks via hidden refs (FR-WS-08); optional thin Rust CLI with byte-identical JSON | All nine Gate B conditions with an evidence table; v1 envelopes import and re-export byte-identically; the ADR partially superseding ADR-0001 accepted | Project, then delete the log. |
 | 6 Gateway; service only if the row below fires | Gate B | Horizon 4 in its order | No local planning, forecasting, or landing depends on the gateway | Optional. |
 
@@ -584,7 +604,12 @@ work, resolution reuse avoids repeated effort safely, and semantic identity
 helps real document corpora. Performance alone is insufficient. That evidence
 comes from dogfooding: the maintainer's own coding agents use `vlab` on this
 repository and other real repositories on a Windows or OneDrive host and a
-POSIX host, with telemetry retained per `docs/README.md`.
+POSIX host, with telemetry retained per `docs/README.md`. One known gap in
+that telemetry is tracked by
+[GitHub issue #17](https://github.com/jwh3times/vcs-lab/issues/17): the
+`timings.git` block of a reconciliation or rebase receipt covers the
+application phase only and excludes the receipt's own publication cost, which
+the benchmark's publication phase counts from the trace instead.
 
 Efficiency claims follow ADR-0014's definition: elapsed time per operation and
 bytes stored and transferred, per host, against plain Git's best mode and any
@@ -599,10 +624,10 @@ signals.
 | Requirement | Current state | Roadmap destination |
 | --- | --- | --- |
 | FR-GIT-06 | Complete | Horizon 2 schema and CLI contract catalog, published in `docs/schemas/` |
-| FR-ID-06, FR-ID-07 | Planned | Horizon 2 identity/proof diagnostics |
-| FR-ID-08, FR-TRUST-04 | Implemented for commit granularity, unreleased | Horizon 3 authorship provenance; sub-commit anchoring is open product question 11 |
+| FR-ID-06, FR-ID-07 | Delivered in v0.12.0 | Horizon 2 identity/proof diagnostics (`vlab audit identity`, `vcs-lab.logical-id/v1`) |
+| FR-ID-08, FR-TRUST-04 | Delivered in v0.12.0 for commit granularity | Horizon 3 authorship provenance; sub-commit anchoring is open product question 11 |
 | FR-LAND-10 | Deferred | Horizon 4 trusted coordinated landing |
-| FR-PLAN-08 | Planned | Horizons 2 and 4 portable verification |
+| FR-PLAN-08 | Delivered in v0.12.0 | Horizon 2 proof bundle and verifier; Horizon 4 remote verification builds on them |
 | FR-RES-07 | Planned | Horizon 3 isolated lower-confidence experiments |
 | FR-WS-08 | Deferred | Horizon 5 phase 5 under Gate B |
 | FR-WS-09 | Batched status implemented; Linux and Windows synthetic evidence recorded | Real-repository evidence, then Horizon 5 phase 1 zero-process status |
@@ -622,8 +647,10 @@ Resolve these questions only when the adjacent roadmap work creates evidence:
 - Define whether history-filtered imports can establish lineage without a
   shared root before changing envelope v1's fail-closed rule.
 - Define merge/conflict policy for competing causal facts before remote sync.
-- Select repository-scoped, global, or issuer-qualified Change IDs together
-  with the identity and trust contracts.
+- Answered by `vcs-lab.logical-id/v1` ([docs/identity](identity/README.md)):
+  Change IDs are globally scoped and never rewritten on import, and they
+  coordinate work rather than authenticate it, so any issuer qualification is
+  a trust-contract question rather than an identity one.
 - Validate that target-context causal rebase remains understandable before
   broadening beyond linear v1.
 - Define target overlay approval before adding target checkpoints.
@@ -632,8 +659,9 @@ Resolve these questions only when the adjacent roadmap work creates evidence:
   identity should remain a tracked sidecar.
 - Define causal-history compaction only with an auditability and old-plan
   compatibility story, including how an append-only fact log is pruned.
-- Decide the phase 1 backend matrix per operation before native code, and
-  whether to borrow from or depend on jj-lib, after the bounded spike.
+- If ADR-0024 is reopened, decide the phase 1 backend matrix per operation
+  before native code, and whether to borrow from or depend on jj-lib, after
+  the bounded spike.
 - Decide before Gate B whether an operation log and a second carrier of
   `ch_*` in commit headers (FR-ID-07) are needed at all.
 - Choose the derived-catalog storage by a rebuild-from-segments test; derived

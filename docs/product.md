@@ -6,9 +6,9 @@
 | --- | --- |
 | Product | `vcs-lab` / causal source-control laboratory |
 | Document version | 1.0 |
-| Product baseline | v0.13.0 release |
+| Product baseline | v0.13.2 release |
 | Status | Active product baseline |
-| Last updated | 2026-08-30 |
+| Last updated | 2026-09-02 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
 | Decision owner | Repository maintainers |
 
@@ -275,7 +275,7 @@ ADR that explains why.
 
 Priorities use **P0** (required invariant), **P1** (core product), **P2**
 (important expansion), and **P3** (exploratory). Status is **Implemented**,
-**Partial**, **Planned**, or **Deferred** at the v0.13.0 release baseline.
+**Partial**, **Planned**, or **Deferred** at the v0.13.2 release baseline.
 
 ### 9.1 Git compatibility and repository adoption
 
@@ -660,7 +660,8 @@ with identical semantic results. See
 A release is eligible when:
 
 1. `npm test` passes in ordinary mode.
-2. `VLAB_GIT_SESSION=1 npm test` passes.
+2. `VLAB_GIT_SESSION=1 npm test` and `VLAB_GIT_SESSION=0 npm test` pass (the
+   session default differs by platform, so both are forced on every host).
 3. `VLAB_FORECAST_ENGINE=worktree npm test` and `VLAB_FORECAST_ENGINE=merge-tree npm test` pass (the default engine differs by platform), and `VLAB_ENGINE=native npm test` passes (every read goes through the engine seam).
 4. All maintained demos complete.
 5. Version constants, package metadata, changelog, and release tag agree.
@@ -705,6 +706,20 @@ criteria.
   workspace lifecycle, immutable source-checkpoint forecasts, an
   evidence-gated repository/shared-metadata scale benchmark, and batched
   workspace-status and resolution-catalog scans.
+- **v0.10:** the merge-tree forecast engine, the per-host benchmark baseline
+  with its regression check, and the rerere guard.
+- **v0.11:** ADR-0015 program phase 0b: the read-side engine seam, the
+  versioned schema catalog, the frozen canonical-JSON profile, the per-family
+  compatibility contract, and the human/JSON conformance fixtures.
+- **v0.12:** the repository-wide identity audit and frozen logical-identity
+  protocol, portable proof bundles with an independent verifier, the
+  hostile-input, fault-injection, and SHA-256 suites, sparse workspace cones,
+  and declared authorship provenance carried across rewrites.
+- **v0.13:** the machine-readable failure envelope, the benchmark's
+  publication phase, the checkout-hygiene check, and the maintenance releases
+  that followed: LF checkouts, the reconcile branch guard,
+  transport-independent error codes, path canonicalization, and continuous
+  integration.
 
 ### Completed theme: metadata integrity and portability
 
@@ -727,10 +742,10 @@ manifest. It is not a signing or authorization layer.
   conservative worktree-backed implementation.
 - Broader causal rebase forms beyond linear v1: merge preservation, interactive
   editing, arbitrary ranges, and checkpoint/draft overlays.
-- Rerun the accepted repository-scale schema on Windows, larger fixtures, and
-  real repositories now that workspace-status and resolution-catalog scans are
-  batched; consider incremental catalogs only if already-batched scans remain
-  over a representative budget.
+- Rerun the accepted repository-scale schema on larger fixtures and real
+  repositories now that workspace-status and resolution-catalog scans are
+  batched (the Windows rerun is recorded in ADR-0013); consider incremental
+  catalogs only if already-batched scans remain over a representative budget.
 - A repository-local service only if cross-command process and scan costs remain
   material after batching.
 - Protocol capability negotiation and optional remote gateway.
@@ -738,11 +753,14 @@ manifest. It is not a signing or authorization layer.
 - Additional deterministic structured-document adapters.
 - Git-native wins before native code: `git merge-tree` forecast simulation
   (delivered by ADR-0016 with Windows and Linux evidence; the default on
-  Windows since 2026-08-30), sparse cones
-  from workspace focus, and commit-graph, multi-pack-index, and fsmonitor
-  enablement.
+  Windows since 2026-08-30), sparse cones (delivered in v0.12.0 as
+  `workspace create --cone`), and commit-graph, multi-pack-index, and
+  fsmonitor enablement (measured and rejected by ADR-0022, which closed
+  program phase 0a).
 - A phased native core in Rust behind the existing contracts (ADR-0015),
-  entering under Gate A of the native implementation gate.
+  entering under Gate A of the native implementation gate. ADR-0024
+  (Proposed) closes its read-engine phases with a complete outcome until a
+  reopening condition fires.
 - Native content-addressed metadata/store experiments after Gate B is
   satisfied.
 
@@ -756,11 +774,16 @@ existing contracts a second time may begin when all of:
 
 1. a published schema and conformance-fixture catalog and a single
    equality-tested read-side engine seam exist (the seam since 2026-08-30,
-   ADR-0019; the catalog is open);
+   ADR-0019; the catalog and conformance fixtures since 2026-08-31, all
+   released in v0.11.0);
 2. the Windows post-batching benchmark rerun and a Git-best-mode baseline
    exist; and
 3. a named per-command budget on a representative Windows or OneDrive host
-   that the batched Git path misses is recorded in the engine's ADR.
+   that the batched Git path misses is recorded in the engine's ADR. Item 3
+   has no candidate: [ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md)
+   (Proposed) records that the Git-best-mode baseline misses no budget on
+   either host, closes the program's read-engine phases with a complete
+   outcome, and names the conditions under which the gate is re-examined.
 
 Gate A work passes the complete suite in every engine mode with identical
 domain JSON, is reversible, never moves a receipt-publishing path between
@@ -788,7 +811,11 @@ only when trials demonstrate all of:
 **Evidence plan.** The user-value and workload conditions are satisfied by
 dogfooding: the maintainer's coding agents use `vlab` on this repository and
 other real repositories, with telemetry retained as CI artifacts or issue
-attachments and summarized in ADRs when it supports a decision.
+attachments and summarized in ADRs when it supports a decision. One known gap
+in that telemetry is tracked by
+[issue #17](https://github.com/jwh3times/vcs-lab/issues/17): a reconciliation
+or rebase receipt's `timings.git` block covers the application phase only and
+excludes the receipt's own publication cost.
 
 ## 16. Risks and mitigations
 
@@ -810,7 +837,7 @@ attachments and summarized in ADRs when it supports a decision.
 
 ## 17. Open product questions
 
-These questions are intentionally unresolved:
+These questions are intentionally unresolved, except where marked answered:
 
 1. Should a future lineage version support deliberate history-filtered imports,
    and what proof can replace the shared-root rule without enabling unrelated
@@ -818,7 +845,11 @@ These questions are intentionally unresolved:
 2. Which causal claims are safe to merge automatically when two metadata
    sources disagree?
 3. Should logical Change IDs be repository-scoped, globally namespaced, or
-   issuer-qualified?
+   issuer-qualified? **Answered in v0.12.0** by the frozen
+   `vcs-lab.logical-id/v1` protocol ([docs/identity](identity/README.md)):
+   identifiers are globally scoped and never rewritten on import, and they
+   coordinate work rather than authenticate it, so issuer qualification is a
+   trust question (question 4) rather than an identity one.
 4. What is the minimum trust model for a shared team: signed developer records,
    a landing-service attestation, or both?
 5. Does the accepted target-context application model for causal rebase remain

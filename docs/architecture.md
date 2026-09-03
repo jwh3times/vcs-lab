@@ -4,9 +4,9 @@
 
 | Field | Value |
 | --- | --- |
-| Architecture baseline | v0.13.0 release |
+| Architecture baseline | v0.13.2 release |
 | Status | Current implementation reference |
-| Last updated | 2026-08-30 |
+| Last updated | 2026-09-02 |
 | Runtime | Node.js 20+ (ES modules), Git 2.40+ (merge-tree forecast engine: Git 2.49+) |
 | External runtime dependencies | None beyond Node.js and Git |
 
@@ -29,7 +29,9 @@ mechanics. `vcs-lab` adds:
 
 - stable logical change identity;
 - causal landing and application records;
-- proof-aware planning;
+- declared authorship provenance carried across rewrites;
+- proof-aware planning, portable coverage proof bundles, and a
+  repository-wide identity audit;
 - isolated forecast and resumable reconciliation orchestration;
 - exact conflict-resolution provenance;
 - workspace/checkpoint metadata for linked worktrees;
@@ -42,6 +44,15 @@ The architecture deliberately separates **exact state** from **causal claims**.
 Git OIDs remain the oracle for bytes and parentage. A receipt can explain why
 one line of development covers another even when physical ancestry was lost,
 but a receipt does not rewrite a commit or tree ID.
+
+[ADR-0023](adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
+locates the model/substrate mismatch on the causal-fact side: every distortion
+a native store would remove is in how facts are represented — an edge with no
+representation, a fact whose identity is its attachment point, validity
+inherited from an unrelated object's reachability — and none is in Git's
+content model, which also carries the correctness oracle. Only the fact
+substrate is therefore a candidate for native replacement; Git's content
+substrate stays, and ADR-0001 is refined rather than superseded.
 
 ## 2. System context
 
@@ -110,26 +121,31 @@ but a receipt does not rewrite a commit or tree ID.
 | --- | --- | --- |
 | `bin/vlab.js` | Minimal executable entry point and error/exit boundary | `src/cli.js` |
 | `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
-| `src/errors.js` | Expected CLI error type with optional detail | None |
+| `src/errors.js` | Expected CLI error type carrying a classification code from the closed `ERROR_CODES` vocabulary of the `vcs-lab.error/v1` failure envelope (ADR-0021) | None |
 | `src/ids.js` | Unique protocol IDs, SHA-256, Git blob hashing, slugs | Node crypto |
-| `src/engine.js` | The read-side engine seam: the catalog of 38 read operations, the read-engine selector and native-engine stub, per-operation fallback, composites, and the differential comparison | `src/git.js` |
+| `src/canonical-json.js` | The frozen `vcs-lab.canonical-json/v1` profile: RFC 8785 restricted to UTF-16-code-unit-sorted members and safe integers, refusing what it cannot serialize byte-identically | None |
+| `src/engine.js` | The read-side engine seam: the catalog of 39 read operations, the read-engine selector and native-engine stub, per-operation fallback, composites, and the differential comparison | `src/git.js` |
 | `src/git.js` | The Git engine: safe synchronous Git adapter, the Git implementation of every read operation, repository context, object and merge-tree sessions, engine selectors, the read-bypass rule, metrics | Git executable, workers |
 | `src/git-session-worker.js` | Owns asynchronous `git cat-file --batch-command` stream for a synchronous caller | Worker threads, Git |
 | `src/merge-tree-session-worker.js` | Owns one asynchronous `git merge-tree --stdin` stream for the synchronous merge-tree forecast engine | Worker threads, Git |
 | `src/store.js` | Common runtime directory and atomic JSON read/write | `src/git.js` |
 | `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab`, including one batched read for many targets | `src/git.js` |
+| `src/provenance.js` | Declared authorship provenance (`vcs-lab.provenance/v1`): the closed role vocabulary, `VLAB_AGENT`, declaration at commit time, and exact carry onto rewritten commits | Notes, IDs, schemas |
 | `src/schemas.js` | Supported schema registry, structural record validation, object-reference and resolution-signature rules | IDs |
 | `src/metadata.js` | Deterministic inventory, scope classification, integrity diagnostics, lineage, and accepted-record filtering | Git, schemas, specs |
+| `src/identity-audit.js` | Repository-wide logical identity audit (`vcs-lab.identity-audit/v1`): union-find over identity-preserving application edges, multi-trailer, multi-origin, and invariant findings | Engine, notes |
 | `src/metadata-envelope.js` | Canonical envelope manifest, integrity hash, payload bounds, and parser | Metadata, schemas |
 | `src/metadata-transfer.js` | Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import | Metadata, envelope, Git |
 | `src/scale-benchmark.js` | Bounded synthetic repository fixture, scan measurements, semantic equality checks, and evidence-based optimization recommendations | Git, notes, metadata, resolutions, workspaces |
 | `src/landings.js` | Compact and hard-squash landing mechanics and receipts | Git adapter, notes |
 | `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
+| `src/proof-bundle.js` | Portable coverage proof bundles and their independent verifier, which applies its own copy of the lattice (`PROOF_RULES`) and compares the evidence with the repository | Merge plan, canonical JSON, metadata, engine |
 | `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
 | `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation | Rebase plan, forecast simulator, Git adapter |
 | `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts | Rebase plan/forecast, Git, notes, specs, resolutions |
 | `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
 | `src/pending-operation.js` | Safe reconciliation/rebase journal routing for shared conflict tools | Reconciliation and rebase state |
+| `src/faults.js` | Test-only deterministic fault injection: `VLAB_TEST_FAULT` turns one named point on a mutating path into a hard `process.exit` | None |
 | `src/forecasts.js` | Plan fingerprint, merge-tree and temporary-worktree simulation engines with recorded fallback, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
@@ -137,7 +153,7 @@ but a receipt does not rewrite a commit or tree ID.
 | `src/workspaces.js` | Workspace registry/lifecycle, linked-worktree materialization, temporary-index checkpoints/history | Git adapter, store |
 | `src/specs.js` | Markdown parsing, sparse manifest migration/indexing, deterministic merge, semantic resolution, benchmark | Git adapter, IDs, reconciliation state |
 | `src/version.js` | Runtime version constant | None |
-| `test/integration.test.js` | Disposable-repository end-to-end contract suite | CLI and Git |
+| `test/*.test.js` | Disposable-repository end-to-end contract suite (`integration.test.js`) and the focused suites [testing.md](testing.md) describes: schema catalog, canonical JSON, conformance, compatibility, hostile input, failure boundary, error envelope, provenance, object format, and repository hygiene | CLI and Git |
 | `scripts/*.mjs` | Reproducible user experiments and performance comparisons | Published CLI behavior |
 
 The code is intentionally dependency-free. Domain modules use synchronous APIs
@@ -232,6 +248,8 @@ use at the current development baseline:
 | `vcs-lab.reconciliation/v6` | Final operation summary, coverage, trees, timing | `operations.js` |
 | `vcs-lab.reconciliation-operation/v4` | Private resumable operation journal | `operations.js` |
 | `vcs-lab.merge-plan/v1` | Source/target coverage plan | `merge-plan.js` |
+| `vcs-lab.proof-bundle/v1` | Merge plan plus the evidence its classification rests on, for an independent verifier | `proof-bundle.js` |
+| `vcs-lab.proof-verification/v1` | Integrity, classification, and repository verification result of a proof bundle | `proof-bundle.js` |
 | `vcs-lab.rebase-plan/v1` | Read-only causal rebase selection and constraints | `rebase-plan.js` |
 | `vcs-lab.rebase-forecast/v1` | Private pinned causal-rebase simulation and caller invariants | `rebase-forecast.js` |
 | `vcs-lab.rebase-operation/v1` | Worktree-private supervised replay and recovery journal | `rebase-operations.js` |
@@ -239,6 +257,7 @@ use at the current development baseline:
 | `vcs-lab.rebase/v1` | Completed plan, omissions, applications, trees, and timing summary | `rebase-operations.js` |
 | `vcs-lab.forecast/v2` | Pinned simulation and approvals | `forecasts.js` |
 | `vcs-lab.resolution/v1` | Exact resolution result and provenance | `resolutions.js` |
+| `vcs-lab.provenance/v1` | Declared authorship provenance, attached to a commit and carried across rewrites | `provenance.js` |
 | `vcs-lab.workspaces/v1` | Workspace registry container | `workspaces.js` |
 | `vcs-lab.workspace/v1` | Workspace descriptor | `workspaces.js` |
 | `vcs-lab.checkpoint/v1` | Checkpoint command result | `workspaces.js` |
@@ -254,6 +273,8 @@ use at the current development baseline:
 | `vcs-lab.metadata-import-preview/v1` | Exact dry-run record/ref/object actions | `metadata-transfer.js` |
 | `vcs-lab.metadata-import/v1` | Applied/idempotent import result | `metadata-transfer.js` |
 | `vcs-lab.engine-differential/v1` | Operation-by-operation read-engine comparison | `engine.js` |
+| `vcs-lab.identity-audit/v1` | Repository-wide identity collision and duplicate-origin audit | `identity-audit.js` |
+| `vcs-lab.error/v1` | Failure envelope printed on stdout under `--json`, with a code from the closed vocabulary in `docs/schemas/errors.md` (ADR-0021) | `errors.js` |
 
 The executable JavaScript validators and named object shapes in
 `src/schemas.js` are the runtime authority. Every family above, and the CLI's
@@ -842,9 +863,14 @@ Windows process-tree termination and worker acknowledgement fallbacks prevent a
 failed close from retaining the CLI or leaving a session worker behind.
 
 Opt-in lifecycle diagnostics record session/worker creation, request posting,
-shared-memory waits, Git request/response events, fallback, and shutdown. They
-are disabled during normal operation and are intended for bounded process-tree
-investigation.
+shared-memory waits, Git request/response events, fallback, and shutdown.
+`VLAB_GIT_SESSION_DIAGNOSTICS=1` writes one JSON line per event to stderr from
+the main thread (`[vlab session]`, which also covers the merge-tree session
+below) and from the object-session worker (`[vlab session-worker]`), and
+`VLAB_GIT_SESSION_DIAGNOSTICS_FILE=<path>` additionally appends the same lines
+to that file, with a failed append ignored so diagnostics can never change
+session behaviour. They are disabled during normal operation and are intended
+for bounded process-tree investigation.
 
 The merge-tree forecast engine reuses the same shape: a `MergeTreeSession`
 whose worker owns one `git merge-tree --stdin` process for the forecast,
@@ -872,7 +898,7 @@ more than raw wall time.
 
 ### 14.4 Read-side engine seam
 
-Every repository read a domain module performs is one of the 38 operations
+Every repository read a domain module performs is one of the 39 operations
 cataloged in `src/engine.js`
 ([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md)):
 repository and host context, object resolution and batched reads, history
@@ -901,9 +927,9 @@ classification is the same one that decides object-session invalidation.
 `vlab doctor --differential` runs every cataloged operation through each
 engine against the current repository, comparing result digests, process
 counts, and fallbacks operation by operation
-(`vcs-lab.engine-differential/v1`). The suite runs a third time with
-`VLAB_ENGINE=native`, which proves that every read it exercises goes through
-the seam.
+(`vcs-lab.engine-differential/v1`). The suite's `VLAB_ENGINE=native` mode, one
+of the six modes [testing.md](testing.md) lists, proves that every read it
+exercises goes through the seam.
 
 ## 15. Consistency model and invariants
 
@@ -1002,10 +1028,14 @@ history rewrite orphans records; they are also not collected.
 | Import publication race/failure | Checked atomic ref transaction fails; existing destination facts remain intact. |
 | Temporary forecast worktree cleanup encounters in-progress Git state | Abort it best-effort, remove worktree, prune metadata. |
 | JSON state write is interrupted | Temporary file avoids replacing last complete record. |
+| Any failure under `--json` | Print a `vcs-lab.error/v1` envelope on stdout with a code from the closed vocabulary in `docs/schemas/errors.md`; stderr stays empty and the exit code is unchanged (ADR-0021). |
 
-Crash consistency between a successful Git mutation and a journal write has
-not yet received full fault-injection coverage. Production hardening must model
-and test process termination at every boundary.
+Crash consistency between a successful Git mutation and a journal write is
+fault-injected at the named points of §15.4 (`src/faults.js`,
+`test/failure-boundary.test.js`): publication, the journal advance, and abort
+cleanup, for both reconciliation and causal rebase. Every other boundary is
+uncovered; production hardening must model and test process termination at
+each of them.
 
 ## 17. Security boundaries
 
@@ -1044,9 +1074,9 @@ and test process termination at every boundary.
 - authorization/policy evaluation;
 - metadata quarantine and conflict resolution across remotes;
 - malicious repository fuzzing beyond the malformed-input battery in
-  `test/hostile-input.test.js` (adversarial object graphs, hostile
-  `.gitattributes`, symlink and case-folding path edges, SHA-256
-  repositories);
+  `test/hostile-input.test.js` and the SHA-256 and unrelated-bundle cases in
+  `test/object-format.test.js` (adversarial object graphs, hostile
+  `.gitattributes`, symlink and case-folding path edges);
 - a security model for any future resident service.
 
 ## 18. Observability and benchmarks
@@ -1146,10 +1176,16 @@ The current development baseline covers:
   recorded fallbacks and identical results, a read outside the seam is
   refused in native mode, the differential doctor reports every cataloged
   operation equal, and invalid engine selections fail before any work.
+- the focused suites [testing.md](testing.md) describes: schema-catalog and
+  compatibility agreement, canonical-JSON vectors, human/JSON conformance,
+  hostile input, failure boundaries at named fault points, the error
+  envelope's static raise-site scan, declared provenance, SHA-256
+  repositories, and checkout hygiene.
 
-The same suite is run with the session forced on, with each forecast engine
-selected, and with the native read engine selected. Demos complement tests by
-providing user-inspectable repositories and commands.
+The same suite is run with the session forced on and forced off, with each
+forecast engine selected, and with the native read engine selected — the six
+modes of [testing.md](testing.md). Demos complement tests by providing
+user-inspectable repositories and commands.
 
 ## 20. Extension rules
 
@@ -1174,10 +1210,9 @@ New capabilities should enter through versioned contracts:
 
 - Envelopes are explicit offline artifacts; automatic remote capability
   negotiation and synchronization are not implemented.
-- JSON schemas are executable validators but not yet published as standalone
-  JSON Schema documents.
-- Some historical schema/proof labels no longer describe their trust level
-  cleanly.
+- Records written before v0.12.0 may still carry the historical
+  `signed-shaped-landing-receipt` proof label, which readers pass through
+  unchanged (§7.1).
 - Workspace registry stores local absolute paths, and status still costs one
   `git status` process per materialized worktree because Git has no
   cross-worktree status query.
@@ -1189,13 +1224,17 @@ New capabilities should enter through versioned contracts:
 - Notes lookup still scales with the notes namespace and reachable history, but
   the note, resolution, and metadata catalog scans are batched into a bounded
   number of processes. Large-repository indexes are not implemented because no
-  already-batched scan has exceeded a representative budget.
-- Repository-scale evidence is synthetic, with pre-batching figures from one
-  Windows host and post-batching figures from one Linux host; real repositories
-  and a Windows rerun must be measured before setting fixed targets or changing
-  the service gate.
-- Crash boundaries have integration coverage for process-separated pauses but
-  not systematic kill/fault injection at every mutation/journal edge.
+  already-batched scan has exceeded a representative budget, and Git's own
+  read-side maintenance caches are rejected on measured evidence
+  ([ADR-0022](adr/0022-reject-git-read-side-maintenance-caches-on-measured-evidence.md)):
+  the commit-graph and multi-pack index moved no phase beyond run-to-run
+  variance, and `core.fsmonitor` starts a daemon the release gate forbids.
+- Repository-scale evidence is synthetic, with post-batching figures from one
+  Linux host and one Windows host (ADR-0013); real repositories must be
+  measured before setting fixed targets or changing the service gate.
+- Crash boundaries have fault injection at the named points of §15.4 and
+  integration coverage for process-separated pauses, but not systematic
+  kill/fault injection at every mutation/journal edge.
 - Persistent session buffers are intentionally bounded and invocation-scoped;
   very large objects or workloads may fall back or require redesign.
 - Markdown merge units are heading sections; nested requirement text does not
@@ -1222,15 +1261,23 @@ on both platforms: [ADR-0016](adr/0016-simulate-clean-forecast-steps-with-a-merg
 simulates clean forecast steps through one `git merge-tree` session (the
 default on Windows since 2026-08-30, opt-in elsewhere) with Windows and Linux
 differential evidence, the Windows post-batching rerun is recorded in
-ADR-0013, and the Linux benchmark baseline is committed; sparse cones remain
-optional. The read-side engine seam of phase 0b is implemented
+ADR-0013, and the Linux benchmark baseline is committed; sparse cones are
+delivered as `workspace create --cone` (§12), and
+[ADR-0022](adr/0022-reject-git-read-side-maintenance-caches-on-measured-evidence.md)
+closed phase 0a by measuring and rejecting Git's read-side maintenance
+caches. The read-side engine seam of phase 0b is implemented
 ([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md), §14.4):
-every repository read is one of 38 cataloged operations, the native engine
+every repository read is one of 39 cataloged operations, the native engine
 is selectable and passes through to Git with recorded fallbacks until its
 binding exists, and the suite's `VLAB_ENGINE=native` mode refuses any read outside the seam.
-The contract catalog and canonical-JSON profile that complete phase 0b are
-next. A canonical fact log with
+The schema catalog, canonical-JSON profile, compatibility contract
+([ADR-0020](adr/0020-freeze-per-family-compatibility-and-resource-bounds.md)),
+and conformance fixtures that complete phase 0b are delivered in v0.11.0; no
+phase 1 code exists. A canonical fact log with
 Git notes and refs as projections, private draft stacks, and any gateway
-remain behind Gate B. Git stays the exact-state store and escape hatch in
+remain behind Gate B, and
+[ADR-0023](adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
+confines any such replacement to the causal-fact substrate (§1). Git stays
+the exact-state store and escape hatch in
 every phase; a server or resident service still requires ADR-0013's row to
 fire on representative Windows and POSIX hosts.

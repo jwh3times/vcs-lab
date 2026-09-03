@@ -147,6 +147,17 @@ all three transports**, session, fallback, and no session at all, because a
 fallback that returned different data would be worse than one that failed. The
 override is inert unless it parses as a positive integer, which is itself
 asserted, since it shrinks a safety bound.
+Two more test-only switches in `src/git.js` force the fallback paths without a
+broken Git. `VLAB_TEST_GIT_SESSION_FAILURE=1` makes the object session spawn a
+nonexistent Git command, so its worker fails to start and the command completes
+through ordinary processes; the suite asserts that the plan is identical and
+that the trace announces the fallback. `VLAB_TEST_MERGE_TREE_SESSION_FAILURE=1`
+does the same to the merge-tree session, so a forecast records one merge-tree
+fallback and reruns the whole queue in the worktree simulator with identical
+trees. `VLAB_TEST_MERGE_TREE_GIT_VERSION=<version>` makes the merge-tree
+session report that Git version instead of the one its trace2 event names,
+which is how the `git-too-old` fallback is exercised on a host whose Git is new
+enough. Like `VLAB_TEST_FAULT`, each is inert unless it is set exactly.
 `test/error-envelope.test.js` covers the failure contract (ADR-0021). Two of
 its checks are **static**: they scan `src/` for every `new CliError` and fail
 if one carries no code or a code outside `ERROR_CODES`, and fail in the other

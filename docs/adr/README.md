@@ -41,6 +41,7 @@ survive refactoring and session boundaries. They complement the
 | [0021](0021-give-failures-a-versioned-machine-readable-envelope.md) | Accepted | Give failures a versioned, machine-readable envelope |
 | [0022](0022-reject-git-read-side-maintenance-caches-on-measured-evidence.md) | Accepted | Reject Git's read-side maintenance caches on measured evidence |
 | [0023](0023-locate-the-model-substrate-mismatch-in-facts-not-content.md) | Accepted | Locate the model/substrate mismatch in causal facts, not content |
+| [0024](0024-close-the-native-read-engine-program-at-phase-0b.md) | Proposed | Close the native read-engine program at phase 0b with a complete outcome |
 
 ## Creating or changing an ADR
 

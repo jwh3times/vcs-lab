@@ -1,5 +1,101 @@
 # Changelog
 
+## Unreleased
+
+- Propose
+  [ADR-0024](docs/adr/0024-close-the-native-read-engine-program-at-phase-0b.md),
+  the decision ADR-0015 left for the end of phase 0b: the native read-engine
+  program stops there with a complete outcome. The committed Git-best-mode
+  baseline misses the 1,000 ms interactive budget in no phase on either host,
+  so ADR-0014 Gate A item 3 has no budget to name. The ADR records the
+  overhead an engine would have removed (process launch, roughly 35 to 45 ms
+  per Git process on Windows, about 2.5 times raw Git on the one command
+  measured against it) and names the conditions that reopen it, the first
+  being a measurement inside a synced OneDrive folder, which no run has made.
+  The seam, the native suite mode, the schemas, and the baselines stay.
+  - The roadmap, product requirements, architecture reference, README, and
+    testing guide are reconciled with the changelog at the same time: work
+    released in v0.11.0 and v0.12.0 was still marked "implemented,
+    unreleased" or "planned", the schema and module tables lacked the
+    identity-audit, proof-bundle, proof-verification, provenance, and error
+    families and their modules, six commands and nine flags were undocumented
+    in the README, four environment variables were documented nowhere, the
+    Change-ID scope question was still open after the identity protocol
+    answered it, and issue #17 was mentioned in no document.
+
+- Fix `vlab verify-proof` failing with a runtime `TypeError` instead of a
+  refusal on a bundle whose members have the wrong shape (an
+  `evidence.receipts` object rather than an array, a float in the evidence,
+  a document that is an array), and reading the file with no size bound. The
+  bundle's shape, including the members the published schema requires, is
+  checked before any member is dereferenced and refused as
+  `malformed-input`, and its size is checked against a new published bound,
+  `proofBundleBytes` (16 MiB), before the file is read.
+  `test/hostile-input.test.js` covers each case.
+
+- Fix `vlab doctor` writing configuration. It initialized the lab as a side
+  effect, which set `notes.displayRef` and `notes.rewriteRef` in
+  `.git/config` and created `.git/vcs-lab/`. A diagnostic now reads the
+  repository context and changes nothing.
+
+- Classify three refusals under their own codes (ADR-0021):
+  - a landing (`merge`, `compact-merge`, `hard-squash`) whose merge
+    conflicts reports `conflict-blocked`; it threw a bare `Error`, so the
+    `--json` envelope carried `code: null`;
+  - the four "already exists" refusals of `workspace create`, `move`, and
+    `restore` report `already-exists` instead of `not-found`;
+  - a specification manifest that no longer matches its Markdown reports the
+    new code `stale-manifest` instead of `stale-forecast`.
+
+  Adding `stale-manifest` is additive within `vcs-lab.error/v1`; a caller
+  that branched on the old codes for the other two refusals now sees the
+  right ones.
+
+- Read the pending cherry-pick through the engine seam. `cherryPickHead` read
+  `CHERRY_PICK_HEAD` from the Git directory directly, so a native engine
+  would never have been asked the question, and the reftable backend does not
+  keep that ref as a file at all. It is now the cataloged read operation
+  `pseudoRefTarget` (the thirty-ninth), answered by a fresh `rev-parse`
+  because the sequencer creates and removes the ref within one invocation,
+  and guarded against a branch that carries the pseudo-ref's name, which
+  `rev-parse` would otherwise resolve when nothing is pending.
+  `reconcile` and `rebase` `--continue`, `--abort`, and `--status`
+  each spend one more Git process; a clean forecast's count is unchanged,
+  because its cleanup no longer asks at all and simply attempts the abort
+  when a run ended blocked or threw.
+
+- Scan the resolution catalog once per conflict capture rather than once per
+  conflicted path, and inspect retained results instead of reading their
+  contents, since only their existence, type, and identity are checked.
+
+- Fix the two-argument form of `recordsReachableFrom`, whose parameter
+  shadowed the imported `reachableCommits` so the documented form threw.
+
+- Show `--json` in the help text only where a handler honours it: removed
+  from `workspace list`, `spec show`, and `spec benchmark`, which print
+  JSON whatever the flags, and added to `workspace create`.
+
+- Close the test-suite gaps the v0.13.1 evaluation listed.
+  - Every suite file spawns Git and the CLI with `GIT_CONFIG_NOSYSTEM=1` and
+    `GIT_CONFIG_GLOBAL` pointing at an empty file, so a host's global
+    `commit.gpgsign`, `core.hooksPath`, or `core.autocrlf` cannot break a
+    fixture; the isolation was checked against a hostile global config that
+    does break an unisolated commit.
+  - The CLI version test derives its expectation from `src/version.js`, and
+    a hygiene test asserts that file agrees with `package.json`.
+  - The forced-session suite mode is self-checking: one test asserts the
+    object session was used under `VLAB_GIT_SESSION=1` and not used under
+    `VLAB_GIT_SESSION=0`.
+  - Behavior tests reach `vlab merge` mode selection, `cherry-pick
+    --repeat`, `resolve reject`, `workspace create --owner` and `--focus`,
+    `spec index --force`, a `vlab doctor` run that must leave `.git/config`
+    byte-identical, the two-argument form of `recordsReachableFrom`, and
+    the three refusal codes above.
+  - `scripts/check-doc-links.mjs` resolves `#anchor` targets against the
+    target file's headings using GitHub's slug rules.
+  - `test/schema-catalog.test.js` registers its fixture cleanup at module
+    scope, as `test/conformance.test.js` already explained it must.
+
 ## 0.13.2
 
 - Record one more Git process in the benchmark's `publication` phase for the

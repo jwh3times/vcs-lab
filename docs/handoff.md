@@ -7,6 +7,7 @@
 | Baseline | v0.13.2 released |
 | Status | Maintained until every item below is closed, then deleted |
 | Written | 2026-09-02, from a full evaluation of the repository at v0.13.1 |
+| Updated | 2026-09-03, after the session that worked the brief landed it |
 
 This brief exists so the work started on 2026-09-02 can be picked up in a
 later session without re-deriving it. It is deliberately independent of any
@@ -23,33 +24,25 @@ The repository was evaluated on a Linux host (Git 2.55, Node 24) with every
 suite mode run, three independent reviews (source, tests, documentation), and
 the two most severe findings reproduced in disposable repositories.
 
-1. **The POSIX default suite was red at v0.13.1.** Two tests failed in every
-   session-off mode. A missing revision was classified `revision-not-resolved`
-   through the Git object session and `git-command-failed` through the
-   one-process fallback. The session is the default on Windows only, so the
-   Windows-hosted release gate never saw it. The POSIX evidence on
-   [issue #14](https://github.com/jwh3times/vcs-lab/issues/14) predates the
-   envelope commit.
-2. **`vlab reconcile --abort` reset whichever branch was checked out.** The
-   journal never recorded its branch, and abort hard-resets HEAD to
-   `targetBefore`. The rebase path had a guard from the start; the
-   reconciliation path did not.
-3. **No continuous integration existed.** The five-mode gate ran by hand on
-   one host, and "ordinary mode" on a Windows host is not ordinary mode on a
-   POSIX host.
-4. **Gate A item 3 has no candidate.** In Git's best mode every phase of the
-   committed `win32` baseline is under the 1,000 ms interactive budget. See
-   [Step 3](#step-3-decide-adr-0015-phase-1-on-the-evidence).
-5. **Documentation drift.** The roadmap, product requirements, and
-   architecture document contradict each other and the changelog. See
-   [Step 5](#step-5-reconcile-the-documents).
-6. A list of smaller defects and test gaps. See
-   [Step 6](#step-6-clear-the-smaller-defects-and-coverage-gaps).
+1. **The POSIX default suite was red at v0.13.1.** Fixed and released in
+   v0.13.2 (below).
+2. **`vlab reconcile --abort` reset whichever branch was checked out.** Fixed
+   and released in v0.13.2.
+3. **No continuous integration existed.** Added in v0.13.2.
+4. **Gate A item 3 has no candidate.** Decided by
+   [ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md),
+   Proposed; see [item 1](#1-make-the-synced-onedrive-measurement-then-accept-or-amend-adr-0024).
+5. **Documentation drift.** Reconciled; see
+   [what landed on 2026-09-03](#landed-on-main-on-2026-09-03).
+6. **Smaller defects and test gaps.** All but one closed; the remainder is
+   [item 4](#4-give-appendnote-a-compare-and-swap).
 
 ## What is done
 
-All four commits are on `main` and released in v0.13.2. The CI run for `ef6f224`
-passed all fifteen jobs.
+### Released in v0.13.2
+
+All four commits are on `main`. The CI run for `ef6f224` passed all fifteen
+jobs.
 
 | Commit | Change |
 | --- | --- |
@@ -66,50 +59,89 @@ Two properties of the workflow to keep in mind:
 - The benchmark is not in CI because its baseline is per-host. Demos,
   metadata validation, and the packed-install smoke test remain release-time
   steps in [testing.md](testing.md#release-gate).
-- The v0.13.2 gate re-recorded the `linux` publication process count (57:
-  the abort guard's one `symbolic-ref` read per reconciliation). The `win32`
-  baseline entry still says 41 and will report a one-process regression
-  until `npm run benchmark:record` is run on the Windows host.
 
-These four commits shipped in **v0.13.2**. Its release gate was the one in
-[testing.md](testing.md#release-gate), with item 3 satisfied by the CI run
-on the release commit.
+### Landed on `main` on 2026-09-03
 
-## Step 3: decide ADR-0015 phase 1 on the evidence
+The rest of the brief's work was done on 2026-09-02 and landed on `main` on
+2026-09-03 as three commits: the source defects with their tests, the suite
+gaps, and the reconciliation with ADR-0024 and the changelog. The
+`Unreleased` section of the [changelog](../CHANGELOG.md) describes every
+change; in summary:
 
-[ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) says
-phase 0b ends in one of two ways: a phase 1 ADR names the Gate A item 3
-budget from the phase 0a runs, or the program stops with a complete outcome.
-[ADR-0014](adr/0014-split-the-native-implementation-gate-into-engine-and-store-gates.md)
-item 3 needs "a named per-command budget on a representative Windows or
-OneDrive host that the batched Git path measurably misses".
+- **Documentation reconciliation**, the whole of the evaluation's list:
+  roadmap, product requirements, architecture reference, README, testing
+  guide, and the schema catalog README.
+- **Source defects**: `vlab verify-proof` shape validation and the
+  `proofBundleBytes` bound; `vlab doctor` no longer initializes; the
+  `conflict-blocked`, `already-exists`, and new `stale-manifest` codes; the
+  pending cherry-pick read through the engine seam as the cataloged operation
+  `pseudoRefTarget` (39 operations now); one resolution-catalog scan per
+  conflict capture with existence checks through `inspectGitObjects`; the
+  two-argument `recordsReachableFrom`; honest `--json` help text. Each has a
+  regression test.
+- **Test-suite gaps**, all six: global and system Git config isolated in every
+  suite file; the version pin derived from `src/version.js` and checked
+  against `package.json`; the forced-session mode self-checking; behavior
+  tests for `vlab merge` mode selection, `cherry-pick --repeat`, `resolve
+  reject`, `workspace create --owner`/`--focus`, and `spec index --force`;
+  anchor checking in `scripts/check-doc-links.mjs`; module-scope cleanup in
+  `test/schema-catalog.test.js`.
+- **ADR-0024** (Proposed) and the roadmap and product edits that follow from
+  it.
 
-The committed `benchmarks/baseline.json` `win32` entry, in Git's best mode:
+Before landing, every documented suite mode
+([testing.md](testing.md#development-validation)) passed on the Windows
+host, along with `npm run test:docs`, `npm run sync:agents -- --check`, and
+`git diff --check`. The benchmark check and the demos were not run: the host
+was under load, and the `win32` entry needs re-recording regardless
+([item 2](#2-re-record-the-win32-baseline)).
 
-| Phase | Median |
-| --- | --- |
-| `workspaceCreate` | 403 ms |
-| `metadataStatus` | 398 ms (p95 536 ms) |
-| forecast, merge-tree session | 428 ms |
-| `workspaceCreateCone` | 225 ms |
-| `resolutionCatalog` | 181 ms |
-| budget | 1,000 ms |
+## Remaining items
 
-Nothing misses. The only figure over budget is the worktree forecast without
-a session (2,203 ms), and that is not Git's best mode; the merge-tree session
-is the Windows default. On this evidence the honest ADR closes the native
-read-engine program with a complete outcome, keeping the seam, the schemas,
-and the baseline.
+### 1. Make the synced-OneDrive measurement, then accept or amend ADR-0024
 
-What could change that, and should be tried first: a measurement on a real
-repository inside a synced OneDrive folder on the Windows host. Issue #14
-still lists OneDrive path edges as its one open item, and no run so far has
-placed a repository in a synced folder. If that run produces a miss, the ADR
-names that budget and phase 1 opens under the ADR-0014 sunset. Either way,
-write the ADR; the roadmap currently says "the phase 1 ADR ... is the next
-decision" in three places and the decision should stop being implicit.
+[ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md)
+closes ADR-0015 phases 1 through 4 on the committed baseline and names a
+synced-OneDrive measurement as its first reopening condition. No run has ever
+placed a repository in a synced folder, and the attempt on 2026-09-02 was not
+made: the OneDrive client was not running on the host and the machine was
+under load, and a measurement under either condition would say nothing.
 
-## Step 4: start the branch-and-land workflow
+How to make it, on a quiet Windows host with the OneDrive client running
+(`Get-Process OneDrive` must list it):
+
+1. Create a disposable folder inside the synced tree (for example
+   `%OneDrive%\vlab-probe`) and point `TEMP` and `TMP` at it for the shell,
+   so `temporaryDirectory` in `src/store.js` builds every fixture there.
+2. Run `npm run test:benchmark`. The check compares each phase with the
+   committed `win32` entry, which was recorded under the unsynced temporary
+   directory, so its per-phase ratios are the result.
+3. Optionally clone this repository into the same folder and time `vlab
+   workspace create`, `vlab metadata status`, and `vlab merge-plan` against
+   the same commands on a clone under the ordinary temporary directory.
+4. Post the figures on [issue #14](https://github.com/jwh3times/vcs-lab/issues/14),
+   which keeps "OneDrive path edges" as its one open item, then delete the
+   probe folder: it syncs to the cloud while it exists.
+
+If a Git-best-mode phase exceeds 1,000 ms, the ADR's first reopening condition
+is met: write the phase 1 ADR naming that budget and mark ADR-0024 superseded.
+Otherwise accept ADR-0024 (status and index row) and close the OneDrive item
+on #14 with the evidence. Either way the roadmap stops saying "Proposed".
+
+### 2. Re-record the `win32` baseline
+
+The `win32` entry of `benchmarks/baseline.json` still records 41 publication
+processes and reports a one-process regression until `npm run
+benchmark:record` is run on the Windows host; the `linux` entry was
+re-recorded to 57 in v0.13.2 for the same reason (the abort guard's one
+`symbolic-ref` read per reconciliation). Run it on a quiet host, nothing else
+running, and run `npm run test:benchmark` first: the expected findings are
+that one publication process and possibly *fewer* processes in the forecast
+modes, if the fixture's conflicted steps exercised the per-path catalog scan
+this tree removes. No phase should grow; if one does, find out why before
+recording.
+
+### 3. Start the branch-and-land workflow
 
 [ADR-0023](adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)'s
 amendment records that this repository never rewrites history, so provenance
@@ -119,106 +151,68 @@ branch-and-land workflow, here or on another real repository.
 
 The cheapest form: land the next few increments on this repository through
 `vlab branch`, `vlab commit --generated-by`, and `vlab merge --compact`,
-instead of committing directly to `main`. That produces carried provenance,
-compact-landing receipts, and the first dogfooding telemetry, and it gives
+instead of committing directly to `main` as the 2026-09-03 increments still
+did. That produces carried provenance, compact-landing receipts, and the
+first dogfooding telemetry, and it gives
 [issue #17](https://github.com/jwh3times/vcs-lab/issues/17) (receipt metrics
 exclude publication) real data to decide on. Retain telemetry per
-[product.md](product.md) section 15; never commit raw runs.
+[product.md](product.md) section 15; never commit raw runs. This is the
+owner's decision: it requires `vlab init` against the real checkout, which
+the rules below otherwise forbid.
 
-## Step 5: reconcile the documents
+### 4. Give `appendNote` a compare-and-swap
 
-Verified contradictions, most consequential first. Each is a small edit.
+The one Step 6 item not closed, because it was never reproduced. `appendNote`
+in `src/notes.js` reads a commit's note container, appends a record, and
+writes the whole blob back with `git notes add -f`. Git serializes the ref
+update but not the read-modify-write, so two publishers appending to the same
+commit between each other's reads and writes lose a record. Reconciliation and
+rebase hold their worktree, so the exposure is two worktrees publishing onto
+one commit at once.
 
-- `docs/roadmap.md` calls v0.11 and v0.12 work "implemented, unreleased" in
-  five places (the engine seam, schema catalog, canonical-JSON profile,
-  compatibility contract, conformance fixtures, and commit-level provenance)
-  while its own opening paragraph says they were released. The document's
-  vocabulary reserves "unreleased" for items still under `Unreleased`.
-- The roadmap's requirement backlog marks FR-ID-06, FR-ID-07, and FR-PLAN-08
-  as "Planned"; the same document says they were done on 2026-08-31 and
-  `product.md` marks them implemented. Horizon 5 phase 2 still scopes the
-  identity audit and proof bundle as future native work.
-- Horizon 5's phase 0b row says the catalog and canonical-JSON profile "are
-  open"; `product.md` section 15 says "the catalog is open". Both shipped.
-- The status headers of `roadmap.md`, `product.md`, and `architecture.md`
-  carry a stale baseline and review date.
-- `docs/architecture.md` says JSON schemas are "not yet published", that the
-  catalog and profile "are next", that `VLAB_ENGINE=native` is "the suite's
-  third mode", and that crash consistency has no fault-injection coverage.
-  Its schema table omits `error/v1`, `identity-audit/v1`, `proof-bundle/v1`,
-  `proof-verification/v1`, and `provenance/v1`; its module table omits
-  `canonical-json.js`, `faults.js`, `identity-audit.js`, `proof-bundle.js`,
-  and `provenance.js`. ADR-0021 through ADR-0023 are not referenced.
-- `README.md` does not document `vlab audit identity`, `vlab proof-bundle`,
-  `vlab verify-proof`, `vlab compact-merge`, `vlab hard-squash`, or the
-  `--cone`, `--owner`, `--authored-by`, `--all`, `--allow-empty`, `--repeat`,
-  `--offline`, and `spec index --force` flags. It says "the supported v0.8
-  transfer path" and cites "Version 0.3-0.7" in six places.
-- Help text advertises `--json` for `workspace list`, `spec show`, and
-  `spec benchmark`, whose handlers always print JSON, and omits it for
-  `workspace create`, which honours it.
-- Four environment variables are undocumented everywhere:
-  `VLAB_GIT_SESSION_DIAGNOSTICS`, `VLAB_GIT_SESSION_DIAGNOSTICS_FILE`,
-  `VLAB_TEST_GIT_SESSION_FAILURE`, `VLAB_TEST_MERGE_TREE_SESSION_FAILURE`.
-- Open product question 3 (Change-ID scope) is answered by the frozen
-  `vcs-lab.logical-id/v1` protocol but still listed as open.
-- Issue #17 is mentioned in no document.
+Two shapes are possible: a lock ref created atomically (`git update-ref
+refs/vcs-lab/locks/notes <oid> <zero-oid>` fails when it exists) and deleted
+after the write, with a stale-lock policy; or a post-write check that the new
+notes commit's parent is the tip observed before the read, repairing by
+re-merging records when it is not. Either needs a deterministic concurrency
+test first, two `vlab` processes gated at a named point in the style of
+`VLAB_TEST_FAULT`, so the fix can be seen to go red before it goes green.
 
-The structural judgment behind the drift: the roadmap, changelog, and ADR
-amendments each narrate the same events, so every release must be rewritten
+### 5. Structural suggestion from the evaluation
+
+Not started, and a maintainer's call: the roadmap, changelog, and ADR
+amendments each narrate the same events, so every release has to be rewritten
 in three or four places and was not. Prefer moving dated progress out of the
 roadmap into issues, and consider generating the architecture document's
-schema and module tables from `src/schemas.js` and the source tree.
+schema and module tables from `src/schemas.js` and the source tree so the
+test that keeps them honest is mechanical.
 
-## Step 6: clear the smaller defects and coverage gaps
+### 6. Make the Change-Id resolver deterministic
 
-Confirmed by reading or reproduced in a scratch repository, in priority order.
+Found on 2026-09-02 by the new `cherry-pick --repeat` test, and not in the
+evaluation's list. `resolveChangeOrCommit` in `src/operations.js` turns a
+`ch_*` argument into a commit through `findCommitByChangeId` in `src/git.js`,
+which returns the first commit `git log --all` lists with that trailer: the
+most recent bearer by commit date, and within one second whichever Git
+happens to walk first. After a pick two commits carry the id, so `vlab
+cherry-pick <change-id>` records a nondeterministic `originCommit`; the test
+accepts either bearer for now. Every same-id bearer is an exact copy under
+FR-ID-02, so the applied tree is the same whichever is chosen, but the
+record and the provenance carried from it are not. Candidate rules: the
+group's origin under the FR-ID-06 identity model (the bearer that is no
+application record's `appliedCommit`), or the earliest bearer with a stated
+tie-break. Which commit "the logical change" names is a product decision;
+choose one, state it in the identity protocol, and pin it with a test.
 
-- `vlab verify-proof` leaks a raw `TypeError` (`receipts.flatMap is not a
-  function`) on a bundle whose `evidence.receipts` is not an array
-  (`src/proof-bundle.js`), and reads the file with no size bound
-  (`src/cli.js`). Add it to `test/hostile-input.test.js`.
-- `vlab doctor` calls `initLab()` and writes `notes.displayRef` and
-  `notes.rewriteRef`. A diagnostic should not mutate configuration.
-- `src/landings.js` throws a bare `Error` with `details`, so the `--json`
-  envelope reports `code: null`. The static scan in
-  `test/error-envelope.test.js` only sees `new CliError`.
-- Code misclassifications: `src/workspaces.js` raises `not-found` for
-  "already exists" in four places, and `src/specs.js` raises
-  `stale-forecast` for a stale manifest in three.
-- `recordsReachableFrom` in `src/notes.js` shadows the imported
-  `reachableCommits` with its own parameter, so its documented two-argument
-  form throws. The one caller passes three arguments.
-- The resolution catalog is rebuilt, with full blob contents, for every
-  conflicted path (`captureConflictDescriptors` in `src/resolutions.js`);
-  existence checks could use `inspectGitObjects` and the catalog could be
-  cached per operation.
-- Two facts are read from the filesystem rather than through the engine seam
-  (`cherryPickHead` and `mergeMessagePath` in `src/reconcile-state.js`),
-  while `src/rebase-operations.js` answers the same question through
-  `revisionResolves("CHERRY_PICK_HEAD")`. A native engine would see only one.
-- Not reproduced: `appendNote` in `src/notes.js` is read-then-write with no
-  compare-and-swap on `refs/notes/vcs-lab`, so two concurrent publishers can
-  drop a record.
+### 7. Deduplicate the suite's isolated Git environment
 
-Test-suite gaps from the review:
-
-- Tests inherit the host's global Git config. Set `GIT_CONFIG_GLOBAL` and
-  `GIT_CONFIG_NOSYSTEM` in the shared `exec` helpers (and consider the same
-  in `src/git.js`) so a `commit.gpgsign` or `core.hooksPath` setting cannot
-  break the suite.
-- No test reaches `vlab merge` mode selection, `cherry-pick --repeat`,
-  `resolve reject`, `workspace create --owner`, `--focus`, or
-  `spec index --force`.
-- The forced-session mode never asserts that a session was used; one
-  assertion on the trace or `timings.git` under `VLAB_GIT_SESSION=1` would
-  make the mode self-checking.
-- The version pin in `test/integration.test.js` is a hand-edited literal;
-  nothing asserts `src/version.js` agrees with `package.json`.
-- `scripts/check-doc-links.mjs` does not check anchors.
-- `test/schema-catalog.test.js` registers its fixture cleanup inside the
-  first test that builds the shared fixture; `test/conformance.test.js`
-  documents why that pattern is wrong.
+The isolated-config block (a temporary empty `gitconfig`, `GIT_CONFIG_NOSYSTEM`,
+the `testEnv` helper, and its cleanup) is pasted into all nine suite files
+that spawn Git, because `node --test`'s default patterns run every `.js`
+under `test/` as a test file and a shared module there would be executed as
+one. Extract it once, either under a directory the patterns ignore or as an
+explicit file list in the `test` script, so the next environment change is
+made in one place.
 
 ## Rules for whoever continues
 
@@ -228,4 +222,7 @@ Test-suite gaps from the review:
   and requests release actions explicitly.
 - After a push, read the CI run before claiming a gate passed. Windows suite
   jobs take 8 to 11 minutes; Ubuntu jobs 2 to 3.
+- Benchmarks and baseline records need a quiet host: nothing else running,
+  including other agents' suites. Wall-clock figures taken under load end up
+  in ADRs and the committed baseline.
 - When an item above closes, delete it here.
