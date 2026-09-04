@@ -1,7 +1,7 @@
 /**
- * Deterministic fault injection for the failure-boundary tests of roadmap
- * Horizon 2 item 3, whose exit criterion is that no partial receipt and no
- * unsafe ref survives an interrupted operation.
+ * Deterministic fault injection for the failure-boundary tests, whose exit
+ * criterion is that no partial receipt and no unsafe ref survives an
+ * interrupted operation (GitHub issue #14).
  *
  * A real interruption is a kill: the process stops between two Git mutations
  * with no unwinding, no `finally`, and no chance to tidy up. Testing that with

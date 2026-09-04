@@ -85,6 +85,21 @@ README, changelog, or durable docs when contracts change. Screenshots are
 normally unnecessary for this CLI; include focused terminal output when it
 clarifies behavior.
 
+## Work Tracking
+
+GitHub is the only tracker. Future work is issues on the
+[vcs-lab project board](https://github.com/users/jwh3times/projects/7), each
+carrying the gate that must clear before it can start; dated progress on an
+item belongs on its issue, and `CHANGELOG.md` is the one dated narrative of
+what shipped. Do not add a Markdown backlog, roadmap, continuation brief, or
+TODO file beside the tracker — a second list is a list that will disagree.
+
+What stays in the tree is what has no "done": product intent and the investment
+gates (`docs/product.md`), decisions (`docs/adr/`), the implemented system
+(`docs/architecture.md`), the published contracts (`docs/schemas/`,
+`docs/conformance/`, `docs/identity/`, `docs/canonical-json/`), and how to
+validate (`docs/testing.md`).
+
 ## Safety & Documentation
 
 Never run destructive experiments in a valuable repository. Preserve dirty

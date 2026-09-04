@@ -5,8 +5,8 @@ mints: their namespace, their entropy, and what happens when two repositories
 disagree about one (FR-ID-07). It exists because logical identity is about to
 be read by things other than the tool that wrote it — the portable proof
 bundle of FR-PLAN-08 hands a coverage classification to a third party — and
-because the roadmap requires this specification **before identifiers
-participate in any trust decision**.
+because the specification is required **before identifiers participate in any
+trust decision** ([product.md](../product.md) §15, Gate B).
 
 **Authority.** `ID_NAMESPACES`, `ID_ENTROPY_BITS`, and `parseLogicalId` in
 `src/ids.js` are the runtime authority; this document describes them.
@@ -90,7 +90,7 @@ writable by any actor with repository access.
 
 Logical identifiers therefore **coordinate work; they do not authenticate
 it**. This is the same boundary `docs/architecture.md` §15.3 draws for
-receipts, and it is why the roadmap gates trust decisions on this
+receipts, and it is why `docs/product.md` §15 gates trust decisions on this
 specification rather than on the identifiers themselves.
 
 What defends against a deliberate collision is detection, not entropy:

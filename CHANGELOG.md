@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- Replace `docs/roadmap.md` with the
+  [vcs-lab project board](https://github.com/users/jwh3times/projects/7), one
+  issue per future increment, each carrying a `Status`, the `Gate` that must
+  clear before it can start, and an `Area` (issue #25). The roadmap, the
+  changelog, and the ADR amendments each narrated the same events, so every
+  release had to be rewritten in three or four places and was not: the
+  2026-09-02 audit found v0.11 and v0.12 work still marked "implemented,
+  unreleased" or "planned". Dated progress now lives on the issue for the item
+  it belongs to, and the changelog is the one dated narrative.
+  - Nineteen issues (#26 through #44) carry what was Horizons 3, 4, and 5,
+    each with the exit criteria, ordering constraint, and open question the
+    roadmap stated for it. The eight already-open issues joined the board.
+  - The roadmap's durable content moved into `docs/product.md` rather than
+    onto the board: §15 gains the native-core phase sequence with its per-phase
+    exit criteria and reversibility, the evidence rows that permit a next step,
+    and the incomplete-requirement trace, now pointing at issues instead of
+    horizons; §7 states the invariants every increment inherits; §17's open
+    questions each cite the issue that will settle them. Section 15 is renamed
+    "Investment themes and gates".
+  - `docs/handoff.md` is deleted with it. Its three remaining items were
+    already issues #14/#18, #22, and #19; the two procedures it alone carried —
+    the synced-OneDrive probe recipe and what to expect from the `win32`
+    baseline re-record — are now comments on #14 and #22.
+  - `docs/adr/README.md` explains how to read the ADRs that locate their scope
+    by horizon: their historical rationale is not rewritten, so Horizon 1.5
+    reads as program phase 0a, Horizon 2 item 1 as phase 0b, and Horizon 5 as
+    the phase sequence in §15.
+  - `AGENTS.md` gains a "Work Tracking" section stating that GitHub is the only
+    tracker, that dated progress belongs on an item's issue, and that no
+    Markdown backlog, roadmap, continuation brief, or TODO file may sit beside
+    it; it also names what stays in the tree, which is everything that has no
+    "done". The `end-session` skill points at the board and at §15 rather than
+    the roadmap, adds a check that no second tracker has reappeared in the
+    tree, and tells the agent to write issue bodies to a file and pass
+    `--body-file` instead of a heredoc, which mangles long Markdown.
+
 - Propose
   [ADR-0024](docs/adr/0024-close-the-native-read-engine-program-at-phase-0b.md),
   the decision ADR-0015 left for the end of phase 0b: the native read-engine

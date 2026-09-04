@@ -1,6 +1,6 @@
 ---
 name: end-session
-description: End a vcs-lab work session cleanly — capture what was learned into memory, bring GitHub issues and durable records (ADRs, roadmap, changelog debt, retained evidence) up to date, and clean the local checkout of disposable fixtures, stray worktrees, and runtime state. Use when the user says "end session", "wrap up", "done for the day", or asks to clean things up before stopping.
+description: End a vcs-lab work session cleanly — capture what was learned into memory, bring GitHub issues and durable records (ADRs, product gates, changelog debt, retained evidence) up to date, and clean the local checkout of disposable fixtures, stray worktrees, and runtime state. Use when the user says "end session", "wrap up", "done for the day", or asks to clean things up before stopping.
 ---
 
 # End session
@@ -18,14 +18,14 @@ session."
 A session's durable output is not just the diff. It also produces things that
 live outside the tracked tree, each of which rots silently if nobody writes to
 it: **memory** (what the agent now knows about this project that the docs do
-not say), **GitHub issues** (this repository's only tracker for active work,
-implementation briefs, handoffs, and deferred follow-ups), **durable records**
-(ADRs, the roadmap, the changelog's `Unreleased` section, and evidence retained
-where `docs/README.md` says it belongs), and the **local checkout** (disposable
-Git fixtures in the OS temp directory, worktrees or `vlab/ws/*` branches that an
-agent created by mistake, runtime state under `.git/vcs-lab/`, lingering Git
-session processes, and static-check drift that fails the next session for
-unrelated reasons).
+not say), **GitHub issues and their project board** (the only tracker, for
+active work, implementation briefs, handoffs, and deferred follow-ups),
+**durable records** (ADRs, `docs/product.md` §15, the changelog's `Unreleased`
+section, and evidence retained where `docs/README.md` says it belongs), and the
+**local checkout** (disposable Git fixtures in the OS temp directory, worktrees
+or `vlab/ws/*` branches that an agent created by mistake, runtime state under
+`.git/vcs-lab/`, lingering Git session processes, and static-check drift that
+fails the next session for unrelated reasons).
 
 This skill is a sweep over those four, in that order, at the end of a work
 session. It applies equally when Claude Code or Codex ran the session; the
@@ -46,7 +46,7 @@ memory lane applies only to an agent that has a persistent memory directory.
 - **Never run destructive experiments in this checkout.** `vlab` commands
   mutate the refs, notes, and workspace registry of whatever repository is the
   working directory. Experiments belong in disposable repositories under the
-  session scratchpad or `os.tmpdir()`, never in `~/dev/vcs-lab` itself.
+  session scratchpad or `os.tmpdir()`, never in the checkout itself.
 
 ## Steps
 
@@ -82,7 +82,7 @@ one-line pointer in `MEMORY.md`. Codex sessions skip this lane and say so.
   subagents must use disposable repositories), the release and scan-batching
   state note, and the native-substrate decisions note. Read `MEMORY.md` first.
 - **Do not save what the repository already records.** `AGENTS.md`,
-  `docs/product.md`, `docs/architecture.md`, `docs/roadmap.md`, `docs/adr/`,
+  `docs/product.md`, `docs/architecture.md`, `docs/adr/`, the project board,
   the changelog, and Git history are durable. Memory is for what is not written
   down: a trap that cost an hour, a preference the user stated, a host-specific
   measurement that shaped a decision, the state of uncommitted or half-decided
@@ -101,11 +101,22 @@ the clone. The repository uses GitHub's default labels only (`bug`,
 `enhancement`, `documentation`, `question`, `wontfix`, and so on); do not
 invent a triage scheme.
 
+Every open issue also sits on the
+[vcs-lab project board](https://github.com/users/jwh3times/projects/7). Its
+`Status`, `Gate`, and `Area` fields are a cheap view; the issue body and its
+comments remain the record, so never let a fact live only on a card. Two things
+are worth doing at session end: put any issue this session opened onto the board
+with a Status and a Gate, and move any item whose gate this session cleared.
+`gh` needs the `project` scope for either to work — check with `gh auth status`
+and look for `project`, not `read:project`, because it fails silently without
+it.
+
 For each issue this session touched:
 
-- **Record decisions where the docs cite the issue.** ADRs and the roadmap cite
-  issue numbers as the durable record of an implementation brief (ADR-0013
-  cites issue #1). A decision reached in conversation and never commented onto
+- **Record decisions where the docs cite the issue.** ADRs and `docs/product.md`
+  cite issue numbers as the durable record of an implementation brief (ADR-0013
+  cites issue #1); the project board is a view over those issues, never the
+  record itself. A decision reached in conversation and never commented onto
   its issue is effectively lost: `gh issue comment <n> --body "..."`.
 - **Close what shipped**, naming the commit or tag that delivered it:
   `gh issue close <n> --comment "..."`. If the work merged but a follow-up
@@ -113,8 +124,10 @@ For each issue this session touched:
   half-done issue open.
 - **Open issues for deferred work discovered this session**: the divergence
   you noticed and chose not to fix, the ADR a conversation decision still
-  needs, the evidence rerun another host must produce. Use a heredoc for the
-  body and say which document or ADR the issue serves.
+  needs, the evidence rerun another host must produce. Write the body to a file
+  in the scratchpad and pass `--body-file`; a heredoc through this shell
+  mangles long Markdown. Say which document, ADR, or issue the new issue serves,
+  and put it on the board.
 - **Attach evidence to issues rather than the tree.** Benchmark JSON, gate
   logs, and review outputs from the scratchpad belong in an issue comment, a
   pull request, or a CI artifact, never as a committed timestamped report.
@@ -127,9 +140,13 @@ in `docs/testing.md`.
 
 - **Decisions without a record.** If the session reached a decision that
   changes a durable contract (a schema, an algorithm, a persistence scope, a
-  gate, a supported baseline) and no ADR or roadmap entry records it, do not
+  gate, a supported baseline) and no ADR or issue records it, do not
   write the ADR here; open an issue that names the decision and the ADR it
   needs, and say so in the report.
+- **Dated progress belongs on the issue.** What landed when, on which host,
+  with which numbers, goes in an issue comment — never restated into a
+  maintained document. The documents describe what is true now; only the
+  changelog carries dates.
 - **Changelog debt.** Every behavior change committed this session should
   already have a bullet under `CHANGELOG.md` `Unreleased` from its own commit.
   If one is missing, note it as debt in the report; do not edit the changelog
@@ -149,6 +166,14 @@ in `docs/testing.md`.
   packed tarballs, and benchmark output must not be sitting in the checkout
   waiting to be committed. Move them to the scratchpad or an issue, or delete
   them after showing the list.
+- **No second tracker.** A `roadmap.md`, `backlog.md`, `handoff.md`, `TODO.md`,
+  `plan.md`, or `next-steps.md` anywhere in the tree is a regression: GitHub is
+  the only tracker, and a parallel Markdown list drifts from it silently. If one
+  appeared this session, move its content onto issues and say so in the report.
+
+  ```bash
+  git ls-files | grep -Ei '(roadmap|backlog|handoff|todo|next.?steps|plan)\.md$'
+  ```
 
 ### 5. Clean the local checkout
 
@@ -231,8 +256,8 @@ Show findings before acting. Work through:
 One short paragraph per lane — memory, issues, durable records, checkout —
 naming what changed and what was deliberately left alone. End with **what is
 still open**: the uncommitted work, the issue awaiting a reply, the evidence
-another host still has to produce, the next roadmap increment. That paragraph
-is what makes the next session cheap to start.
+another host still has to produce, the next increment on the board. That
+paragraph is what makes the next session cheap to start.
 
 ## Do not
 

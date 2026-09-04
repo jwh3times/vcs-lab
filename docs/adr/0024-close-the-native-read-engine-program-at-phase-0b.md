@@ -180,11 +180,12 @@ evidence to hand says now.
 
 ## Implementation map
 
-- Roadmap: the current position and Horizon 2 item 1 no longer name the
-  phase 1 ADR as the next decision; Horizon 5 rows 1 through 4 are closed by
-  this ADR until a reopening condition fires; the decision backlog's phase 1
-  backend-matrix item is conditional on reopening.
-- Product requirements §15: Gate A item 3 status and this ADR.
+- Product requirements §15: Gate A item 3 status and this ADR; phase-sequence
+  rows 1 through 4 are closed by this ADR until a reopening condition fires.
+  (Written against `docs/roadmap.md`, which carried the phase table and the
+  decision backlog until the project board replaced it on 2026-09-04; the
+  phase 1 backend-matrix question is now conditional on reopening inside
+  [issue #18](https://github.com/jwh3times/vcs-lab/issues/18).)
 - Issue #14: the synced-folder measurement stays its one open item and is
   also this ADR's first reopening condition.
 - No code changes. The seam, the native suite mode, the schemas, and the

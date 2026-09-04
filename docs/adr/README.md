@@ -5,6 +5,17 @@ survive refactoring and session boundaries. They complement the
 [product requirements](../product.md) and the implemented
 [architecture](../architecture.md).
 
+**Reading ADRs written before 2026-09-04.** Several cite `docs/roadmap.md` and
+locate their scope by horizon — "Horizon 1.5", "Horizon 2 item 1", "Horizon 5".
+That document was replaced by the
+[project board](https://github.com/users/jwh3times/projects/7) on 2026-09-04,
+and its durable content moved to [product.md](../product.md) §15: the native
+implementation gates, the evidence rows that permit a next step, the native-core
+phase sequence, and the incomplete-requirement trace. The horizon names are left
+in place because an ADR's historical rationale is not rewritten; read Horizon 1.5
+as program phase 0a, Horizon 2 item 1 as phase 0b, and Horizon 5 as the phase
+sequence in §15.
+
 ## Status vocabulary
 
 - **Proposed:** under consideration; implementation must not rely on it as an

@@ -8,7 +8,7 @@
 | Document version | 1.0 |
 | Product baseline | v0.13.2 release |
 | Status | Active product baseline |
-| Last updated | 2026-09-02 |
+| Last updated | 2026-09-04 |
 | Primary audience | Maintainers, contributors, protocol designers, and AI coding agents |
 | Decision owner | Repository maintainers |
 
@@ -251,6 +251,18 @@ ADR that explains why.
 | GP-10 | Mutation is recoverable | Operations either complete with durable records, pause with sufficient context, or abort to the exact starting commit. |
 | GP-11 | Trust is explicit | A record being present is not equivalent to it being signed, authorized, or server-approved. |
 | GP-12 | Measure before replacing | Native storage, daemons, and protocol components require evidence from the compatibility layer. A semantics-preserving alternative engine may exist behind an equality-tested seam before any replacement decision (§15 Gate A). |
+
+Every increment inherits these, whichever horizon or phase it belongs to. Six
+consequences are worth restating because they are what a review actually checks:
+Git remains valid, inspectable, and recoverable without `vlab` (GP-01); exact
+proof stays distinct from heuristic similarity and from trust (GP-03, GP-11);
+broad mutation is forecastable, pinned, resumable, or exactly abortable (GP-05,
+GP-10); worktree-private state never leaks across linked worktrees, and
+completed shared facts publish only after whole-operation success (GP-06); and
+optimizations preserve plans, decisions, trees, receipts, and failure safety
+(GP-09). Alongside them, a new schema, algorithm, persistence scope, or
+migration receives an ADR where it changes a durable decision and integration
+coverage where it changes observable behavior (§14 gates 7 and 8).
 
 ## 8. Product terminology and identity model
 
@@ -669,7 +681,8 @@ A release is eligible when:
    checkout.
 7. New schemas or algorithms include migration/compatibility tests.
 8. New automated decisions identify their proof/confidence and approval model.
-9. Documentation links resolve and the session handoff reflects the release.
+9. Documentation links resolve, and every issue the release closed is closed
+   with the commit or tag that delivered it.
 10. `npm run test:benchmark` passes on every host with an entry in
     `benchmarks/baseline.json`.
 
@@ -677,15 +690,22 @@ Production-readiness requires additional threat modeling, fuzzing, crash/fault
 injection, remote interoperability, performance targets, and a support policy.
 Passing laboratory gates is not a production claim.
 
-## 15. Roadmap and investment gates
+## 15. Investment themes and gates
 
-Roadmap themes are directional; a version number is not a promise until its
-scope is accepted in an issue, plan, or ADR.
+Themes here are directional; a version number is not a promise until its scope
+is accepted in an issue, plan, or ADR.
 
-The maintained [roadmap](roadmap.md) turns these product themes and gates into
-a prioritized execution sequence and traces every incomplete requirement to a
-future horizon. This section remains authoritative for product investment
-criteria.
+Future work is tracked on the
+[vcs-lab project board](https://github.com/users/jwh3times/projects/7): one
+issue per increment, each carrying a Status, the Gate that must clear before it
+can start, and an Area. The board replaced `docs/roadmap.md` on 2026-09-04, so
+there is no parallel Markdown backlog to keep in sync, and the changelog stays
+the one dated narrative of what shipped.
+
+This section remains authoritative for the investment criteria the board's
+gates refer to: the two native implementation gates, the evidence rows that
+permit a next step, the native-core phase sequence, and the trace from every
+incomplete requirement to the issue that carries it.
 
 ### Completed experimental sequence
 
@@ -738,19 +758,40 @@ manifest. It is not a signing or authorization layer.
 
 ### Subsequent candidate themes
 
-- Target-checkpoint forecasts and native private draft stacks beyond the
-  conservative worktree-backed implementation.
-- Broader causal rebase forms beyond linear v1: merge preservation, interactive
-  editing, arbitrary ranges, and checkpoint/draft overlays.
+Each links to the issue that carries it; the board is where its status lives.
+
+- Target-checkpoint forecasts
+  ([#26](https://github.com/jwh3times/vcs-lab/issues/26),
+  [#28](https://github.com/jwh3times/vcs-lab/issues/28)) and native private
+  draft stacks beyond the conservative worktree-backed implementation
+  ([#40](https://github.com/jwh3times/vcs-lab/issues/40), Gate B).
+- Broader causal rebase forms beyond linear v1: arbitrary ranges
+  ([#27](https://github.com/jwh3times/vcs-lab/issues/27)), merge preservation
+  ([#29](https://github.com/jwh3times/vcs-lab/issues/29)), interactive editing
+  ([#30](https://github.com/jwh3times/vcs-lab/issues/30)), and checkpoint/draft
+  overlays ([#28](https://github.com/jwh3times/vcs-lab/issues/28)).
 - Rerun the accepted repository-scale schema on larger fixtures and real
   repositories now that workspace-status and resolution-catalog scans are
   batched (the Windows rerun is recorded in ADR-0013); consider incremental
-  catalogs only if already-batched scans remain over a representative budget.
+  catalogs only if already-batched scans remain over a representative budget
+  ([#42](https://github.com/jwh3times/vcs-lab/issues/42)).
 - A repository-local service only if cross-command process and scan costs remain
-  material after batching.
-- Protocol capability negotiation and optional remote gateway.
-- Signed receipt envelopes and trusted landing policy.
-- Additional deterministic structured-document adapters.
+  material after batching — see the decision rows below.
+- Protocol capability negotiation and optional remote gateway
+  ([#36](https://github.com/jwh3times/vcs-lab/issues/36),
+  [#37](https://github.com/jwh3times/vcs-lab/issues/37)).
+- Signed receipt envelopes and trusted landing policy
+  ([#38](https://github.com/jwh3times/vcs-lab/issues/38),
+  [#39](https://github.com/jwh3times/vcs-lab/issues/39)).
+- Additional deterministic structured-document adapters, behind a shared
+  conformance suite and an adapter contract
+  ([#31](https://github.com/jwh3times/vcs-lab/issues/31),
+  [#33](https://github.com/jwh3times/vcs-lab/issues/33),
+  [#32](https://github.com/jwh3times/vcs-lab/issues/32)).
+- Lower-confidence resolution only as a visibly separate tier
+  ([#35](https://github.com/jwh3times/vcs-lab/issues/35)), and sub-commit
+  authorship anchoring
+  ([#34](https://github.com/jwh3times/vcs-lab/issues/34)).
 - Git-native wins before native code: `git merge-tree` forecast simulation
   (delivered by ADR-0016 with Windows and Linux evidence; the default on
   Windows since 2026-08-30), sparse cones (delivered in v0.12.0 as
@@ -817,6 +858,82 @@ in that telemetry is tracked by
 or rebase receipt's `timings.git` block covers the application phase only and
 excludes the receipt's own publication cost.
 
+### Native-core phase sequence
+
+[ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) replaces
+the open question "is a native subsystem warranted" with a sequence whose
+phases enter under the two gates above. No canonical native store, resident
+service, or wire protocol is approved before its phase and gate.
+
+[ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md)
+(Proposed, 2026-09-02) closes phases 1 through 4 with a complete outcome,
+because the Git-best-mode baseline of both hosts misses no budget and Gate A
+item 3 therefore has no candidate; it names three reopening conditions (a
+synced-OneDrive measurement that misses, a real workload naming a tighter
+budget that the measured path misses, or a raised per-process floor). Phases 5
+and 6 remain Gate B questions under
+[ADR-0023](adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md).
+
+| Phase | Gate | Scope | Exit criterion | Reversibility |
+| --- | --- | --- | --- | --- |
+| 0a Git-native wins | none | `git merge-tree` forecast simulation, the post-batching benchmark rerun, and the commit-graph, multi-pack-index, fsmonitor, and sparse-cone measurements | Met 2026-08-30 (ADR-0016 with Windows and Linux evidence, the ADR-0013 rerun, and the Linux benchmark baseline) and completed 2026-08-31 by ADR-0022 and the v2 benchmark profile | Flag only; complete outcome on its own. |
+| 0b Contract freeze and engine seam | none | The read-side engine seam, the schema catalog, the canonical-JSON profile, the per-family compatibility contract, and the human/JSON conformance fixtures | Met 2026-08-31 and released in v0.11.0: the seam of ADR-0019, `docs/schemas/`, `docs/canonical-json/`, ADR-0020's `docs/schemas/compatibility.md`, and `docs/conformance/` | Pure refactor. |
+| 1 Native read engine in Rust | Gate A; closed by ADR-0024 until a reopening condition fires | Repository context, batched object reads, peeling, history walks, merge-base, ancestry, refs, notes reads, and worktree-scoped status through `vlab-core` behind the seam; per-operation backend matrix in its ADR; bounded jj-lib spike | Suite green in native mode on Linux and Windows with identical JSON; zero Git processes for history, registry, note-catalog, resolution-catalog, and per-workspace status in the scale benchmark; the Gate A named budget met; `git fsck` clean; no lingering processes | Engine selector or uninstall the binding; kill switch and two-release sunset. |
+| 2 Native planning and status | Gate A; closed by ADR-0024 | Merge-plan and rebase-plan construction, receipt reachability, Change-ID extraction, the advisory `git-patch-id-heuristic` proof (a stable patch-id proof, if wanted, gets its own ADR), spec blob-identity checks; the FR-ID-06 audit and the FR-PLAN-08 proof bundle and verifier (both delivered in v0.12.0 over the Git engine; this phase re-implements them behind the seam) | Plan fingerprints byte-identical across engines on the suite plus at least 1,000 generated histories; status semantics preserved at zero processes | Per-operation fallback. |
+| 3 Derived catalog | Gate A, closed by ADR-0024, plus the incremental-catalog row below (an already-batched path over a representative budget, per ADR-0013) | Deletable fact segments with per-record digests, rebuildable indexes, `builtFrom` stamps, reindex command, approval facts, advisory leases in a mutable side file; caches outside synced folders; notes and refs remain canonical | 5,000-fact benchmark under budget with zero processes on both hosts; deleting the catalog yields identical output; torn-tail and stale-catalog recovery pass; writer-lock waits under 10 ms at 16 concurrent agents | Delete the directory. |
+| 4 In-memory forecasts and native mutation | Gate A; closed by ADR-0024 | Ref transactions and object writes for checkpoints and retained resolutions; virtual three-way merge applying exact-resolution memory and Markdown section merge, with `git merge-tree` as co-oracle | Predicted-tree equality on the suite plus at least 1,000 generated three-way cases; divergence always surfaces as a blocker; FR-REC-06 apply-time check retained | Flag; droppable after 0a evidence. |
+| 5 Canonical fact log, transport, draft stacks | Gate B | Fact log canonical with notes, refs, and registry regenerated at finalization; notes import; envelope v2 as a strict superset of v1; Git-carried fact transport; private draft stacks via hidden refs (FR-WS-08); optional thin Rust CLI with byte-identical JSON — [issue #40](https://github.com/jwh3times/vcs-lab/issues/40) | All nine Gate B conditions with an evidence table ([issue #41](https://github.com/jwh3times/vcs-lab/issues/41)); v1 envelopes import and re-export byte-identically; the ADR partially superseding ADR-0001 accepted | Project, then delete the log. |
+| 6 Gateway; service only if the row below fires | Gate B | The remote program in its order: portable verification ([#36](https://github.com/jwh3times/vcs-lab/issues/36)), capability negotiation ([#37](https://github.com/jwh3times/vcs-lab/issues/37)), actor trust ([#38](https://github.com/jwh3times/vcs-lab/issues/38)), then landing policy ([#39](https://github.com/jwh3times/vcs-lab/issues/39)) | No local planning, forecasting, or landing depends on the gateway | Optional. |
+
+### Decision rows: what evidence permits which next step
+
+These rows remain in force inside that sequence, and they are the only route to
+a catalog or a service.
+
+| Evidence | Permitted next step |
+| --- | --- |
+| A path launches per-entity Git processes | Batch within the invocation. |
+| An already-batched path exceeds a representative budget | Propose an incremental catalog with lifecycle, migration, and equality tests. |
+| Cross-command cost remains material on representative Windows and POSIX repositories after justified catalogs | Propose a resident-service ADR covering ownership, locking, security, crash recovery, upgrade, shutdown, and fallback. |
+| All nine Gate B conditions have an evidence table naming schemas, hosts, and runs | Begin phase 5 (canonical fact log, transport, draft stacks) behind the existing observable contracts, with Git as oracle and escape hatch. |
+
+No representative budget has been ratified yet, which is one reason Gate A
+item 3 has no candidate; ratifying one is part of
+[issue #42](https://github.com/jwh3times/vcs-lab/issues/42).
+
+Efficiency claims follow ADR-0014's definition: elapsed time per operation and
+bytes stored and transferred, per host, against plain Git's best mode and any
+named alternative, with identical semantic results. **Performance alone is
+insufficient.** Evidence must also show user value — receipts prevent real
+duplicate work, forecasts reproduce applied trees, workspace and checkpoint
+flows improve parallel work, resolution reuse avoids repeated effort safely,
+and semantic identity helps real document corpora.
+
+### Incomplete-requirement trace
+
+This table is the compact trace from each incomplete requirement to the issue
+that carries it. Section 9 remains authoritative for exact wording and
+acceptance signals.
+
+| Requirement | Current state | Tracked by |
+| --- | --- | --- |
+| FR-GIT-06 | Complete | Delivered: the `docs/schemas/` catalog and the `vcs-lab.error/v1` failure envelope |
+| FR-ID-06, FR-ID-07 | Delivered in v0.12.0 | `vlab audit identity` and `vcs-lab.logical-id/v1`. Whether FR-ID-07 also needs an operation log and a second carrier of `ch_*` in commit headers is a Gate B question inside [#40](https://github.com/jwh3times/vcs-lab/issues/40) |
+| FR-ID-08, FR-TRUST-04 | Delivered in v0.12.0 for commit granularity | Sub-commit anchoring is [#34](https://github.com/jwh3times/vcs-lab/issues/34), which is open product question 11 |
+| FR-LAND-10 | Deferred | [#39](https://github.com/jwh3times/vcs-lab/issues/39) |
+| FR-PLAN-08 | Delivered in v0.12.0 | The remote half is [#36](https://github.com/jwh3times/vcs-lab/issues/36) |
+| FR-RES-07 | Planned | [#35](https://github.com/jwh3times/vcs-lab/issues/35) |
+| FR-WS-08 | Deferred | [#40](https://github.com/jwh3times/vcs-lab/issues/40), under Gate B |
+| FR-WS-09 | Batched status implemented; Linux and Windows synthetic evidence recorded | Real-repository evidence is [#42](https://github.com/jwh3times/vcs-lab/issues/42); zero-process status is phase 1, closed by ADR-0024 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
+| FR-SPEC-13 | Planned | [#31](https://github.com/jwh3times/vcs-lab/issues/31) and [#33](https://github.com/jwh3times/vcs-lab/issues/33) first, then [#32](https://github.com/jwh3times/vcs-lab/issues/32) |
+| FR-PERF-09 | Evidence gate | [#42](https://github.com/jwh3times/vcs-lab/issues/42); phases 1-3 are closed by ADR-0024 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
+| FR-PROTO-06 | Deferred | [#37](https://github.com/jwh3times/vcs-lab/issues/37) |
+| FR-TRUST-02, FR-TRUST-03 | Deferred | [#38](https://github.com/jwh3times/vcs-lab/issues/38) and [#39](https://github.com/jwh3times/vcs-lab/issues/39) |
+
+The following experimentally implemented requirements need continued real-world
+and cross-platform evidence rather than new semantics: FR-GIT-08, FR-LAND-09,
+FR-REC-12, FR-RES-08, FR-WS-07, FR-PERF-10, and FR-PROTO-04.
+
 ## 16. Risks and mitigations
 
 | Risk | Impact | Mitigation |
@@ -833,17 +950,21 @@ excludes the receipt's own publication cost.
 | Native rewrite begins too early | Complexity and adoption failure | Enforce measured exit criteria and preserve Git as oracle during experimentation; enter native code only behind an equality-tested seam with a sunset (ADR-0014). |
 | A native engine adds a second implementation of every read contract | Divergence and maintenance load for one maintainer | Automated equality in every engine mode, per-operation fallback, `engine`/`fallbacks` in every result, and removal at the ADR-0014 sunset. |
 | Rust toolchain, packaging, and library churn | Velocity loss, unsupported platforms, silent fallback | Funded explicitly (ADR-0015): seam-first order, pinned backends behind a trait, prebuilt bindings with a guaranteed JavaScript fallback, fuzzed parsers. |
-| Documentation drifts from executable behavior | Incorrect future implementation | Link requirements to schemas/tests, keep a release handoff, and update docs in every invariant-changing release. |
+| Documentation drifts from executable behavior | Incorrect future implementation | Link requirements to schemas and tests, update docs in every invariant-changing release, and keep dated progress on issues so no event is narrated in several documents at once. |
 
 ## 17. Open product questions
 
-These questions are intentionally unresolved, except where marked answered:
+These questions are intentionally unresolved, except where marked answered.
+Where an issue carries a question, it is cited; the answer is settled there and
+recorded in an ADR when it changes a durable decision.
 
 1. Should a future lineage version support deliberate history-filtered imports,
    and what proof can replace the shared-root rule without enabling unrelated
    metadata injection?
+   ([#43](https://github.com/jwh3times/vcs-lab/issues/43))
 2. Which causal claims are safe to merge automatically when two metadata
    sources disagree?
+   ([#44](https://github.com/jwh3times/vcs-lab/issues/44))
 3. Should logical Change IDs be repository-scoped, globally namespaced, or
    issuer-qualified? **Answered in v0.12.0** by the frozen
    `vcs-lab.logical-id/v1` protocol ([docs/identity](identity/README.md)):
@@ -852,26 +973,36 @@ These questions are intentionally unresolved, except where marked answered:
    trust question (question 4) rather than an identity one.
 4. What is the minimum trust model for a shared team: signed developer records,
    a landing-service attestation, or both?
+   ([#38](https://github.com/jwh3times/vcs-lab/issues/38))
 5. Does the accepted target-context application model for causal rebase remain
    intuitive once forecast, conflict recovery, and application are exercised?
+   ([#27](https://github.com/jwh3times/vcs-lab/issues/27))
 6. Should the accepted immutable source-checkpoint model expand to a captured
    target overlay, and what approval/application semantics should that require?
+   ([#26](https://github.com/jwh3times/vcs-lab/issues/26))
 7. At what measured thresholds does a long-lived repository service outperform
    invocation-scoped Git plumbing enough to justify lifecycle and security
-   costs?
+   costs? (§15 decision rows;
+   [#42](https://github.com/jwh3times/vcs-lab/issues/42))
 8. Should portable spec identity remain a tracked sidecar, move into Git object
    metadata, or become a native structured object after the experiment?
+   ([#33](https://github.com/jwh3times/vcs-lab/issues/33))
 9. Which document formats have stable enough semantic boundaries for safe
    deterministic adapters?
+   ([#31](https://github.com/jwh3times/vcs-lab/issues/31),
+   [#33](https://github.com/jwh3times/vcs-lab/issues/33))
 10. How much causal history can be compacted without weakening audit or
-    invalidating old plans?
+    invalidating old plans, and how is an append-only fact log pruned?
+    ([#40](https://github.com/jwh3times/vcs-lab/issues/40))
 11. At what granularity can authorship provenance be anchored so that it
     survives the rewrites vcs-lab already supports — commit, logical change,
     heading section, or hunk — and what anchor remains stable when a squash
     landing collapses many commits into one tree?
+    ([#34](https://github.com/jwh3times/vcs-lab/issues/34))
 12. Should authorship provenance ever be authenticated by the producing agent
     or its host, or does it remain a declared claim like a receipt, defended by
     audit rather than by signature?
+    ([#38](https://github.com/jwh3times/vcs-lab/issues/38))
 
 ## 18. Definition of product success
 

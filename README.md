@@ -30,9 +30,12 @@ This is a laboratory, not a production VCS. Its purpose is to make the semantics
 - [docs](docs/README.md) indexes the maintained product, architecture, testing,
   and decision records and explains where transient evidence belongs.
 - [Product requirements](docs/product.md) defines product intent, requirements,
-  success metrics, release gates, and roadmap.
-- [Roadmap](docs/roadmap.md) separates delivered, implemented-but-unreleased,
-  next, candidate, and evidence-gated work.
+  success metrics, release gates, the investment themes and native
+  implementation gates, and the trace from every incomplete requirement to the
+  issue that carries it.
+- The [project board](https://github.com/users/jwh3times/projects/7) tracks
+  future work, one issue per increment, with the gate each is waiting on. It
+  replaced `docs/roadmap.md` on 2026-09-04.
 - [Architecture](docs/architecture.md) maps the current implementation, schemas,
   runtime flows, safety boundaries, and known debt.
 - [Schema catalog](docs/schemas/README.md) publishes one JSON Schema document
