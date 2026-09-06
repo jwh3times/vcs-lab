@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Serialize every workspace registry writer across linked worktrees on
+  `vcs-lab/workspaces.lock` (issue #47), covering the full read, Git mutation,
+  and registry publication. Concurrent creates and lifecycle changes preserve
+  each other's entries. Contenders wait five seconds before the additive
+  `workspace-registry-locked` error; readers remain available. Abandoned locks
+  require explicit recovery with all writers stopped, and a failed
+  materialization preserves the registry and any partial Git work for inspection.
+
 - Reject correctly rehashed proof bundles that omit, duplicate, inject, reorder,
   or misidentify source changes (issue #46). Repository verification independently
   checks source history, commit identities and subjects, summary counts, lineage

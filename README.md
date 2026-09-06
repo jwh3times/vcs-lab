@@ -477,6 +477,21 @@ private bytes. Prune is also conservative: it only changes stale registry entrie
 when `--apply` is explicit. Branch and checkpoint refs remain available while a
 workspace is archived.
 
+Create, move, archive, restore, repair, and prune with `--apply` serialize their
+registry reads, Git operations, and registry writes on
+`<common-git-dir>/vcs-lab/workspaces.lock`. Contenders wait up to five seconds
+and then refuse with `workspace-registry-locked`; listing and prune previews
+remain available. A crashed holder leaves its lock in place. To recover,
+stop workspace writers on every host sharing the repository, inspect the
+registry and `git worktree list` for partial changes, then remove only
+`workspaces.lock` before restarting writers. The tool never steals a lock
+based on its age, an unreadable claim, or a missing PID.
+
+A materialization failure leaves the registry unchanged and preserves any
+partially created worktree or branch for inspection. Repair or remove that
+partial materialization deliberately with Git before retrying. The registry
+lock does not make Git mutations and registry publication one atomic operation.
+
 Compare two workspace branches without disturbing either worktree:
 
 ```bash

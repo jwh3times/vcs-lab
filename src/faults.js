@@ -28,11 +28,16 @@
  * process stops, a gate asks what two processes do to each other: it parks
  * one inside a critical section while the other runs to completion, so an
  * interleaving a real race would produce once in a thousand runs is produced
- * every run. One gate is named so far:
+ * every run. Named gates include:
  *
  * - **`notes:after-read`**, inside `appendNote` between reading a commit's
  *   note container and writing it back: the read-modify-write two publishers
  *   would otherwise interleave.
+ * - **`workspaces:after-read`**, after a registry writer reads its snapshot,
+ *   while holding the shared registry lock; also a fault point for a crashed
+ *   holder before any Git mutation.
+ * - **`workspaces:lock-contended`**, when a competing registry writer has
+ *   attempted to acquire an already-held lock.
  *
  * Each hook costs one environment read per named point and is inert unless
  * `VLAB_TEST_FAULT` or `VLAB_TEST_GATE` names that point exactly, so neither

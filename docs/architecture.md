@@ -150,7 +150,8 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
 | `src/resolutions.js` | Exact three-way conflict signatures, candidate selection, result retention, outcome audit | Git adapter, notes, reconciliation state |
-| `src/workspaces.js` | Workspace registry/lifecycle, linked-worktree materialization, temporary-index checkpoints/history | Git adapter, store |
+| `src/workspaces.js` | Workspace registry/lifecycle, linked-worktree materialization, temporary-index checkpoints/history | Git adapter, store, workspace lock |
+| `src/workspace-lock.js` | Exclusive shared-local registry transaction lock, bounded refusal, and ownership-checked release | Store, errors, fault gates |
 | `src/specs.js` | Markdown parsing, sparse manifest migration/indexing, deterministic merge, semantic resolution, benchmark | Git adapter, IDs, reconciliation state |
 | `src/version.js` | Runtime version constant | None |
 | `test/*.test.js` | Disposable-repository end-to-end contract suite (`integration.test.js`) and the focused suites [testing.md](testing.md) describes: schema catalog, canonical JSON, conformance, compatibility, hostile input, failure boundary, error envelope, provenance, object format, and repository hygiene | CLI and Git |
@@ -236,6 +237,7 @@ identity belongs in tracked files.
 | Pending causal rebase | One linked worktree | `<worktree-git-dir>/vcs-lab/rebase.json` | Cleared on complete/abort |
 | Saved forecasts | One linked worktree | `<worktree-git-dir>/vcs-lab/forecasts/<id>.json` | Private approval artifact |
 | Notes lock | Shared repository installation | `<common-git-dir>/vcs-lab/notes.lock` | Held for one append or one import; abandoned when its holder is gone (§15.4) |
+| Workspace registry lock | Shared repository installation | `<common-git-dir>/vcs-lab/workspaces.lock` | Held across one registry mutation and its Git operations; abandoned claims require recovery with all writers stopped (§12) |
 | Spec identity manifest | Tracked/repository portable | `.vcs-lab/specs/<source>.json` | Versioned with Markdown |
 | Persistent object session | One CLI invocation and worktree | Memory plus worker process | Closed at invocation end |
 
@@ -753,6 +755,33 @@ identity:
   `git worktree repair`; and
 - prune previews missing active paths, then requires `--apply` to clean stale
   Git administration and mark their descriptors archived.
+
+Registry writers (create, move, archive, restore, repair, and prune with
+`--apply`) take one shared lock **before reading registry or branch state**
+and retain it through validation, materialization, and the atomic JSON rename.
+`saveWorkspaces` requires that lock. Thus a contender always reads the latest
+published registry after the preceding writer finishes. Listing, checkpoint
+lookup, and prune previews read an atomic registry snapshot without locking.
+The lock serializes cooperating vlab registry writers; older builds without
+this lock, ordinary Git commands, and workspace content edits do not participate.
+
+The claim is created exclusively, carries a random ownership token plus
+diagnostic PID/hostname/time, and adds no Git process. Contenders wait up to
+five seconds before `workspace-registry-locked`. Release removes only the
+current claim's token. No waiter automatically renames or deletes a stale,
+foreign, or malformed claim: inspection followed by unlink/rename cannot
+conditionally remove the inspected file, so a replacement holder could lose
+its lock. Recovery therefore requires stopping all workspace writers on every
+host sharing the repository, inspecting the registry and Git worktrees for
+partial changes, and removing only the lock before restarting writers.
+
+An ordinary materialization failure publishes no registry change and releases
+the lock. Git may already have created a worktree or branch; these remain for
+inspection, and the error names the path and recovery action. The lock is
+serialization, not a cross-file transaction: a process exit leaves its claim
+for explicit recovery, and a Git mutation followed by failed registry
+publication may require manual reconciliation of the retained registry with
+Git. No registry schema or lifecycle identity changes.
 
 ### 12.1 Non-disruptive checkpoint
 

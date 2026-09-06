@@ -899,3 +899,210 @@ test("a lock whose holder is gone is abandoned, and a live holder's is respected
 
   assert.deepEqual(noteRecordIds(repo, commit), ["after-crash", "after-remote"]);
 });
+
+function workspaceWriter(repo, args, env = {}) {
+  const child = spawn(process.execPath, [cli, "workspace", ...args, "--json"], {
+    cwd: repo,
+    env: testEnv(env),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  const done = new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+  return { child, done };
+}
+
+function workspaceRuntime(repo, name) {
+  return path.join(repo, ".git", "vcs-lab", name);
+}
+
+async function competingWorkspaceWriters(repo, firstArgs, secondArgs, secondCwd = repo) {
+  const firstGate = path.join(path.dirname(repo), "workspace-first-gate");
+  const secondGate = path.join(path.dirname(repo), "workspace-second-gate");
+  const first = workspaceWriter(repo, firstArgs, {
+    VLAB_TEST_GATE: "workspaces:after-read", VLAB_TEST_GATE_FILE: firstGate,
+  });
+  let second;
+  try {
+    await until(() => fs.existsSync(`${firstGate}.reached`));
+    second = workspaceWriter(secondCwd, secondArgs, {
+      VLAB_TEST_GATE: "workspaces:lock-contended", VLAB_TEST_GATE_FILE: secondGate,
+    });
+    // This signal proves the second process actually attempted acquisition
+    // while the first held its old registry snapshot. No scheduling sleep is
+    // used to guess whether the commands overlapped.
+    await until(() => fs.existsSync(`${secondGate}.reached`));
+    assert.equal(second.child.exitCode, null);
+    fs.writeFileSync(secondGate, "");
+    fs.writeFileSync(firstGate, "");
+    const results = await Promise.all([first.done, second.done]);
+    for (const result of results) assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(fs.existsSync(workspaceRuntime(repo, "workspaces.lock")), false);
+    return results.map((result) => JSON.parse(result.stdout));
+  } finally {
+    fs.writeFileSync(firstGate, "");
+    fs.writeFileSync(secondGate, "");
+    await Promise.all([first.done, second?.done]);
+  }
+}
+
+test("concurrent workspace creates preserve both registrations across linked worktrees", async () => {
+  const repo = makeReconcilable();
+  const parent = path.dirname(repo);
+  const caller = path.join(parent, "caller");
+  git(repo, "worktree", "add", "--detach", caller, "HEAD");
+  const a = path.join(parent, "workspace-a");
+  const b = path.join(parent, "workspace-b");
+  const results = await competingWorkspaceWriters(repo,
+    ["create", "a", "--path", a, "--owner", "first-owner"],
+    ["create", "b", "--path", b, "--owner", "second-owner"], caller);
+  const registry = JSON.parse(fs.readFileSync(workspaceRuntime(repo, "workspaces.json"), "utf8"));
+  assert.deepEqual(registry.workspaces.map((item) => [item.id, item.name, item.owner]),
+    results.map((item) => [item.id, item.name, item.owner]));
+  const listing = JSON.parse(vlab(repo, "workspace", "list", "--json"));
+  assert.deepEqual(listing.map((item) => item.pathStatus), ["active", "active"]);
+  assert.equal(git(a, "branch", "--show-current"), results[0].compatibilityBranch);
+  assert.equal(git(b, "branch", "--show-current"), results[1].compatibilityBranch);
+});
+
+test("concurrent lifecycle changes preserve updates to different workspace entries", async () => {
+  const repo = makeReconcilable();
+  const parent = path.dirname(repo);
+  const a = path.join(parent, "a");
+  const b = path.join(parent, "b");
+  const moved = path.join(parent, "a-moved");
+  const first = JSON.parse(vlab(repo, "workspace", "create", "a", "--path", a, "--json"));
+  const second = JSON.parse(vlab(repo, "workspace", "create", "b", "--path", b, "--json"));
+  await competingWorkspaceWriters(repo, ["move", "a", moved], ["archive", "b"]);
+  const registry = JSON.parse(vlab(repo, "workspace", "list", "--json"));
+  assert.equal(registry[0].id, first.id);
+  assert.equal(registry[0].path, moved);
+  assert.equal(registry[0].status, "active");
+  assert.deepEqual(registry[0].previousPaths, [a]);
+  assert.equal(registry[1].id, second.id);
+  assert.equal(registry[1].status, "archived");
+  assert.equal(fs.existsSync(a), false);
+  assert.equal(fs.existsSync(b), false);
+  assert.equal(git(moved, "branch", "--show-current"), first.compatibilityBranch);
+});
+
+test("every workspace registry writer refuses a held lock without mutating registry or worktrees", async () => {
+  const repo = makeReconcilable();
+  const parent = path.dirname(repo);
+  const paths = Object.fromEntries(["a", "b", "c", "d"].map((name) => [name, path.join(parent, name)]));
+  for (const [name, destination] of Object.entries(paths)) {
+    vlab(repo, "workspace", "create", name, "--path", destination, "--json");
+  }
+  vlab(repo, "workspace", "archive", "b", "--json");
+  const repaired = path.join(parent, "c-moved");
+  fs.renameSync(paths.c, repaired);
+  fs.rmSync(paths.d, { recursive: true });
+  const registryFile = workspaceRuntime(repo, "workspaces.json");
+  const lock = workspaceRuntime(repo, "workspaces.lock");
+  const registry = fs.readFileSync(registryFile);
+  const worktrees = git(repo, "worktree", "list", "--porcelain");
+  const refs = git(repo, "for-each-ref", "--format=%(refname) %(objectname)");
+  const claim = JSON.stringify({ pid: process.pid, hostname: os.hostname(), token: "live-test-holder" });
+  fs.writeFileSync(lock, claim);
+  const commands = [
+    ["create", "new", "--path", path.join(parent, "new")],
+    ["move", "a", path.join(parent, "a-moved")],
+    ["archive", "a"],
+    ["restore", "b"],
+    ["repair", "c", "--path", repaired],
+    ["prune", "--apply"],
+  ];
+  const writers = commands.map((args) => workspaceWriter(repo, args));
+  // Read-only registry operations remain available while a writer holds it.
+  assert.equal(JSON.parse(vlab(repo, "workspace", "list", "--json")).length, 4);
+  assert.equal(JSON.parse(vlab(repo, "workspace", "prune", "--dry-run", "--json")).dryRun, true);
+  for (const result of await Promise.all(writers.map((writer) => writer.done))) {
+    const error = refusal(result);
+    assert.equal(error.code, "workspace-registry-locked");
+    assert.match(error.details, /stop all workspace writers on every host/);
+  }
+  assert.deepEqual(fs.readFileSync(registryFile), registry);
+  assert.equal(fs.readFileSync(lock, "utf8"), claim);
+  assert.equal(git(repo, "worktree", "list", "--porcelain"), worktrees);
+  assert.equal(git(repo, "for-each-ref", "--format=%(refname) %(objectname)"), refs);
+});
+
+test("interrupted workspace holders require explicit recovery without stale-lock stealing", () => {
+  const repo = makeReconcilable();
+  const lock = workspaceRuntime(repo, "workspaces.lock");
+  const destination = path.join(path.dirname(repo), "after-crash");
+  const args = ["workspace", "create", "after-crash", "--path", destination, "--json"];
+  const stopped = vlabResult(repo, args, { VLAB_TEST_FAULT: "workspaces:after-read" });
+  assert.equal(stopped.status, FAULT_EXIT_CODE);
+  assert.equal(fs.existsSync(destination), false);
+  const abandoned = fs.readFileSync(lock);
+  assert.equal(refusal(vlabResult(repo, args)).code, "workspace-registry-locked");
+  assert.deepEqual(fs.readFileSync(lock), abandoned);
+  assert.equal(fs.existsSync(workspaceRuntime(repo, "workspaces.json")), false);
+  // The holder has exited and all contenders have finished. Preserve its
+  // claim for inspection while clearing the lock with no writers running.
+  fs.renameSync(lock, `${lock}.recovered`);
+  assert.equal(vlabResult(repo, args).status, 0);
+  assert.equal(fs.existsSync(lock), false);
+});
+
+test("old foreign and malformed workspace lock claims are preserved", () => {
+  const repo = makeReconcilable();
+  const lock = workspaceRuntime(repo, "workspaces.lock");
+  for (const claim of [JSON.stringify({ pid: 1, hostname: "elsewhere.invalid", token: "foreign" }), "partial {"]) {
+    fs.writeFileSync(lock, claim);
+    const old = new Date(Date.now() - 86_400_000);
+    fs.utimesSync(lock, old, old);
+    const result = vlabResult(repo, ["workspace", "create", "held", "--json"]);
+    assert.equal(refusal(result).code, "workspace-registry-locked");
+    assert.equal(fs.readFileSync(lock, "utf8"), claim);
+    fs.rmSync(lock);
+  }
+});
+
+test("workspace lock release preserves a replacement claim", async () => {
+  const { withWorkspaceRegistryLock } = await import("../src/workspace-lock.js");
+  const repo = makeReconcilable();
+  const lock = workspaceRuntime(repo, "workspaces.lock");
+  const replacement = JSON.stringify({ pid: process.pid, hostname: os.hostname(), token: "replacement" });
+  withWorkspaceRegistryLock(repo, () => { fs.writeFileSync(lock, replacement); });
+  assert.equal(fs.readFileSync(lock, "utf8"), replacement);
+});
+
+test("failed workspace materialization leaves the registry unchanged and releases its lock", () => {
+  const repo = makeReconcilable();
+  const parent = path.dirname(repo);
+  vlab(repo, "workspace", "create", "existing", "--path", path.join(parent, "existing"), "--json");
+  const registryFile = workspaceRuntime(repo, "workspaces.json");
+  const before = fs.readFileSync(registryFile);
+  const destination = path.join(parent, "partial");
+  // Git has created the worktree and branch when its checkout hook fails.
+  const hooks = path.join(parent, "hooks");
+  fs.mkdirSync(hooks);
+  const hook = path.join(hooks, "post-checkout");
+  fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  git(repo, "config", "core.hooksPath", hooks);
+  const result = vlabResult(repo, ["workspace", "create", "partial", "--path", destination, "--json"]);
+  const error = refusal(result);
+  assert.match(error.details, /registry was not updated/);
+  assert.deepEqual(fs.readFileSync(registryFile), before);
+  assert.equal(fs.existsSync(workspaceRuntime(repo, "workspaces.lock")), false);
+  assert.ok(fs.existsSync(destination), "partial materialization is retained for inspection");
+  assert.equal(git(repo, "rev-parse", "vlab/ws/partial"), git(repo, "rev-parse", "HEAD"));
+  git(repo, "config", "--unset", "core.hooksPath");
+  assert.equal(vlabResult(repo, ["workspace", "create", "next", "--path", path.join(parent, "next"), "--json"]).status, 0);
+
+  vlab(repo, "workspace", "archive", "existing", "--json");
+  const archived = fs.readFileSync(registryFile);
+  git(repo, "config", "core.hooksPath", hooks);
+  const restore = refusal(vlabResult(repo, ["workspace", "restore", "existing", "--json"]));
+  assert.match(restore.details, /registry was not updated/);
+  assert.deepEqual(fs.readFileSync(registryFile), archived);
+  assert.equal(fs.existsSync(workspaceRuntime(repo, "workspaces.lock")), false);
+  assert.ok(fs.existsSync(path.join(parent, "existing")));
+});

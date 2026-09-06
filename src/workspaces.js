@@ -19,6 +19,8 @@ import { newId, sha256, slug } from "./ids.js";
 import { ensureLabRuntime, readJson, temporaryDirectory, writeJson } from "./store.js";
 import { CliError } from "./errors.js";
 import { assertReadableSchema } from "./schemas.js";
+import { faultPoint, gatePoint } from "./faults.js";
+import { assertWorkspaceRegistryLock, withWorkspaceRegistryLock } from "./workspace-lock.js";
 
 const ACTIVE = "active";
 const ARCHIVED = "archived";
@@ -70,7 +72,15 @@ export function readWorkspaces(cwd = process.cwd()) {
 }
 
 function saveWorkspaces(value, cwd) {
+  assertWorkspaceRegistryLock(cwd);
   writeJson(workspaceFile(cwd), value);
+}
+
+function readWorkspaceMutationState(cwd) {
+  const state = readWorkspaces(cwd);
+  gatePoint("workspaces:after-read");
+  faultPoint("workspaces:after-read");
+  return state;
 }
 
 function findWorkspace(state, value) {
@@ -216,19 +226,33 @@ function normalizeCone(cone) {
  * `git sparse-checkout disable` inside the worktree.
  */
 function addWorktree(context, worktreePath, addArgs, cone) {
-  if (!cone?.length) {
-    runGit(["worktree", "add", ...addArgs], { cwd: context.root });
-    return;
+  try {
+    if (!cone?.length) {
+      runGit(["worktree", "add", ...addArgs], { cwd: context.root });
+      return;
+    }
+    runGit(["worktree", "add", "--no-checkout", ...addArgs], { cwd: context.root });
+    // `set --cone` establishes cone mode itself, so a separate
+    // `sparse-checkout init` is a process spent on nothing (Git 2.37+; the
+    // supported floor is 2.40).
+    runGit(["sparse-checkout", "set", "--cone", ...cone], { cwd: worktreePath });
+    runGit(["checkout"], { cwd: worktreePath });
+  } catch (error) {
+    if (error instanceof CliError) {
+      error.details += `\nWorkspace materialization failed at '${worktreePath}'. ` +
+        "The workspace registry was not updated. Git may have created a worktree or branch; " +
+        "inspect them with git worktree list before repairing or removing partial materialization and retrying.";
+    }
+    throw error;
   }
-  runGit(["worktree", "add", "--no-checkout", ...addArgs], { cwd: context.root });
-  // `set --cone` establishes cone mode itself, so a separate
-  // `sparse-checkout init` is a process spent on nothing (Git 2.37+; the
-  // supported floor is 2.40).
-  runGit(["sparse-checkout", "set", "--cone", ...cone], { cwd: worktreePath });
-  runGit(["checkout"], { cwd: worktreePath });
 }
 
 export function createWorkspace(name, options = {}) {
+  return withWorkspaceRegistryLock(options.cwd ?? process.cwd(), () =>
+    createWorkspaceLocked(name, options));
+}
+
+function createWorkspaceLocked(name, options) {
   const cwd = options.cwd ?? process.cwd();
   const context = repoContext(cwd);
   const target = options.from ?? "HEAD";
@@ -250,7 +274,7 @@ export function createWorkspace(name, options = {}) {
   }
   const baseSnapshot = baseObject.oid;
 
-  const state = readWorkspaces(cwd);
+  const state = readWorkspaceMutationState(cwd);
   if (state.workspaces.some((workspace) => workspace.name === name)) {
     throw new CliError(`Workspace '${name}' already exists.`, { code: "already-exists" });
   }
@@ -434,9 +458,14 @@ export function latestWorkspaceCheckpoint(workspace, cwd = process.cwd()) {
 }
 
 export function moveWorkspace(value, destination, options = {}) {
+  return withWorkspaceRegistryLock(options.cwd ?? process.cwd(), () =>
+    moveWorkspaceLocked(value, destination, options));
+}
+
+function moveWorkspaceLocked(value, destination, options) {
   const cwd = options.cwd ?? process.cwd();
   const context = repoContext(cwd);
-  const state = readWorkspaces(cwd);
+  const state = readWorkspaceMutationState(cwd);
   const { index, workspace } = findWorkspace(state, value);
   requireLifecycle(workspace, ACTIVE, "moved");
   requireMaterialized(workspace, "moving it");
@@ -465,9 +494,14 @@ export function moveWorkspace(value, destination, options = {}) {
 }
 
 export function archiveWorkspace(value, options = {}) {
+  return withWorkspaceRegistryLock(options.cwd ?? process.cwd(), () =>
+    archiveWorkspaceLocked(value, options));
+}
+
+function archiveWorkspaceLocked(value, options) {
   const cwd = options.cwd ?? process.cwd();
   const context = repoContext(cwd);
-  const state = readWorkspaces(cwd);
+  const state = readWorkspaceMutationState(cwd);
   const { index, workspace } = findWorkspace(state, value);
   requireLifecycle(workspace, ACTIVE, "archived");
   requireMaterialized(workspace, "archiving it");
@@ -502,9 +536,14 @@ export function archiveWorkspace(value, options = {}) {
 }
 
 export function restoreWorkspace(value, options = {}) {
+  return withWorkspaceRegistryLock(options.cwd ?? process.cwd(), () =>
+    restoreWorkspaceLocked(value, options));
+}
+
+function restoreWorkspaceLocked(value, options) {
   const cwd = options.cwd ?? process.cwd();
   const context = repoContext(cwd);
-  const state = readWorkspaces(cwd);
+  const state = readWorkspaceMutationState(cwd);
   const { index, workspace } = findWorkspace(state, value);
   requireLifecycle(workspace, ARCHIVED, "restored");
   if (!refExists(`refs/heads/${workspace.compatibilityBranch}`, cwd)) {
@@ -545,9 +584,14 @@ export function restoreWorkspace(value, options = {}) {
 }
 
 export function repairWorkspace(value, destination, options = {}) {
+  return withWorkspaceRegistryLock(options.cwd ?? process.cwd(), () =>
+    repairWorkspaceLocked(value, destination, options));
+}
+
+function repairWorkspaceLocked(value, destination, options) {
   const cwd = options.cwd ?? process.cwd();
   const context = repoContext(cwd);
-  const state = readWorkspaces(cwd);
+  const state = readWorkspaceMutationState(cwd);
   const { index, workspace } = findWorkspace(state, value);
   const repairedPath = path.resolve(destination);
   if (!fs.existsSync(repairedPath)) {
@@ -606,13 +650,19 @@ export function repairWorkspace(value, destination, options = {}) {
 }
 
 export function pruneWorkspaces(options = {}) {
+  if (!options.apply) return pruneWorkspacesLocked(options);
+  return withWorkspaceRegistryLock(options.cwd ?? process.cwd(), () =>
+    pruneWorkspacesLocked(options));
+}
+
+function pruneWorkspacesLocked(options) {
   const cwd = options.cwd ?? process.cwd();
   if (options.apply && options.dryRun) {
     throw new CliError("Choose either --dry-run or --apply for workspace prune.",
       { code: "usage-conflicting-options" });
   }
   const context = repoContext(cwd);
-  const state = readWorkspaces(cwd);
+  const state = options.apply ? readWorkspaceMutationState(cwd) : readWorkspaces(cwd);
   const candidates = state.workspaces
     .map((workspace, index) => ({ workspace, index }))
     .filter(({ workspace }) =>

@@ -148,6 +148,19 @@ same test shows the second record lost. A lock left by a process that is gone,
 or a minute-old lock from a host that cannot be checked, is abandoned, while a
 lock a running process holds makes the next publisher wait and then refuse
 with `notes-locked`.
+
+Workspace registry concurrency uses `workspaces:after-read` to hold one
+writer's snapshot and `workspaces:lock-contended` to prove another process
+attempted acquisition before the first was released. Two creates from
+different linked worktrees must retain both descriptors and ordinary Git
+worktrees; overlapping move/archive operations must retain both updates.
+All six registry writers are also refused under a held lock without changing
+registry bytes, refs, or worktree administration, while listing and prune
+previews remain available. The `workspaces:after-read` fault leaves a real
+interrupted holder for explicit recovery. Old foreign and malformed claims
+are never stolen, release preserves a replacement token, and failed create
+and restore materialization retain the old registry and partial Git work.
+
 The same file pins the object session's response-buffer bound. Overflowing
 the real 64 MiB content buffer needs a blob of roughly 48 MiB, far too large to
 build on every suite run, so `VLAB_TEST_SESSION_BUFFER_BYTES` shrinks the
