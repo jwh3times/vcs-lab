@@ -149,6 +149,15 @@ or a minute-old lock from a host that cannot be checked, is abandoned, while a
 lock a running process holds makes the next publisher wait and then refuse
 with `notes-locked`.
 
+Attributed-commit lock refusal also pins HEAD, raw index bytes, worktree content,
+and existing notes. Retrying after release must create one commit and one
+provenance record. Additional fixtures cover `VLAB_AGENT` and `--all` from a linked
+worktree, an unborn HEAD, undeclared commits bypassing a held notes lock, and a
+Git hook requiring that the lock already be held. A failing hook must release
+the lock. A separate Git notes-ref lock forces failure after commit creation:
+the diagnostic must name the retained commit, and the documented repair must
+attach its declaration without moving HEAD or duplicating existing provenance.
+
 Workspace registry concurrency uses `workspaces:after-read` to hold one
 writer's snapshot and `workspaces:lock-contended` to prove another process
 attempted acquisition before the first was released. Two creates from

@@ -177,3 +177,47 @@ import rule, and the resolution rule above. Under the
 
 Raising the entropy would be a version bump and would not change the trust
 boundary of §3, so it should only be done for a measured reason.
+
+## 7. Repairing a declared provenance publication
+
+An attributed `vlab commit` acquires the notes lock before Git creates the commit.
+A `notes-locked` refusal therefore needs only a retry after the holder releases
+its claim. Git commit and note publication are separate writes, however: a later
+write failure or abrupt process exit can leave the commit without its declaration.
+A caught publication error identifies the retained commit; after an interruption,
+inspect Git history to identify it. Do not blindly retry commit or reset history.
+
+Inspect `git show <commit>` and `vlab provenance <commit> --json` in the affected
+repository, and resolve the original notes-write failure. Preserve existing notes;
+do not overwrite an unreadable container or remove a lock whose writer is active.
+Recover only the actors explicitly supplied to the original invocation, including
+`VLAB_AGENT`; do not infer missing attribution from the content or Git author.
+
+There is no public provenance-declaration CLI for an existing commit. A maintainer
+with a compatible vcs-lab source checkout can use the existing declaration API.
+From that source checkout, run the following in Bash/Git Bash, replacing the two
+arguments and the example actors with the original declaration. Use the full
+commit ID inspected above. This updates only its note, preserves other records,
+and refuses if provenance already exists so a retry cannot duplicate it:
+
+```bash
+node --input-type=module -e '
+import { changeIdForCommit } from "./src/engine.js";
+import { declareProvenance, provenanceFor } from "./src/provenance.js";
+import { withNotesLock } from "./src/notes.js";
+const [repo, commit] = process.argv.slice(1);
+withNotesLock(repo, () => {
+  if ((provenanceFor([commit], repo).get(commit) ?? []).length) {
+    throw new Error("Inspect existing provenance before repairing.");
+  }
+  declareProvenance(commit, changeIdForCommit(commit, repo), [
+    { role: "generated", actor: "agent:test" },
+  ], repo);
+});
+' "/absolute/path/to/affected-repository" "full-commit-id"
+```
+
+Run `vlab provenance <commit> --json` again in the affected repository and verify
+the declared actors. The commit ID and branch history remain unchanged. If the
+original declaration is unavailable or existing provenance disagrees, preserve
+the evidence for human review instead of inventing or overwriting a claim.

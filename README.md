@@ -219,6 +219,18 @@ VLAB_AGENT=claude-opus-5 vlab commit -m "Add the tests"   # an agent harness set
 vlab provenance HEAD            # or: vlab provenance main --all
 ```
 
+When actors are declared by flags or `VLAB_AGENT`, commit takes the shared notes
+lock before invoking Git and holds it through provenance publication. A
+`notes-locked` refusal leaves HEAD, the index, and worktree content unchanged,
+including with `--all`; retry after the holder releases the lock. Commits with no
+declared actors do not acquire this lock.
+
+Git commit and note publication are still separate writes. If the note write
+fails after commit creation, the error names the retained commit and reports
+partial completion. Keep that commit and follow the
+[provenance repair procedure](docs/identity/README.md#7-repairing-a-declared-provenance-publication)
+instead of blindly repeating the commit.
+
 After a hard squash, `git blame` attributes every absorbed line to the landing commit and the original authorship is gone. The landing receipt already names the absorbed commits, so vcs-lab carries their declared provenance onto the landing as the union of their actors, marked `carried` and naming its sources.
 
 Provenance is **declared, never inferred**. Nothing examines content to guess who produced it, no existing trailer is read as a role, and a commit with no declaration reports nothing rather than falling back to the Git author. The record is an unauthenticated claim by whoever ran the command, not detection and not proof; signing it is a separate, unimplemented layer (FR-TRUST-02).
