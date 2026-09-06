@@ -245,8 +245,10 @@ Show findings before acting. Work through:
   `VLAB_FORECAST_ENGINE=worktree npm test`,
   `VLAB_FORECAST_ENGINE=merge-tree npm test`, and `VLAB_ENGINE=native npm test`
   are the qualification commands (about 60 seconds each on Linux, five
-  minutes on Windows); run them only if asked. A pushed commit gets the same
-  matrix on both platforms from `.github/workflows/ci.yml`.
+  minutes on Windows); run them only if asked. Routine CI runs default-mode
+  suites (Ubuntu and Windows for code PRs, Ubuntu for main); the full matrix
+  requires manual dispatch of `.github/workflows/ci.yml`. See
+  `docs/testing.md` for release and high-risk qualification requirements.
 - **Nothing staged that must never be committed**: `git diff --cached
   --name-only` must contain no benchmark JSON, gate or review logs, packed
   tarballs, bundles, scratch scripts, or files with machine-local paths.

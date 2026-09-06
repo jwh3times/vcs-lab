@@ -353,8 +353,9 @@ A release candidate is eligible only when:
    byte and none is hidden from review by a `binary` attribute;
 3. the integration suite passes in ordinary, session-on, session-off, both
    forced forecast-engine, and native read-engine modes, on a Windows host
-   and a POSIX host — the continuous-integration workflow below runs exactly
-   this matrix, and a green run on the release commit satisfies the item;
+   and a POSIX host — a green **manually dispatched full qualification** run
+   of the workflow below on the release commit satisfies this item; a routine
+   PR or main run does not;
 4. all maintained demos complete;
 5. metadata validation reports no unexpected errors;
 6. expected-failure cases leave protected refs and worktrees unchanged;
@@ -385,19 +386,62 @@ review, service-level objectives, or broad platform performance.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push to `main` and every pull
-request: the static checks, and one job per suite mode per platform
-(Ubuntu and Windows on Node 24, plus the Node 20 floor in the two session
-modes on Ubuntu). Each suite job fails unless exactly one test self-skipped —
-the too-old-Git case, which is covered with a spoofed version — so a runner
-whose toolchain cannot run the merge-tree engine or SHA-256 repositories is
-reported rather than silently green. The Linux jobs also fail if a
-session worker or `cat-file` process survives the suite (release-gate item 7).
+`.github/workflows/ci.yml` keeps automatic runs bounded while the repository
+is private. Every run performs syntax, documentation-link, agent-mirror,
+whitespace, CI-policy, and benchmark-analysis checks first. Suite jobs only
+start after those checks pass.
 
-The workflow does not run `npm run test:benchmark`: the baseline is per-host
-and its latency rule compares against the maintainer's machines, so a runner
-would report noise as regression. Demos, metadata validation, and the
+| Trigger | Suite jobs after static checks | Purpose |
+| --- | --- | --- |
+| Code pull request | Default mode on Ubuntu and Windows, Node 24 | Routine behavior and both platform defaults |
+| Code push to `main` | Default mode on Ubuntu, Node 24 | Integration check without repeating the Windows matrix |
+| Known documentation-only PR or main push | None | Static checks still run |
+| Manual `workflow_dispatch` | All six modes on Ubuntu and Windows, Node 24; default and session-on on Ubuntu, Node 20 | Full platform and minimum-Node qualification |
+
+The selector in `scripts/ci-plan.mjs` compares the checked-out PR merge commit
+with its base, or the pushed commit with the event's previous main commit.
+Only root guides, Markdown under `docs/`, and Markdown agent skills qualify as
+documentation-only. Schemas, conformance fixtures, scripts, tests, workflows,
+and unknown paths still run suites. Renames consider both paths; a missing
+comparison commit or empty diff conservatively runs the routine suites.
+There is no automatic full-matrix schedule. Superseded runs cancel within
+the same event and ref; manual qualification is independent of automatic runs.
+Static jobs have a five-minute timeout and suites a 25-minute timeout.
+
+Run full qualification before each release and before merging changes to Git
+session transports, forecast engines, native read routing, platform-specific
+process/filesystem behavior, or the supported Node/Git floor, unless the PR
+already records equivalent checks on both platforms for the candidate. Use:
+
+```sh
+gh workflow run ci.yml --ref <candidate-branch-or-tag>
+```
+
+Record the tested SHA and results in the PR or release evidence. Local six-mode
+validation remains required for cross-cutting changes. Routine defaults cover
+the normal POSIX session-off and Windows session-on paths, but alternate modes
+and Node 20 can otherwise regress until explicit qualification. Code changes
+should go through a PR; an exceptional direct main push requires equivalent
+Windows evidence before pushing. A failed check is investigated before retrying.
+The `static checks` job runs for every change; matrix checks are conditional,
+so do not require every full-matrix job for ordinary PRs in branch protection.
+
+Each suite job fails unless exactly one test self-skipped — the too-old-Git
+case, which is covered with a spoofed version — so unsupported runner
+capabilities cannot silently pass. Linux jobs also fail if a session worker or
+`cat-file` process survives the suite (release-gate item 7).
+
+The workflow does not run `npm run test:benchmark`: its baseline is per-host.
+The ordinary suite's repository-scale benchmark checks report consistency,
+process counts, privacy, and cleanup without assuming shared runners meet a
+latency budget. Controlled analysis tests cover below/at/above-budget decisions
+and process-amplification precedence. Demos, metadata validation, and the
 packed-install smoke test stay release-time steps.
+
+Track the account's included-minute budget and measured runner usage in
+[issue #58](https://github.com/jwh3times/vcs-lab/issues/58). Job-duration
+estimates are not billing totals. Recheck consumption after changes in PR
+volume, retry rate, qualification frequency, or GitHub runner pricing.
 
 ## Evidence retention
 

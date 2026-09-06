@@ -918,5 +918,8 @@ forecast engine forced (`VLAB_FORECAST_ENGINE=worktree` and
 `VLAB_FORECAST_ENGINE=merge-tree`) because the default engine differs by
 platform, and with `VLAB_ENGINE=native`, which refuses any repository read
 that does not pass through `src/engine.js`. The GitHub Actions workflow in
-`.github/workflows/ci.yml` runs that whole matrix on Ubuntu and Windows for
-every push and pull request.
+`.github/workflows/ci.yml` runs static checks for every PR and main push,
+with the default suite on Ubuntu and Windows for code PRs and on Ubuntu
+for main. Known documentation-only changes run static checks. The full matrix
+remains available by manual dispatch for release and high-risk platform
+qualification; see [Continuous integration](docs/testing.md#continuous-integration).

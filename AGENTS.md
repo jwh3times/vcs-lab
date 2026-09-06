@@ -34,9 +34,12 @@ or build step.
 
 - `npm test` runs the complete Node integration suite.
 - `npm run test:docs` checks local Markdown link targets.
-- `.github/workflows/ci.yml` runs the static checks and every suite mode on
-  Ubuntu and Windows for each push and pull request; the benchmark is not part
-  of it because its baseline is per-host.
+- `.github/workflows/ci.yml` runs static checks on every PR and push to `main`.
+  Code PRs add the default suite on Ubuntu and Windows; main adds Ubuntu only.
+  Known documentation-only changes omit suites. Manual dispatch runs every
+  mode on both platforms plus the Node 20 floor; use it for release and
+  high-risk platform qualification as described in `docs/testing.md`.
+  The per-host benchmark remains local.
 - `npm run test:benchmark` compares bounded benchmarks against the committed
   per-host baseline in `benchmarks/baseline.json`; `npm run benchmark:record`
   refreshes this host's entry on a quiet machine.

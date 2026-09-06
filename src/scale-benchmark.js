@@ -168,7 +168,7 @@ function amplificationRecommendation(area, perEntity, entities, entityLabel, bat
   };
 }
 
-function buildAnalysis(measurements, fixture, budgetMs) {
+export function buildAnalysis(measurements, fixture, budgetMs) {
   const amplification = {
     workspaceStatusProcessesPerWorkspace: ratio(
       measurements.workspaceStatus.medianProcesses,

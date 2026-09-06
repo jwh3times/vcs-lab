@@ -2757,6 +2757,18 @@ test("resolve reject records an explicit rejection without touching the conflict
   assert.equal(git(repo, "status", "--porcelain=v1"), "");
 });
 
+// CLI fixtures validate the report against the measured host, which may be
+// slow. Controlled boundary and precedence cases live in the analysis tests.
+function assertBenchmarkLatencyAnalysis(report) {
+  const overBudget = Object.entries(report.measurements)
+    .filter(([, measurement]) => measurement.medianMs > report.analysis.interactiveBudgetMs)
+    .map(([name]) => name).sort();
+  assert.deepEqual(report.analysis.phasesOverBudget, overBudget);
+  assert.equal(report.analysis.nextAction, overBudget.length
+    ? "evaluate-incremental-catalogs" : "increase-fixture-volume-and-collect-more-hosts");
+  assert.equal(report.analysis.persistentIndex.recommendedNow, overBudget.length > 0);
+}
+
 test("doctor and repository-scale benchmarks expose process costs without repository content", (t) => {
   const { repo, parent } = makeRepo(t);
   write(repo, "base.txt", "base\n");
@@ -2879,11 +2891,7 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     workspaceStatus: false,
     resolutionCatalog: false,
   });
-  assert.equal(
-    scale.analysis.nextAction,
-    "increase-fixture-volume-and-collect-more-hosts",
-  );
-  assert.equal(scale.analysis.persistentIndex.recommendedNow, false);
+  assertBenchmarkLatencyAnalysis(scale);
   assert.equal(scale.analysis.residentService.recommendedNow, false);
   assert.deepEqual(
     scale.analysis.recommendations.map((item) => item.area),
@@ -2918,6 +2926,10 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
       "1",
       "--budget-ms",
       "5000",
+      "--areas",
+      "2",
+      "--files-per-area",
+      "3",
       "--json",
     ),
   );
@@ -2934,14 +2946,11 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     tiny.analysis.recommendations.map((item) => [item.area, item.priority]),
     [
       ["resolution-catalog", "increase-fixture-volume"],
-      ["note-catalog", "retain-batched-scan"],
+      ["note-catalog", tiny.measurements.noteCatalog.medianMs > 5000
+        ? "measure-index-after-batching" : "retain-batched-scan"],
     ],
   );
-  assert.equal(
-    tiny.analysis.nextAction,
-    "increase-fixture-volume-and-collect-more-hosts",
-  );
-  assert.equal(tiny.analysis.persistentIndex.recommendedNow, false);
+  assertBenchmarkLatencyAnalysis(tiny);
   assert.deepEqual(
     fs.readdirSync(os.tmpdir())
       .filter((entry) => entry.startsWith("vcs-lab-scale-benchmark-"))
