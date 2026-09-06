@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readdirSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
@@ -1519,6 +1519,20 @@ export function ignoredPaths(cwd = process.cwd()) {
     ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
     { cwd, trim: false },
   ).split("\0").filter(Boolean);
+}
+
+/** Linked administrative directories, including worktrees whose paths are missing. */
+export function listWorktreeGitDirs(cwd = process.cwd()) {
+  const directory = path.join(repoContext(cwd).commonDir, "worktrees");
+  let entries;
+  try {
+    entries = readdirSync(directory, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+  return entries.filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+    .map((entry) => path.join(directory, entry.name)).sort();
 }
 
 /**

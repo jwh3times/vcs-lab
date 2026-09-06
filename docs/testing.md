@@ -161,6 +161,16 @@ interrupted holder for explicit recovery. Old foreign and malformed claims
 are never stolen, release preserves a replacement token, and failed create
 and restore materialization retain the old registry and partial Git work.
 
+The lifecycle/journal regressions interrupt clean reconciliation and rebase
+publication and force clean forecast-result mismatches. Archive must refuse while
+preserving journal bytes, registry bytes, refs, HEAD, and worktree status; abort
+must still restore the original head, after which archive/restore succeeds.
+Move and repair must preserve both families' journals and abort behavior. Missing
+worktree journals must survive applying prune and remain recoverable after repair;
+prune previews stay available. The repository-wide guard also covers unregistered
+missing and live worktrees. Malformed, null, and unknown-version journals refuse
+by presence, while a caller's journal does not block archiving a different target.
+
 The same file pins the object session's response-buffer bound. Overflowing
 the real 64 MiB content buffer needs a blob of roughly 48 MiB, far too large to
 build on every suite run, so `VLAB_TEST_SESSION_BUFFER_BYTES` shrinks the

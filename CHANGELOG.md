@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Preserve unfinished reconciliation and rebase journals during workspace lifecycle
+  changes (issue #48). Archive refuses even clean worktrees with either journal;
+  applying prune with missing candidates refuses if any linked worktree has one,
+  including unregistered worktrees. Both use `operation-in-progress` and preserve
+  malformed or unsupported state. Move and repair retain journals and recovery;
+  documented recovery uses status and continuation/abort before removal.
+
 - Serialize every workspace registry writer across linked worktrees on
   `vcs-lab/workspaces.lock` (issue #47), covering the full read, Git mutation,
   and registry publication. Concurrent creates and lifecycle changes preserve

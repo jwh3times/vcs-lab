@@ -124,7 +124,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/errors.js` | Expected CLI error type carrying a classification code from the closed `ERROR_CODES` vocabulary of the `vcs-lab.error/v1` failure envelope (ADR-0021) | None |
 | `src/ids.js` | Unique protocol IDs, SHA-256, Git blob hashing, slugs | Node crypto |
 | `src/canonical-json.js` | The frozen `vcs-lab.canonical-json/v1` profile: RFC 8785 restricted to UTF-16-code-unit-sorted members and safe integers, refusing what it cannot serialize byte-identically | None |
-| `src/engine.js` | The read-side engine seam: the catalog of 39 read operations, the read-engine selector and native-engine stub, per-operation fallback, composites, and the differential comparison | `src/git.js` |
+| `src/engine.js` | The read-side engine seam: the catalog of 40 read operations, the read-engine selector and native-engine stub, per-operation fallback, composites, and the differential comparison | `src/git.js` |
 | `src/git.js` | The Git engine: safe synchronous Git adapter, the Git implementation of every read operation, repository context, object and merge-tree sessions, engine selectors, the read-bypass rule, metrics | Git executable, workers |
 | `src/git-session-worker.js` | Owns asynchronous `git cat-file --batch-command` stream for a synchronous caller | Worker threads, Git |
 | `src/merge-tree-session-worker.js` | Owns one asynchronous `git merge-tree --stdin` stream for the synchronous merge-tree forecast engine | Worker threads, Git |
@@ -749,12 +749,30 @@ Lifecycle commands preserve workspace ID, compatibility branch, and checkpoint
 identity:
 
 - move delegates to `git worktree move` and preserves dirty bytes in place;
-- archive removes only a clean worktree with no ignored files;
+- archive removes only a clean worktree with no ignored files or reconciliation/rebase journal;
 - restore materializes the retained branch at the recorded or requested path;
 - repair validates common-repository and branch identity before delegating to
   `git worktree repair`; and
 - prune previews missing active paths, then requires `--apply` to clean stale
   Git administration and mark their descriptors archived.
+
+Archive checks the target worktree's private journal paths by presence, without
+parsing: malformed, null, or unsupported-version state also refuses with
+`operation-in-progress`. A refusal preserves the registry, refs, materialization,
+and journal bytes. Move and repair retain the private Git directory and pending
+operation recovery state. An applying prune with missing candidates checks all
+linked administrative directories via the `listWorktreeGitDirs` engine operation,
+including missing and unregistered worktrees. Git prune acts repository-wide, so
+this check conservatively refuses even a journal belonging to a live linked
+worktree. Preview and an apply with no candidates remain nonmutating.
+
+Recovery starts with restoring/repairing any missing worktree path and inspecting
+`reconcile --status` or `rebase --status` there. Continue resolved conflicts, or
+abort blocked operations; clean interrupted publication and forecast mismatches
+use abort to restore the starting head. Unreadable journals must be preserved and
+recovered with a compatible build. These preflights protect already-present
+journals; they do not serialize lifecycle removal against concurrently starting
+operations or protect against external Git removal/pruning.
 
 Registry writers (create, move, archive, restore, repair, and prune with
 `--apply`) take one shared lock **before reading registry or branch state**

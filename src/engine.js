@@ -64,6 +64,7 @@ const GIT_OPERATIONS = Object.freeze({
   pathInventory: git.pathInventory,
   ignoredPaths: git.ignoredPaths,
   listWorktrees: git.listWorktrees,
+  listWorktreeGitDirs: git.listWorktreeGitDirs,
 });
 
 /** The names of every cataloged read operation. */
@@ -175,6 +176,7 @@ export function listTrackedPaths(...args) { return dispatch("listTrackedPaths", 
 export function pathInventory(...args) { return dispatch("pathInventory", args); }
 export function ignoredPaths(...args) { return dispatch("ignoredPaths", args); }
 export function listWorktrees(...args) { return dispatch("listWorktrees", args); }
+export function listWorktreeGitDirs(...args) { return dispatch("listWorktreeGitDirs", args); }
 
 // Composites: derived from cataloged operations, never from Git directly.
 
@@ -308,6 +310,7 @@ function differentialProbes(cwd) {
     { operation: "pathInventory", run: () => pathInventory(["*.md"], cwd) },
     { operation: "ignoredPaths", run: () => ignoredPaths(cwd) },
     { operation: "listWorktrees", run: () => listWorktrees(cwd) },
+    { operation: "listWorktreeGitDirs", run: () => listWorktreeGitDirs(cwd) },
   ];
 }
 
