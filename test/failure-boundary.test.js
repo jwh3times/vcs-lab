@@ -1106,3 +1106,143 @@ test("failed workspace materialization leaves the registry unchanged and release
   assert.equal(fs.existsSync(workspaceRuntime(repo, "workspaces.lock")), false);
   assert.ok(fs.existsSync(path.join(parent, "existing")));
 });
+
+function pausedWorkspace(operation, pause = "publication") {
+  const repo = makeReconcilable();
+  const workspace = path.join(path.dirname(repo), "worker");
+  const source = operation === "reconcile" ? "feature" : "main";
+  vlab(repo, "workspace", "create", "worker", "--from",
+    operation === "reconcile" ? "main" : "feature", "--path", workspace, "--json");
+  const originalHead = git(workspace, "rev-parse", "HEAD");
+  if (pause === "publication") {
+    assert.equal(vlabResult(workspace, [operation, source, "--json"], {
+      VLAB_TEST_FAULT: `${operation}:before-publish`,
+    }).status, FAULT_EXIT_CODE);
+  } else {
+    const forecast = JSON.parse(vlab(workspace,
+      operation === "reconcile" ? "forecast" : "rebase-forecast", source, "--json"));
+    const savedPath = path.resolve(workspace, git(workspace, "rev-parse", "--git-path",
+      `vcs-lab/forecasts/${forecast.id}.json`));
+    const saved = JSON.parse(fs.readFileSync(savedPath, "utf8"));
+    saved.predictedResultTree = git(workspace, "rev-parse", `${originalHead}^{tree}`);
+    fs.writeFileSync(savedPath, `${JSON.stringify(saved, null, 2)}\n`);
+    assert.equal(refusal(vlabResult(workspace,
+      [operation, source, "--use-forecast", forecast.id, "--json"])).code, "stale-forecast");
+    assert.equal(JSON.parse(vlab(workspace, operation, "--status", "--json")).state, "forecast-mismatch");
+  }
+  assert.equal(git(workspace, "status", "--porcelain"), "");
+  assert.equal(JSON.parse(vlab(workspace, operation, "--status", "--json")).active, true);
+  const gitDir = git(workspace, "rev-parse", "--absolute-git-dir");
+  const journal = path.join(gitDir, "vcs-lab", operation === "reconcile" ? "reconciliation.json" : "rebase.json");
+  return { repo, workspace, gitDir, journal, originalHead };
+}
+
+for (const operation of ["reconcile", "rebase"]) {
+  for (const pause of ["publication", "forecast-mismatch"]) {
+    test(`archive preserves a clean ${operation} ${pause} journal and recovery`, () => {
+      const { repo, workspace, journal, originalHead } = pausedWorkspace(operation, pause);
+      const bytes = fs.readFileSync(journal);
+      const registry = fs.readFileSync(workspaceRuntime(repo, "workspaces.json"));
+      const head = git(workspace, "rev-parse", "HEAD");
+      const refs = git(repo, "for-each-ref", "--format=%(refname) %(objectname)");
+      const error = refusal(vlabResult(repo, ["workspace", "archive", "worker", "--json"]));
+      assert.equal(error.code, "operation-in-progress");
+      assert.match(error.message, new RegExp(operation));
+      assert.deepEqual(fs.readFileSync(journal), bytes);
+      assert.deepEqual(fs.readFileSync(workspaceRuntime(repo, "workspaces.json")), registry);
+      assert.equal(git(repo, "for-each-ref", "--format=%(refname) %(objectname)"), refs);
+      assert.equal(git(workspace, "rev-parse", "HEAD"), head);
+      assert.equal(git(workspace, "status", "--porcelain"), "");
+      assert.equal(JSON.parse(vlab(workspace, operation, "--status", "--json")).active, true);
+      const aborted = JSON.parse(vlab(workspace, operation, "--abort", "--json"));
+      assert.equal(aborted.restoredHead, originalHead);
+      assert.equal(fs.existsSync(journal), false);
+      assert.equal(vlabResult(repo, ["workspace", "archive", "worker", "--json"]).status, 0);
+      assert.equal(vlabResult(repo, ["workspace", "restore", "worker", "--json"]).status, 0);
+      assert.equal(JSON.parse(vlab(workspace, operation, "--status", "--json")).active, false);
+    });
+  }
+
+  test(`move and repair preserve a clean pending ${operation} and its recovery`, () => {
+    const { repo, workspace, journal, originalHead } = pausedWorkspace(operation);
+    const bytes = fs.readFileSync(journal);
+    const moved = `${workspace}-moved`;
+    vlab(repo, "workspace", "move", "worker", moved, "--json");
+    assert.deepEqual(fs.readFileSync(journal), bytes);
+    assert.equal(JSON.parse(vlab(moved, operation, "--status", "--json")).active, true);
+    const repaired = `${workspace}-repaired`;
+    fs.renameSync(moved, repaired);
+    vlab(repo, "workspace", "repair", "worker", "--path", repaired, "--json");
+    assert.deepEqual(fs.readFileSync(journal), bytes);
+    assert.equal(JSON.parse(vlab(repaired, operation, "--status", "--json")).active, true);
+    assert.equal(JSON.parse(vlab(repaired, operation, "--abort", "--json")).restoredHead, originalHead);
+  });
+
+  test(`prune preserves a missing workspace's pending ${operation} until repair and recovery`, () => {
+    const { repo, workspace, gitDir, journal, originalHead } = pausedWorkspace(operation);
+    const bytes = fs.readFileSync(journal);
+    const registry = fs.readFileSync(workspaceRuntime(repo, "workspaces.json"));
+    const relocated = `${workspace}-relocated`;
+    fs.renameSync(workspace, relocated);
+    // Make the missing administrative entry eligible even with an expiry policy.
+    const old = new Date(0);
+    fs.utimesSync(path.join(gitDir, "gitdir"), old, old);
+    const preview = JSON.parse(vlab(repo, "workspace", "prune", "--json"));
+    assert.equal(preview.count, 1);
+    assert.equal(preview.changed, false);
+    assert.equal(refusal(vlabResult(repo, ["workspace", "prune", "--apply", "--json"])).code,
+      "operation-in-progress");
+    assert.deepEqual(fs.readFileSync(journal), bytes);
+    assert.deepEqual(fs.readFileSync(workspaceRuntime(repo, "workspaces.json")), registry);
+    vlab(repo, "workspace", "repair", "worker", "--path", relocated, "--json");
+    assert.equal(JSON.parse(vlab(relocated, operation, "--abort", "--json")).restoredHead, originalHead);
+    fs.rmSync(relocated, { recursive: true, force: true });
+    assert.equal(JSON.parse(vlab(repo, "workspace", "prune", "--apply", "--json")).changed, true);
+  });
+}
+
+test("archive refuses malformed and unknown journals by presence in the target worktree", () => {
+  const repo = makeReconcilable();
+  const workspace = path.join(path.dirname(repo), "worker");
+  vlab(repo, "workspace", "create", "worker", "--path", workspace, "--json");
+  const runtime = path.resolve(workspace, git(workspace, "rev-parse", "--git-path", "vcs-lab"));
+  fs.mkdirSync(runtime, { recursive: true });
+  for (const filename of ["reconciliation.json", "rebase.json"]) {
+    const journal = path.join(runtime, filename);
+    for (const bytes of ["null\n", "partial {", '{"schema":"vcs-lab.operation/v999"}\n']) {
+      fs.writeFileSync(journal, bytes);
+      assert.equal(refusal(vlabResult(repo, ["workspace", "archive", "worker", "--json"])).code,
+        "operation-in-progress");
+      assert.equal(fs.readFileSync(journal, "utf8"), bytes);
+    }
+    fs.rmSync(journal);
+  }
+  // A journal in the caller's private state must not prevent removing a different worktree.
+  fs.writeFileSync(journalPath(repo), "partial {");
+  assert.equal(vlabResult(repo, ["workspace", "archive", "worker", "--json"]).status, 0);
+});
+
+test("prune checks unregistered linked journals before any repository-wide deletion", () => {
+  for (const missing of [false, true]) {
+    const repo = makeReconcilable();
+    const parent = path.dirname(repo);
+    const registered = path.join(parent, "registered");
+    vlab(repo, "workspace", "create", "registered", "--path", registered, "--json");
+    const outside = path.join(parent, "outside");
+    git(repo, "worktree", "add", "-b", "outside", outside);
+    const gitDir = git(outside, "rev-parse", "--absolute-git-dir");
+    const journal = path.join(gitDir, "vcs-lab", "rebase.json");
+    fs.mkdirSync(path.dirname(journal), { recursive: true });
+    fs.writeFileSync(journal, "partial {");
+    fs.rmSync(registered, { recursive: true, force: true });
+    if (missing) fs.renameSync(outside, `${outside}-relocated`);
+    const before = fs.readFileSync(workspaceRuntime(repo, "workspaces.json"));
+    const administration = fs.readdirSync(path.dirname(gitDir)).sort();
+    const error = refusal(vlabResult(repo, ["workspace", "prune", "--apply", "--json"]));
+    assert.equal(error.code, "operation-in-progress");
+    assert.ok(error.message.includes(journal));
+    assert.equal(fs.readFileSync(journal, "utf8"), "partial {");
+    assert.deepEqual(fs.readFileSync(workspaceRuntime(repo, "workspaces.json")), before);
+    assert.deepEqual(fs.readdirSync(path.dirname(gitDir)).sort(), administration);
+  }
+});

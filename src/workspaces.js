@@ -7,6 +7,7 @@ import {
   ignoredPaths,
   inspectGitObjects,
   isInsideWorkTree,
+  listWorktreeGitDirs,
   porcelainStatus,
   refExists,
   repoContext,
@@ -498,6 +499,20 @@ export function archiveWorkspace(value, options = {}) {
     archiveWorkspaceLocked(value, options));
 }
 
+function assertNoOperationJournal(gitDir, action, recovery) {
+  for (const [filename, command] of [["reconciliation.json", "reconcile"], ["rebase.json", "rebase"]]) {
+    const journal = path.join(gitDir, "vcs-lab", filename);
+    // Presence is sufficient: null, malformed, newer-version, and dangling
+    // symlink journals must not be treated as permission to delete private state.
+    if (fs.lstatSync(journal, { throwIfNoEntry: false })) {
+      throw new CliError(`Cannot ${action}: a ${command} operation journal exists at '${journal}'.`, {
+        code: "operation-in-progress",
+        details: `${recovery} Run 'vlab ${command} --status', then continue a resolved conflict or abort the operation in that worktree before retrying. If this build cannot read the journal, preserve it and recover with the build that wrote it.`,
+      });
+    }
+  }
+}
+
 function archiveWorkspaceLocked(value, options) {
   const cwd = options.cwd ?? process.cwd();
   const context = repoContext(cwd);
@@ -506,6 +521,8 @@ function archiveWorkspaceLocked(value, options) {
   requireLifecycle(workspace, ACTIVE, "archived");
   requireMaterialized(workspace, "archiving it");
   assertCallerOutsideWorkspace(cwd, workspace, "archive");
+  assertNoOperationJournal(repoContext(workspace.path).gitDir,
+    `archive workspace '${workspace.name}'`, `Recover the operation in '${workspace.path}'.`);
 
   const status = porcelainStatus(workspace.path);
   if (status) {
@@ -684,6 +701,13 @@ function pruneWorkspacesLocked(options) {
   };
   if (!options.apply || candidates.length === 0) return result;
 
+  // Git prune is repository-wide, including unregistered and missing worktrees.
+  // Conservatively require every linked journal to be recovered first; the
+  // registry alone cannot identify all private administrative state at risk.
+  for (const gitDir of listWorktreeGitDirs(cwd)) {
+    assertNoOperationJournal(gitDir, "prune workspaces",
+      "Restore any missing worktree path and repair its Git links before recovery.");
+  }
   runGit(["worktree", "prune"], { cwd: context.root });
   const now = new Date().toISOString();
   for (const { index } of candidates) {

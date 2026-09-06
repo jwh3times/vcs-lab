@@ -472,10 +472,21 @@ vlab workspace repair agent-auth --path ../vlab-playground.workspaces/agent-auth
 vlab workspace prune --dry-run
 ```
 
-Archive refuses tracked changes and ignored files, so it cannot silently discard
-private bytes. Prune is also conservative: it only changes stale registry entries
-when `--apply` is explicit. Branch and checkpoint refs remain available while a
-workspace is archived.
+Archive refuses tracked or untracked changes, ignored files, and unfinished
+reconciliation or rebase journals, even when the worktree is clean. A journal's
+presence produces `operation-in-progress`; malformed and newer-version journals
+are preserved too. In that workspace, inspect `vlab reconcile --status` or
+`vlab rebase --status`, then continue a resolved conflict or abort the operation.
+Clean interrupted publication and forecast mismatches require abort before retrying.
+If this build cannot read a journal, preserve it and recover with the writing build.
+
+Prune previews missing registry paths and only changes them with `--apply`.
+Because Git pruning acts across the repository, an applying prune with candidates
+refuses while **any linked worktree** has either journal, including unregistered
+or currently materialized worktrees. Restore missing paths and repair their Git
+links before recovering those operations. Move and repair preserve private journals
+and recovery state. Branch and checkpoint refs remain available while a workspace
+is archived.
 
 Create, move, archive, restore, repair, and prune with `--apply` serialize their
 registry reads, Git operations, and registry writes on
