@@ -1169,6 +1169,135 @@ test("cherry-pick preserves logical identity and fork makes divergence explicit"
   assert.equal(fork.relation, "derived-fork");
 });
 
+function ordinaryGitPickFixture(t) {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "ordinary base");
+  const base = git(repo, "rev-parse", "HEAD");
+  git(repo, "switch", "-c", "feature");
+  write(repo, "picked.txt", "portable change\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "ordinary origin");
+  const origin = git(repo, "rev-parse", "HEAD");
+  git(repo, "switch", "main");
+  write(repo, "target.txt", "target context\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "ordinary target");
+  return { repo, base, origin, target: git(repo, "rev-parse", "HEAD") };
+}
+
+function pickState(repo) {
+  const status = git(repo, "status", "--porcelain=v1");
+  const gitPath = (name) => path.resolve(repo, git(repo, "rev-parse", "--git-path", name));
+  return {
+    head: git(repo, "rev-parse", "HEAD"),
+    refs: git(repo, "show-ref"),
+    index: fs.readFileSync(gitPath("index")),
+    files: git(repo, "ls-files").split("\n").map((file) => [file, fs.readFileSync(path.join(repo, file))]),
+    status,
+    pending: ["CHERRY_PICK_HEAD", "MERGE_MSG", "sequencer"].map((name) => fs.existsSync(gitPath(name))),
+  };
+}
+
+function assertOrdinaryPickNoOp(repo, origin) {
+  const before = pickState(repo);
+  const result = JSON.parse(vlab(repo, "cherry-pick", origin, "--json"));
+  assert.deepEqual(result, {
+    noOp: true,
+    reason: "target-already-covers-change-id",
+    originCommit: origin,
+    originChangeId: `git:${origin}`,
+    targetBefore: before.head,
+  });
+  assert.deepEqual(pickState(repo), before);
+}
+
+test("cherry-pick suppresses an ordinary Git origin already in target ancestry", (t) => {
+  const { repo, origin } = ordinaryGitPickFixture(t);
+  git(repo, "merge", "--no-ff", "feature", "-m", "ordinary merge");
+  assertOrdinaryPickNoOp(repo, origin);
+});
+
+test("cherry-pick suppresses an ordinary Git application and still honors repeat", (t) => {
+  const { repo, origin } = ordinaryGitPickFixture(t);
+  const first = JSON.parse(vlab(repo, "cherry-pick", origin, "--json"));
+  assert.equal(first.originChangeId, `git:${origin}`);
+  assert.equal(first.appliedChangeId, `git:${origin}`);
+  assertOrdinaryPickNoOp(repo, origin);
+
+  // Removing the content does not remove the reachable application evidence.
+  git(repo, "revert", "--no-edit", first.appliedCommit);
+  assertOrdinaryPickNoOp(repo, origin);
+  const repeated = JSON.parse(vlab(repo, "cherry-pick", origin, "--repeat", "--json"));
+  assert.equal(repeated.relation, "same-logical-change");
+  assert.equal(repeated.originCommit, origin);
+  assert.equal(repeated.appliedChangeId, `git:${origin}`);
+  assert.equal(readText(repo, "picked.txt"), "portable change\n");
+
+  git(repo, "revert", "--no-edit", repeated.appliedCommit);
+  const fork = JSON.parse(vlab(repo, "cherry-pick", origin, "--repeat", "--fork", "--json"));
+  assert.equal(fork.relation, "derived-fork");
+  assert.notEqual(fork.appliedChangeId, `git:${origin}`);
+});
+
+test("cherry-pick does not infer ordinary Git coverage from other branches or forks", (t) => {
+  const { repo, origin, target } = ordinaryGitPickFixture(t);
+  git(repo, "switch", "-c", "other-target");
+  vlab(repo, "cherry-pick", origin, "--json");
+  git(repo, "switch", "main");
+  const fork = JSON.parse(vlab(repo, "cherry-pick", origin, "--fork", "--json"));
+  assert.equal(fork.targetBefore, target);
+  assert.equal(fork.relation, "derived-fork");
+  git(repo, "revert", "--no-edit", fork.appliedCommit);
+  const applied = JSON.parse(vlab(repo, "cherry-pick", origin, "--json"));
+  assert.equal(applied.relation, "same-logical-change");
+  assert.equal(applied.originChangeId, `git:${origin}`);
+  assert.equal(readText(repo, "picked.txt"), "portable change\n");
+});
+
+test("cherry-pick rejects invalid or non-preserving ordinary Git application evidence", (t) => {
+  const { repo, origin, target, base } = ordinaryGitPickFixture(t);
+  const record = {
+    schema: "vcs-lab.application/v1", type: "application", id: "apply_coverage_test",
+    originCommit: origin, originChangeId: `git:${origin}`,
+    appliedCommit: target, appliedChangeId: `git:${origin}`, targetBefore: base,
+    relation: "same-logical-change", createdAt: new Date(0).toISOString(),
+  };
+  const cases = [
+    { schema: "vcs-lab.application/v99" },
+    { id: null },
+    { targetBefore: "f".repeat(origin.length) },
+    { targetBefore: git(repo, "rev-parse", "HEAD^{tree}") },
+    { appliedCommit: base },
+    { originChangeId: "git:" + base, appliedChangeId: "git:" + base },
+    { appliedChangeId: "ch_different_identity" },
+    { relation: "derived-fork" },
+    { relation: "contextual-fork" },
+    { relation: "unknown-relation" },
+  ];
+  for (const corruption of cases) {
+    // Every reset is inside this disposable fixture. Keep the source and the
+    // previous application's notes to exercise target reachability as well.
+    git(repo, "reset", "--hard", target);
+    writeVlabNote(repo, target, { schema: "vcs-lab.note/v1", records: [{ ...record, ...corruption }] });
+    const result = JSON.parse(vlab(repo, "cherry-pick", origin, "--json"));
+    assert.equal(result.relation, "same-logical-change", JSON.stringify(corruption));
+    assert.equal(result.targetBefore, target);
+  }
+});
+
+test("cherry-pick keeps patch-equivalent ordinary Git changes advisory", (t) => {
+  const { repo, origin } = ordinaryGitPickFixture(t);
+  git(repo, "cherry-pick", origin);
+  const equivalent = git(repo, "rev-parse", "HEAD");
+  git(repo, "revert", "--no-edit", equivalent);
+  const application = JSON.parse(vlab(repo, "cherry-pick", origin, "--json"));
+  assert.equal(application.relation, "same-logical-change");
+  assert.equal(application.originCommit, origin);
+  assert.equal(readText(repo, "picked.txt"), "portable change\n");
+});
+
 test("cherry-pick --repeat re-applies a change the target's history already covers", (t) => {
   const { repo } = makeRepo(t);
   write(repo, "base.txt", "base\n");

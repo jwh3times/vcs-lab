@@ -116,6 +116,12 @@ JSON-only must not, and the commands declared JSON-only or text-only must stay
 that way. Adding a line to a human renderer that surfaces a JSON-only member,
 or removing one that surfaces a required member, fails the suite; update the
 fixture file in the same commit.
+The standalone cherry-pick fixtures in `test/integration.test.js` use stock
+Git commits without Change-Id trailers to pin ancestry and application-backed
+no-ops, byte-preserved index/worktree state, explicit repeats and forks, and
+refusal to infer coverage from unrelated branches, invalid records, or patch
+similarity. Application-evidence cases include unknown schemas/relations,
+missing or wrong-type objects, mismatched attachments and identities, and forks.
 `test/hostile-input.test.js` drives malformed notes, envelopes, tracked
 manifests, identifiers, and object expressions through the real CLI and holds
 each to one property: a non-zero exit, a `vlab:` domain diagnostic rather than

@@ -663,6 +663,12 @@ Run `vlab --help` for the current command list. The most useful commands are:
 | `vlab metadata ...` | Inventory, validate, transfer, and benchmark accepted metadata facts and scan paths |
 | `vlab doctor --benchmark` | Sample ordinary Git latency and persistent object-session reuse |
 
+For ordinary Git commits without a `Change-Id`, `vlab cherry-pick` recognizes
+exact target ancestry and validated, reachable identity-preserving application
+records. A covered pick returns a no-op without starting Git's sequencer;
+`--repeat` explicitly reapplies it. Forks and patch similarity alone do not
+establish coverage for the original change.
+
 ## Metadata integrity and portability
 
 Inspect every metadata scope without changing the repository:

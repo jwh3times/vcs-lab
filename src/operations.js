@@ -22,7 +22,10 @@ import {
   symbolicRef,
 } from "./engine.js";
 import { newId } from "./ids.js";
-import { appendNote, listNoteRecords, withNotesLock } from "./notes.js";
+import {
+  appendNote, listNoteRecords, recordsReachableFrom, withNotesLock,
+} from "./notes.js";
+import { acceptedCausalRecords } from "./metadata.js";
 import { identityPreservingEdges } from "./identity-audit.js";
 import { faultPoint } from "./faults.js";
 import {
@@ -86,14 +89,31 @@ function originOfChange(bearers, cwd) {
   return (origins.length > 0 ? origins : bearers)[0];
 }
 
-function coveredChangeIds(ref, cwd) {
-  const ids = new Set();
-  for (const { message } of commitHistory([ref], cwd)) {
-    const id = extractTrailer(message, "Change-Id");
-    if (id) ids.add(id);
-    for (const match of message.matchAll(/^Absorbs:\s*(\S+)/gim)) ids.add(match[1]);
+function targetCoversChange(originCommit, originChangeId, targetHead, cwd) {
+  const history = commitHistory([targetHead], cwd);
+  for (const { commit, message } of history) {
+    if (commit === originCommit || extractTrailer(message, "Change-Id") === originChangeId) {
+      return true;
+    }
+    for (const match of message.matchAll(/^Absorbs:\s*(\S+)/gim)) {
+      if (match[1] === originChangeId) return true;
+    }
   }
-  return ids;
+
+  // A stock Git commit has no stable trailer to copy. Its exact application
+  // still records continuity, but only a validated record attached to the
+  // target's reachable history can establish it. Reuse the identity model's
+  // same-ID edges; forks and unknown relations cannot prove coverage.
+  const relations = new Set([
+    "same-logical-change", "causal-reconciliation", "contextual-application",
+    "causal-rebase", "contextual-rebase",
+  ]);
+  const applications = recordsReachableFrom(targetHead, cwd, history.map((item) => item.commit))
+    .filter((record) => record.originCommit === originCommit
+      && record.originChangeId === originChangeId
+      && relations.has(record.relation));
+  return applications.length > 0
+    && identityPreservingEdges(acceptedCausalRecords(applications, cwd)).length > 0;
 }
 
 export function cherryPick(value, options = {}) {
@@ -102,7 +122,7 @@ export function cherryPick(value, options = {}) {
   const originCommit = resolveChangeOrCommit(value, cwd);
   const originChangeId = changeIdForCommit(originCommit, cwd);
   const targetBefore = currentHead(cwd);
-  if (!options.repeat && coveredChangeIds("HEAD", cwd).has(originChangeId)) {
+  if (!options.repeat && targetCoversChange(originCommit, originChangeId, targetBefore, cwd)) {
     return {
       noOp: true,
       reason: "target-already-covers-change-id",

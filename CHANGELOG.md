@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Suppress repeated cherry-picks of ordinary Git commits (issue #50) using
+  exact target ancestry and validated, reachable identity-preserving application
+  records. Covered picks preserve HEAD, refs, index, worktree, and operation
+  state. Forks, invalid or unreachable records, and patch similarity do not
+  grant coverage; explicit `--repeat` and `--repeat --fork` remain available.
+
 - Reduce private-repository Actions consumption (issue #58): code PRs run one
   Linux and one Windows suite, main runs Linux only, and known documentation
   changes run static checks. Retain the full platform/Node-floor matrix for
