@@ -1,21 +1,15 @@
-# The release gate of docs/testing.md, run on every push and pull request on
-# both platforms the project supports. Until this existed the gate ran by hand
-# on one host, and v0.13.0 shipped with two tests red in every session-off
-# mode on POSIX because the host that ran the gate defaults the session on.
-#
-# What is deliberately not here: `npm run test:benchmark`. Its baseline is
-# per-host and the latency rule compares against the maintainer's machines, so
-# a runner would report noise as regression. Demos and the packed-install
-# smoke test remain release-time steps in docs/testing.md.
+# Routine runs are bounded; manually dispatch this workflow for the full
+# release/platform qualification matrix. See docs/testing.md.
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -29,11 +23,22 @@ jobs:
   static:
     name: static checks
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run-suite: ${{ steps.plan.outputs.run-suite }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: CI policy and benchmark analysis regressions
+        run: node --test test/ci-plan.test.js test/scale-benchmark-analysis.test.js
+      - name: Select suite matrix
+        id: plan
+        run: node scripts/ci-plan.mjs
       - name: Syntax
         run: |
           for file in bin/*.js src/*.js scripts/*.mjs test/*.js test-support/*.js; do
@@ -45,33 +50,18 @@ jobs:
         run: npm run sync:agents -- --check
       - name: Whitespace
         # Against the empty tree, so the whole checkout is checked rather than
-        # one commit's delta; the checkout is shallow, so HEAD~1 may not exist.
+        # one commit's delta.
         run: git diff --check "$(git mktree </dev/null)" HEAD
 
   suite:
-    # One job per suite mode per platform. Each mode changes what a read
-    # or a forecast passes through, so the modes are qualified separately
-    # rather than folded into one run (docs/testing.md, Development validation).
+    needs: static
+    if: needs.static.outputs.run-suite == 'true'
     name: ${{ matrix.mode }} / ${{ matrix.os }} / node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        node: [24]
-        mode:
-          - default
-          - session-on
-          - session-off
-          - forecast-worktree
-          - forecast-merge-tree
-          - engine-native
-        include:
-          # The Node floor (package.json engines) is qualified in the two
-          # session modes on one platform; the rest of the matrix is about
-          # Git transports and engines, which Node's version does not change.
-          - { os: ubuntu-latest, node: 20, mode: default }
-          - { os: ubuntu-latest, node: 20, mode: session-on }
+      matrix: ${{ fromJSON(needs.static.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

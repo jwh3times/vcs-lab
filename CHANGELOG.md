@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Reduce private-repository Actions consumption (issue #58): code PRs run one
+  Linux and one Windows suite, main runs Linux only, and known documentation
+  changes run static checks. Retain the full platform/Node-floor matrix for
+  explicit qualification, with conservative path selection and job timeouts.
+  Replace benchmark tests' shared-runner latency assumptions with measured
+  report consistency and deterministic budget-boundary coverage.
+
 - Acquire the notes lock before creating an attributed commit (issue #24),
   holding it through provenance publication. Lock refusal preserves HEAD, staged
   and unstaged content, including `--all` and `VLAB_AGENT` declarations; commits
