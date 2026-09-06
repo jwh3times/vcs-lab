@@ -212,6 +212,16 @@ Change ID and adds origin trailers. During conflict continuation, `--fork`
 likewise marks the target result as changed intent rather than a contextual
 adaptation of the same intent.
 
+Standalone cherry-pick suppresses an ordinary Git origin when the exact commit
+is already in target ancestry or a validated, reachable application records
+that origin under the same logical identity. Application records must pass the
+same schema, attachment, and referenced-object checks used by causal planning;
+only recognized identity-preserving relations count. Other branches' records,
+explicit forks, unknown relations, and patch similarity cannot establish that
+coverage. The `git:<oid>` fallback remains an exact origin reference, not a new
+stable trailer. Existing Change-Id and Absorbs trailer coverage is retained;
+`--repeat` bypasses duplicate suppression, including with `--fork`.
+
 A `ch_*` argument names one commit even when several carry the trailer: the
 change's origin, which is the bearer no identity-preserving application
 record names as its applied commit, and otherwise the earliest bearer by
