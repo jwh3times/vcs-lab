@@ -22,7 +22,7 @@ import {
   symbolicRef,
 } from "./engine.js";
 import { newId } from "./ids.js";
-import { appendNote, listNoteRecords } from "./notes.js";
+import { appendNote, listNoteRecords, withNotesLock } from "./notes.js";
 import { identityPreservingEdges } from "./identity-audit.js";
 import { faultPoint } from "./faults.js";
 import {
@@ -916,6 +916,13 @@ export function abortReconciliation(options = {}) {
 
 export function createCommit(message, options = {}) {
   const cwd = options.cwd ?? process.cwd();
+  const create = () => createCommitWithProvenance(message, options, cwd);
+  // Acquire before Git can change HEAD or stage --all content. appendNote
+  // reuses this claim, so no second acquisition can refuse after the commit.
+  return options.actors?.length ? withNotesLock(cwd, create) : create();
+}
+
+function createCommitWithProvenance(message, options, cwd) {
   const changeId = options.changeId ?? newId("ch");
   const args = ["commit"];
   if (options.all) args.push("--all");
@@ -926,7 +933,20 @@ export function createCommit(message, options = {}) {
   // Declared provenance is attached after the commit exists, because the
   // record names the commit it describes. Nothing is written when nothing was
   // declared (FR-ID-08).
-  const provenance = declareProvenance(commit, changeId, options.actors ?? [], cwd);
+  let provenance;
+  try {
+    provenance = declareProvenance(commit, changeId, options.actors ?? [], cwd);
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    failure.details = [
+      failure.message,
+      failure.details,
+      `Keep this commit and inspect it with 'git show ${commit}' and 'vlab provenance ${commit}'.`,
+      "Do not retry commit as though it failed before creation. After fixing the notes write failure, use the provenance repair procedure in docs/identity/README.md to attach the original declaration to this exact commit.",
+    ].filter(Boolean).join("\n");
+    failure.message = `Commit '${commit}' was created, but declared provenance could not be published.`;
+    throw failure;
+  }
   return {
     commit,
     changeId,

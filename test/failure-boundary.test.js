@@ -888,16 +888,29 @@ test("a lock whose holder is gone is abandoned, and a live holder's is respected
   fs.writeFileSync(lockPath, claim(process.pid, os.hostname()));
   write(repo, "held.txt", "held\n");
   git(repo, "add", "-A");
+  const status = git(repo, "status", "--porcelain");
+  const staged = fs.readFileSync(path.join(repo, ".git", "index"));
+  const notesBefore = git(repo, "rev-parse", "refs/notes/vcs-lab");
   const refused = refusal(vlabResult(
     repo,
     ["commit", "-m", "held", "--generated-by", "agent:test", "--json"],
   ));
   assert.equal(refused.code, "notes-locked");
   assert.match(refused.message, new RegExp(`locked by process ${process.pid} on `));
+  assert.equal(git(repo, "rev-parse", "HEAD"), commit, "lock refusal must precede commit creation");
+  assert.deepEqual(fs.readFileSync(path.join(repo, ".git", "index")), staged);
+  assert.equal(git(repo, "status", "--porcelain"), status);
+  assert.equal(fs.readFileSync(path.join(repo, "held.txt"), "utf8"), "held\n");
+  assert.equal(git(repo, "rev-parse", "refs/notes/vcs-lab"), notesBefore);
   assert.equal(fs.existsSync(lockPath), true);
   fs.rmSync(lockPath);
 
   assert.deepEqual(noteRecordIds(repo, commit), ["after-crash", "after-remote"]);
+  const retried = JSON.parse(vlab(repo, "commit", "-m", "held", "--generated-by", "agent:test", "--json"));
+  assert.equal(git(repo, "rev-parse", "HEAD^"), commit);
+  assert.deepEqual(retried.provenance.actors, [{ role: "generated", actor: "agent:test" }]);
+  assert.deepEqual(noteRecordIds(repo, retried.commit), [retried.provenance.id]);
+  assert.equal(fs.existsSync(lockPath), false);
 });
 
 function workspaceWriter(repo, args, env = {}) {
@@ -1245,4 +1258,124 @@ test("prune checks unregistered linked journals before any repository-wide delet
     assert.deepEqual(fs.readFileSync(workspaceRuntime(repo, "workspaces.json")), before);
     assert.deepEqual(fs.readdirSync(path.dirname(gitDir)).sort(), administration);
   }
+});
+
+test("implicit provenance in a linked worktree refuses before commit --all stages content", () => {
+  const repo = makeReconcilable();
+  const linked = path.join(path.dirname(repo), "linked");
+  git(repo, "worktree", "add", "-b", "linked", linked);
+  write(linked, "a.txt", "unstaged change\n");
+  const before = git(linked, "rev-parse", "HEAD");
+  const status = git(linked, "status", "--porcelain");
+  const indexPath = path.resolve(linked, git(linked, "rev-parse", "--git-path", "index"));
+  const index = fs.readFileSync(indexPath);
+  const lock = workspaceRuntime(repo, "notes.lock");
+  const claim = JSON.stringify({ pid: process.pid, hostname: os.hostname() });
+  fs.writeFileSync(lock, claim);
+  const error = refusal(vlabResult(linked, ["commit", "--all", "-m", "implicit", "--json"],
+    { VLAB_AGENT: "agent:implicit" }));
+  assert.equal(error.code, "notes-locked");
+  assert.equal(git(linked, "rev-parse", "HEAD"), before);
+  assert.deepEqual(fs.readFileSync(indexPath), index);
+  assert.equal(git(linked, "status", "--porcelain"), status);
+  assert.equal(fs.readFileSync(path.join(linked, "a.txt"), "utf8"), "unstaged change\n");
+  assert.equal(fs.readFileSync(lock, "utf8"), claim);
+  assert.deepEqual(JSON.parse(vlab(linked, "provenance", "--json")).entries, []);
+  // Undeclared commits have no notes publication and do not contend for this lock.
+  const plain = JSON.parse(vlab(linked, "commit", "--all", "-m", "plain", "--json"));
+  assert.equal(plain.provenance, undefined);
+  assert.equal(fs.readFileSync(lock, "utf8"), claim);
+});
+
+test("an attributed initial commit refuses a held notes lock without creating HEAD", () => {
+  const repo = makeReconcilable();
+  git(repo, "switch", "--orphan", "unborn");
+  write(repo, "initial.txt", "initial\n");
+  git(repo, "add", "-A");
+  const indexPath = path.join(repo, ".git", "index");
+  const index = fs.readFileSync(indexPath);
+  const lock = workspaceRuntime(repo, "notes.lock");
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, hostname: os.hostname() }));
+  const args = ["commit", "-m", "initial", "--authored-by", "person:test", "--json"];
+  assert.equal(refusal(vlabResult(repo, args)).code, "notes-locked");
+  assert.notEqual(spawnSync("git", ["rev-parse", "--verify", "HEAD"],
+    { cwd: repo, env: testEnv() }).status, 0);
+  assert.deepEqual(fs.readFileSync(indexPath), index);
+  assert.equal(fs.readFileSync(path.join(repo, "initial.txt"), "utf8"), "initial\n");
+  fs.rmSync(lock);
+  const retried = JSON.parse(vlab(repo, ...args));
+  assert.equal(git(repo, "rev-list", "--count", "HEAD"), "1");
+  assert.deepEqual(noteRecordIds(repo, retried.commit), [retried.provenance.id]);
+});
+
+test("attributed commits hold the notes lock through Git hooks and release it on Git failure", () => {
+  const repo = makeReconcilable();
+  const before = git(repo, "rev-parse", "HEAD");
+  const lock = workspaceRuntime(repo, "notes.lock");
+  const hooks = path.join(path.dirname(repo), "hooks");
+  fs.mkdirSync(hooks);
+  const hook = path.join(hooks, "pre-commit");
+  fs.writeFileSync(hook, "#!/bin/sh\ntest -f \"$(git rev-parse --git-common-dir)/vcs-lab/notes.lock\" || exit 77\nexit 1\n", { mode: 0o755 });
+  git(repo, "config", "core.hooksPath", hooks);
+  write(repo, "hook.txt", "staged\n");
+  git(repo, "add", "-A");
+  const index = git(repo, "ls-files", "--stage");
+  const args = ["commit", "-m", "hook", "--reviewed-by", "reviewer:test", "--json"];
+  const error = refusal(vlabResult(repo, args));
+  assert.equal(error.code, "git-command-failed");
+  assert.doesNotMatch(error.message, /was created/);
+  assert.equal(git(repo, "rev-parse", "HEAD"), before);
+  assert.equal(git(repo, "ls-files", "--stage"), index);
+  assert.equal(fs.existsSync(lock), false);
+  // The hook now succeeds only if Git really runs under the outer notes lock.
+  fs.writeFileSync(hook, "#!/bin/sh\ntest -f \"$(git rev-parse --git-common-dir)/vcs-lab/notes.lock\"\n", { mode: 0o755 });
+  const committed = JSON.parse(vlab(repo, ...args));
+  assert.deepEqual(noteRecordIds(repo, committed.commit), [committed.provenance.id]);
+  assert.equal(fs.existsSync(lock), false, "nested append releases only after the whole commit finishes");
+});
+
+test("a post-commit notes failure identifies the retained commit and permits provenance repair", () => {
+  const repo = makeReconcilable();
+  const before = git(repo, "rev-parse", "HEAD");
+  const blockedRef = path.join(repo, ".git", "refs", "notes", "vcs-lab.lock");
+  fs.mkdirSync(path.dirname(blockedRef), { recursive: true });
+  fs.writeFileSync(blockedRef, "test-held Git ref lock\n");
+  write(repo, "publication.txt", "committed bytes\n");
+  git(repo, "add", "-A");
+  const error = refusal(vlabResult(repo,
+    ["commit", "-m", "publication", "--generated-by", "agent:test", "--json"]));
+  const commit = git(repo, "rev-parse", "HEAD");
+  assert.notEqual(commit, before);
+  assert.equal(git(repo, "rev-parse", "HEAD^"), before);
+  assert.equal(git(repo, "status", "--porcelain"), "");
+  assert.equal(error.code, "git-command-failed");
+  assert.ok(error.message.includes(commit));
+  assert.match(error.message, /was created.*provenance could not be published/);
+  assert.match(error.details, /Do not retry commit/);
+  assert.match(error.details, /docs\/identity\/README.md/);
+  assert.equal(fs.existsSync(workspaceRuntime(repo, "notes.lock")), false);
+  assert.equal(fs.readFileSync(blockedRef, "utf8"), "test-held Git ref lock\n");
+  assert.deepEqual(JSON.parse(vlab(repo, "provenance", commit, "--json")).entries, []);
+  fs.rmSync(blockedRef);
+  // The documented repair uses the existing declaration API, under its notes
+  // lock, to add the original claim without creating or rewriting any commit.
+  const repair = [
+    "import { changeIdForCommit } from \"./src/engine.js\";",
+    "import { declareProvenance, provenanceFor } from \"./src/provenance.js\";",
+    "import { withNotesLock } from \"./src/notes.js\";",
+    "const [repo, commit] = process.argv.slice(1);",
+    "withNotesLock(repo, () => {",
+    "  if ((provenanceFor([commit], repo).get(commit) ?? []).length) throw new Error(\"Inspect existing provenance before repairing.\");",
+    "  declareProvenance(commit, changeIdForCommit(commit, repo), [{ role: \"generated\", actor: \"agent:test\" }], repo);",
+    "});",
+  ].join("\n");
+  exec(process.execPath, ["--input-type=module", "-e", repair, repo, commit], projectRoot);
+  assert.equal(git(repo, "rev-parse", "HEAD"), commit);
+  const [record] = JSON.parse(vlab(repo, "provenance", commit, "--json")).entries;
+  assert.deepEqual(record.actors, [{ role: "generated", actor: "agent:test" }]);
+  assert.equal(record.origin, "declared");
+  const repeated = spawnSync(process.execPath, ["--input-type=module", "-e", repair, repo, commit],
+    { cwd: projectRoot, env: testEnv(), encoding: "utf8" });
+  assert.notEqual(repeated.status, 0);
+  assert.deepEqual(noteRecordIds(repo, commit), [record.id], "repair refuses to duplicate a declaration");
 });

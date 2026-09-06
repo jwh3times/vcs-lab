@@ -1094,6 +1094,21 @@ waited for five seconds and then refused with `notes-locked`. The
 failure-boundary suite proves the window is closed by parking one publisher
 inside it with `VLAB_TEST_GATE` while another runs.
 
+`createCommit` acquires the same reentrant notes lock before `git commit` when
+actors are declared, retaining it through the provenance append. A refused lock
+therefore cannot create a commit or stage `--all` content. Commits with no actors
+skip the notes lock. Git failures release the claim without publishing a
+provenance record; successful nested appends reuse the outer claim.
+
+This ordering closes the lock-refusal window, not the gap between two durable
+writes. A caught provenance-publication failure reports that the commit already
+exists, names it, preserves the original failure classification, and directs the
+caller to [manual provenance repair](identity/README.md#7-repairing-a-declared-provenance-publication).
+An abrupt process exit can still leave a commit without provenance and without
+that diagnostic. There is no commit-publication journal or automatic rollback;
+recovery attaches the original declaration to the retained commit under the notes
+lock without rewriting history.
+
 ## 16. Failure handling
 
 | Failure | Behavior |

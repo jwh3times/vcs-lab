@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Acquire the notes lock before creating an attributed commit (issue #24),
+  holding it through provenance publication. Lock refusal preserves HEAD, staged
+  and unstaged content, including `--all` and `VLAB_AGENT` declarations; commits
+  without declared actors do not contend. A later note-write failure identifies
+  the retained commit and points to repair guidance without rewriting history.
+
 - Preserve unfinished reconciliation and rebase journals during workspace lifecycle
   changes (issue #48). Archive refuses even clean worktrees with either journal;
   applying prune with missing candidates refuses if any linked worktree has one,
