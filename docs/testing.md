@@ -211,6 +211,14 @@ guess; nor does the command fall back to the Git author, because "who committed
 this" and "who produced this" are different claims. And **a carried record says
 that it is carried**, never presenting itself as a fresh declaration.
 
+The proof-verification integration fixtures rehash bundles after omitting,
+duplicating, injecting, reordering, or misidentifying source changes and after
+altering subjects, counts, lineage fields, and physical/effective bases. Each
+must fail repository verification in both human and JSON modes. Ordinary Git
+fallback IDs, receipt-advanced bases, legitimate empty ranges, offline count
+and duplicate checks, and explicit offline completeness limits are covered.
+The conformance fixtures also pin honest and offline verification output.
+
 `test/object-format.test.js` runs the same workflows in a SHA-256 repository,
 where every object id is 64 characters instead of 40, so any comparison that
 assumed a fixed width fails. It also pins the proof bundle's sharpest

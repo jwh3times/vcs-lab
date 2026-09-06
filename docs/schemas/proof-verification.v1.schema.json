@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "vcs-lab.proof-verification/v1",
   "title": "Proof bundle verification result",
-  "description": "The result of 'vlab verify-proof <file>'. Three checks are reported separately because they establish different things: integrity detects editing, classification detects a claim that does not follow from the stated evidence, and the repository comparison detects fabricated evidence. Only the last needs a repository (FR-PLAN-08).",
+  "description": "The result of 'vlab verify-proof <file>'. Integrity checks the payload hash; classification checks stated verdicts, counts, and commit uniqueness; repository comparison checks evidence, complete ordered source history, identities, subjects, lineage, counts, and physical/effective bases (FR-PLAN-08). Offline success does not establish source completeness.",
   "x-vcs-lab-scope": "cli-output",
   "type": "object",
   "required": ["schema", "bundleSchema", "integrity", "classification", "repository", "trust", "ok"],
@@ -22,12 +22,22 @@
     },
     "classification": {
       "type": "object",
-      "description": "Re-deriving every change from the bundle's own evidence and comparing with what it claims. This is the check that does not require a repository, and it catches a doctored status or proof even when the hash was restated.",
+      "description": "Re-derive every supplied change from the stated evidence, check counts against the supplied statuses, and reject duplicate commit entries. This checks internal consistency, not source completeness.",
       "required": ["changes", "reproduced", "disagreements", "agrees"],
       "properties": {
         "changes": { "type": "integer", "minimum": 0 },
         "reproduced": { "type": "integer", "minimum": 0 },
         "agrees": { "type": "boolean" },
+        "counts": {
+          "type": "object",
+          "required": ["claimed", "recomputed", "agrees"],
+          "properties": {
+            "claimed": { "type": "object" },
+            "recomputed": { "type": "object" },
+            "agrees": { "type": "boolean" }
+          }
+        },
+        "uniqueCommits": { "type": "boolean", "description": "Whether each supplied commit appears at most once." },
         "disagreements": {
           "type": "array",
           "items": {
@@ -45,7 +55,7 @@
     },
     "repository": {
       "type": "object",
-      "description": "Comparison of the bundle's evidence with a live repository, the only check that catches fabricated evidence. Skipped rather than failed when the bundle is about a different repository, or when this one has moved on, since different heads legitimately produce different evidence.",
+      "description": "Comparison against repository facts, including the complete ordered source inventory and physical/effective bases. Unrelated repositories and moved or missing heads are reported as skipped. Read failures after repository discovery are errors.",
       "required": ["checked", "matches"],
       "properties": {
         "checked": { "type": "boolean" },
@@ -63,6 +73,19 @@
         "claimedSource": { "type": "string" },
         "repositorySource": { "type": "string" },
         "sourceRef": { "type": "string" },
+        "checks": {
+          "type": "object",
+          "description": "Comparisons performed when checked is true. matches is true only when every comparison succeeds.",
+          "required": ["lineage", "evidence", "sourceChanges", "physicalBase", "effectiveBase", "counts"],
+          "properties": {
+            "lineage": { "type": "boolean" },
+            "evidence": { "type": "boolean" },
+            "sourceChanges": { "type": "boolean" },
+            "physicalBase": { "type": "boolean" },
+            "effectiveBase": { "type": "boolean" },
+            "counts": { "type": "boolean" }
+          }
+        },
         "evidenceHash": {
           "type": "object",
           "properties": {
@@ -82,7 +105,7 @@
     },
     "ok": {
       "type": "boolean",
-      "description": "True when the hash is intact, every classification was reproduced, and the repository comparison did not contradict the evidence. A skipped repository comparison does not fail the result; it narrows what was proven, which the trust statement says."
+      "description": "True when the hash matches, classifications and counts agree, commit entries are unique, and the repository comparison did not contradict the bundle. A skipped comparison narrows what is proven: source completeness, identities, and bases remain unchecked."
     }
   },
   "$defs": {

@@ -363,14 +363,30 @@ because they establish different things:
 | Check | Catches | Needs a repository |
 | --- | --- | --- |
 | `integrity` | editing after production | no |
-| `classification` | a `status` or `proof` that does not follow from the stated evidence, even when the hash was restated | no |
-| `repository` | fabricated evidence — receipts the repository does not contain | yes |
+| `classification` | a `status` or `proof` that does not follow from the stated evidence, inconsistent summary counts, or duplicate commits, even when the hash was restated | no |
+| `repository` | fabricated evidence, incomplete or misidentified source history, and false counts or physical/effective bases | yes |
 
 The verifier applies its own copy of the lattice (`PROOF_RULES` in
 `src/proof-bundle.js`) rather than importing the planner's branch: a verifier
 sharing the planner's code would prove only that the code is self-consistent.
+It independently reads the ordered physical-base-to-source commit range through
+the engine seam, checks every commit's logical ID (including `git:<oid>` fallback)
+and subject, and derives the physical base and the effective base/reason from
+Git ancestry and accepted target-reachable receipts. Summary counts must agree
+both with the supplied changes and with classifications of the repository's
+complete range. It does not invoke the planner to verify its output.
+
+Offline verification checks internal classification, counts, and commit
+uniqueness only. It cannot establish evidence truth, source completeness,
+commit identity, or either base; `ok: true` with `repository.checked: false`
+does not assert those properties. Proof-bundle v1 carries no authenticated
+source inventory or receipt source-head evidence for offline base verification.
+The correction adds verification-result diagnostics without changing bundle
+bytes, persisted evidence, or schema versions.
 A repository that has moved on is reported as skipped rather than failed,
 since different heads legitimately produce different evidence.
+Once a repository has been found, a failed verification read is an error, not
+an automatic downgrade to offline success.
 
 ### 7.2 Reachability rule
 

@@ -5671,6 +5671,7 @@ test("a proof bundle lets a verifier recompute coverage instead of trusting it",
   });
   victim.status = "covered";
   victim.proof = "receipt-commit";
+  fabricated.counts = { covered: 2, "candidate-equivalent": 0, new: 0 };
   fabricated.integrity = { algorithm: "sha256", bundleHash: rehash(fabricated) };
   const fabricatedPath = path.join(repo, "fabricated.json");
   fs.writeFileSync(fabricatedPath, JSON.stringify(fabricated));
@@ -5697,6 +5698,115 @@ test("a proof bundle lets a verifier recompute coverage instead of trusting it",
   assert.equal(moved.repository.checked, false);
   assert.equal(moved.repository.reason, "target-moved");
   assert.equal(moved.ok, true, "a moved repository does not invalidate the bundle");
+});
+
+test("proof verification binds rehashed claims to the complete source history and bases", async (t) => {
+  const { bundleHash } = await import("../src/proof-bundle.js");
+  const { repo, parent } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "ordinary Git base");
+  git(repo, "switch", "-c", "feature");
+  write(repo, "one.txt", "one\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "ordinary Git source");
+  git(repo, "switch", "main");
+  vlab(repo, "hard-squash", "feature");
+  git(repo, "switch", "feature");
+  write(repo, "two.txt", "two\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "identified source");
+  git(repo, "switch", "main");
+  const bundle = JSON.parse(vlab(repo, "proof-bundle", "feature"));
+  assert.equal(bundle.changes[0].changeId, `git:${bundle.changes[0].commit}`);
+  assert.notEqual(bundle.effectiveBase.commit, bundle.physicalBase);
+  const file = path.join(parent, "proof.json");
+  const verify = (value, ...args) => {
+    value.integrity.bundleHash = bundleHash(value);
+    fs.writeFileSync(file, JSON.stringify(value));
+    return vlabResult(repo, "verify-proof", file, ...args);
+  };
+  const recount = (value) => {
+    value.counts = { covered: 0, "candidate-equivalent": 0, new: 0 };
+    for (const change of value.changes) value.counts[change.status]++;
+  };
+  assert.equal(verify(bundle, "--json").status, 0);
+  const cases = [
+    ["omitted inventory", "sourceChanges", (b) => { b.changes = []; recount(b); }],
+    ["omitted one change", "sourceChanges", (b) => { b.changes.pop(); recount(b); }],
+    ["duplicate change", "sourceChanges", (b) => { b.changes.push(b.changes[0]); recount(b); }],
+    ["injected target commit", "sourceChanges", (b) => {
+      b.changes.push({ commit: b.target.head, changeId: `git:${b.target.head}`, subject: "injected", status: "covered", proof: "commit-ancestry" });
+      recount(b);
+    }],
+    ["misidentified change", "sourceChanges", (b) => { b.changes[1].changeId = b.changes[0].changeId; b.changes[1].status = "covered"; b.changes[1].proof = "receipt-change-id"; recount(b); }],
+    ["altered subject", "sourceChanges", (b) => { b.changes[0].subject = "forged"; }],
+    ["reordered changes", "sourceChanges", (b) => { b.changes.reverse(); }],
+    ["false counts", "counts", (b) => { b.counts.new = 0; }],
+    ["false physical base", "physicalBase", (b) => { b.physicalBase = b.source.head; }],
+    ["false effective base", "effectiveBase", (b) => { b.effectiveBase.commit = b.physicalBase; }],
+    ["false effective reason", "effectiveBase", (b) => { b.effectiveBase.reason = "physical-ancestry"; }],
+    ["false lineage fields", "lineage", (b) => { b.repository.lineage.rootCommits = []; }],
+  ];
+  for (const [name, check, mutate] of cases) {
+    await t.test(name, () => {
+      const value = structuredClone(bundle);
+      mutate(value);
+      const result = verify(value, "--json");
+      assert.equal(result.status, 1, name);
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.integrity.intact, true);
+      assert.equal(report.repository.checked, true);
+      assert.equal(report.repository.checks[check], false);
+      assert.equal(report.repository.matches, false);
+      assert.equal(report.ok, false);
+      const human = verify(value);
+      assert.equal(human.status, 1);
+      assert.match(human.stdout, /The bundle does not verify/);
+      assert.ok(human.stdout.includes(check), "human output identifies the failed repository check");
+    });
+  }
+  const omitted = structuredClone(bundle);
+  omitted.changes = [];
+  recount(omitted);
+  const offline = JSON.parse(verify(omitted, "--offline", "--json").stdout);
+  assert.equal(offline.ok, true, "an offline verifier cannot discover omitted history");
+  assert.equal(offline.repository.checked, false);
+  assert.match(offline.trust.statement, /source completeness.*not checked/);
+  const duplicate = structuredClone(bundle);
+  duplicate.changes.push(duplicate.changes[0]);
+  recount(duplicate);
+  assert.equal(verify(duplicate, "--offline", "--json").status, 1);
+  const counts = structuredClone(bundle);
+  counts.counts.new++;
+  assert.equal(verify(counts, "--offline", "--json").status, 1);
+
+  // An empty range is legitimate when the source is already an ancestor.
+  git(repo, "switch", "feature");
+  const ancestor = JSON.parse(vlab(repo, "proof-bundle", bundle.physicalBase));
+  assert.equal(ancestor.changes.length, 0);
+  assert.equal(verify(ancestor, "--json").status, 0);
+
+  // A matching lineage can contain disconnected roots. Failure to read a
+  // common base must not be swallowed as "not-a-repository" and pass offline.
+  git(repo, "switch", "main");
+  const disconnected = git(repo, "commit-tree", `${bundle.physicalBase}^{tree}`, "-m", "Disconnected root");
+  git(repo, "update-ref", "refs/heads/disconnected", disconnected);
+  const { repositoryLineage } = await import("../src/metadata.js");
+  const unreadable = structuredClone(bundle);
+  unreadable.repository.lineage = repositoryLineage(repo);
+  unreadable.source = { ref: "disconnected", head: disconnected };
+  const refused = verify(unreadable, "--json");
+  assert.notEqual(refused.status, 0);
+  assert.equal(JSON.parse(refused.stdout).schema, "vcs-lab.error/v1");
+
+  // Outside a repository the command still supports its documented local
+  // consistency checks, with the completeness limitation made explicit.
+  fs.writeFileSync(file, JSON.stringify(bundle));
+  const outside = JSON.parse(vlab(parent, "verify-proof", file, "--json"));
+  assert.equal(outside.ok, true);
+  assert.equal(outside.repository.reason, "not-a-repository");
+  assert.match(outside.trust.statement, /source completeness.*not checked/);
 });
 
 test("the benchmark regression comparator flags process growth and slow medians but tolerates noise on fast phases", async () => {

@@ -90,7 +90,7 @@
     },
     "changes": {
       "type": "array",
-      "description": "The classified source changes. status and proof are claims the verifier recomputes; they are not trusted.",
+      "description": "The complete ordered source commit range outside the physical base, with one entry per commit. Repository verification binds commit, changeId, and subject to Git history. status and proof are independently recomputed. Offline verification cannot establish that this inventory is complete.",
       "items": {
         "type": "object",
         "required": ["commit", "changeId", "subject", "status", "proof"],

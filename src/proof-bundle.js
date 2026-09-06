@@ -1,9 +1,10 @@
 import { sha256 } from "./ids.js";
 import { canonicalJson } from "./canonical-json.js";
 import { CliError } from "./errors.js";
-import { repositoryLineage } from "./metadata.js";
+import { acceptedCausalRecords, repositoryLineage } from "./metadata.js";
+import { recordsReachableFrom } from "./notes.js";
 import { buildMergePlan, coverageEvidence } from "./merge-plan.js";
-import { currentHead, resolveObjectIds } from "./engine.js";
+import { commitHistory, currentHead, isAncestor, mergeBase, resolveObjectIds } from "./engine.js";
 
 export const PROOF_BUNDLE_SCHEMA = "vcs-lab.proof-bundle/v1";
 
@@ -111,6 +112,12 @@ export function bundleHash(bundle) {
 
 const isPlainObject = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+
+function classificationCounts(changes) {
+  const counts = { covered: 0, "candidate-equivalent": 0, new: 0 };
+  for (const change of changes) counts[change.status]++;
+  return counts;
+}
 
 /**
  * Refuse a document that is not a proof bundle, or one whose members are not
@@ -231,7 +238,9 @@ export function buildProofBundle(sourceRef, cwd = process.cwd()) {
  * check that can catch **fabricated** evidence. Recomputing the classification
  * proves a plan follows from what it states; it cannot notice that a stated
  * receipt never existed. This recomputes the evidence from the repository and
- * compares it byte for byte under the canonical JSON profile.
+ * compares it byte for byte under the canonical JSON profile. Source inventory
+ * and bases are derived from Git history and accepted records independently of
+ * buildMergePlan; otherwise an omitted change would never reach the lattice.
  *
  * A repository that has moved on since the bundle was produced is reported as
  * `skipped`, not as a failure: different heads legitimately produce different
@@ -253,8 +262,8 @@ export function verifyAgainstRepository(bundle, cwd = process.cwd()) {
   // catches the case where the two repositories do not even share an object
   // format.
   const claimedLineage = bundle?.repository?.lineage ?? null;
+  const actualLineage = repositoryLineage(cwd);
   if (claimedLineage?.id) {
-    const actualLineage = repositoryLineage(cwd);
     if (actualLineage?.id !== claimedLineage.id) {
       return {
         checked: false,
@@ -294,11 +303,47 @@ export function verifyAgainstRepository(bundle, cwd = process.cwd()) {
     };
   }
   const actual = coverageEvidence(sourceRef, cwd);
-  const matches = canonicalJson(actual) === canonicalJson(bundle.evidence ?? {});
+  const physicalBase = mergeBase(head, repositorySource, cwd);
+  const sourceChanges = commitHistory([`${physicalBase}..${repositorySource}`], cwd, {
+    reverse: true,
+  }).map(({ commit, message, subject }) => ({
+    commit,
+    changeId: message.match(/^Change-Id:\s*(.+?)\s*$/im)?.[1]?.trim() ?? `git:${commit}`,
+    subject,
+  }));
+  const receipts = acceptedCausalRecords(
+    recordsReachableFrom(head, cwd, actual.targetCommits).filter((record) =>
+      ["landing", "reconciliation", "rebase"].includes(record.type),
+    ),
+    cwd,
+  );
+  let effectiveBase = { commit: physicalBase, reason: "physical-ancestry" };
+  for (const receipt of receipts) {
+    if (receipt.sourceHead &&
+        isAncestor(receipt.sourceHead, repositorySource, cwd) &&
+        isAncestor(effectiveBase.commit, receipt.sourceHead, cwd)) {
+      effectiveBase = { commit: receipt.sourceHead, reason: `causal-receipt:${receipt.id}` };
+    }
+  }
+  const indexed = indexEvidence(actual);
+  const counts = classificationCounts(sourceChanges.map((change) =>
+    classifyFromEvidence(change, indexed),
+  ));
+  const checks = {
+    lineage: canonicalJson(claimedLineage) === canonicalJson(actualLineage),
+    evidence: canonicalJson(actual) === canonicalJson(bundle.evidence),
+    sourceChanges: canonicalJson(sourceChanges) === canonicalJson(
+      bundle.changes.map(({ commit, changeId, subject }) => ({ commit, changeId, subject })),
+    ),
+    physicalBase: bundle.physicalBase === physicalBase,
+    effectiveBase: canonicalJson(bundle.effectiveBase) === canonicalJson(effectiveBase),
+    counts: canonicalJson(bundle.counts) === canonicalJson(counts),
+  };
   return {
     checked: true,
     reason: null,
-    matches,
+    matches: Object.values(checks).every(Boolean),
+    checks,
     evidenceHash: {
       claimed: sha256(canonicalJson(bundle.evidence ?? {})),
       repository: sha256(canonicalJson(actual)),
@@ -325,6 +370,9 @@ export function verifyProofBundle(bundle, repository = null) {
   const expected = bundle.integrity?.bundleHash ?? null;
   const actual = bundleHash(bundle);
   const indexed = indexEvidence(bundle.evidence ?? {});
+  const counts = classificationCounts(bundle.changes);
+  const countsAgree = canonicalJson(bundle.counts) === canonicalJson(counts);
+  const uniqueCommits = new Set(bundle.changes.map((change) => change.commit)).size === bundle.changes.length;
   const disagreements = [];
   for (const change of bundle.changes ?? []) {
     const recomputed = classifyFromEvidence(change, indexed);
@@ -350,21 +398,26 @@ export function verifyProofBundle(bundle, repository = null) {
       changes: (bundle.changes ?? []).length,
       reproduced: (bundle.changes ?? []).length - disagreements.length,
       disagreements,
-      agrees: disagreements.length === 0,
+      counts: { claimed: bundle.counts, recomputed: counts, agrees: countsAgree },
+      uniqueCommits,
+      agrees: disagreements.length === 0 && countsAgree && uniqueCommits,
     },
     repository: repository ?? { checked: false, reason: "not-requested", matches: null },
     trust: {
       evidenceCheckedAgainstRepository: Boolean(repository?.checked),
       statement: repository?.checked
         ? "The classification was recomputed from the bundle's evidence, and " +
-          "that evidence was compared with the repository."
+          "the evidence, complete source inventory, identities, subjects, counts, " +
+          "and physical/effective bases were compared with the repository."
         : "Recomputing the classification from the bundle's own evidence proves " +
           "the plan follows from what it states, not that the evidence is true. " +
-          "Checking the evidence against a repository is a separate step.",
+          "Repository source completeness, commit identities, and bases were not checked.",
     },
     ok:
       expected === actual &&
       disagreements.length === 0 &&
+      countsAgree &&
+      uniqueCommits &&
       repository?.matches !== false,
   };
 }
