@@ -3,6 +3,36 @@
   "description": "Human/JSON parity contract for the vlab CLI (FR-GIT-06; ADR-0015 phase 0b, issue #11 item 5). Each command entry names the JSON members its human rendering must present and the members it deliberately does not. test/conformance.test.js runs every entry against the real CLI; see README.md for the match rules and the scenario stages.",
   "commands": [
     {
+      "name": "verify-proof",
+      "argv": ["verify-proof", "{proofBundle}"],
+      "stage": "clean",
+      "mode": "reread",
+      "note": "Repository verification checks the complete source inventory and bases in addition to evidence; adversarial refusal parity is covered by integration tests.",
+      "required": [
+        { "pointer": "/bundleSchema", "rule": "exact" },
+        { "pointer": "/integrity/intact", "rule": "mapped", "render": { "true": "intact", "false": "BROKEN" } },
+        { "pointer": "/classification/counts/agrees", "rule": "mapped", "render": { "true": "counts       agree", "false": "counts       DO NOT AGREE" } },
+        { "pointer": "/classification/uniqueCommits", "rule": "mapped", "render": { "true": "unique commits", "false": "DUPLICATE commits" } },
+        { "pointer": "/repository/matches", "rule": "mapped", "render": { "true": "matches this repository", "false": "DOES NOT MATCH this repository" } },
+        { "pointer": "/trust/statement", "rule": "exact" }
+      ],
+      "jsonOnly": [
+        { "pointer": "/integrity/computed", "reason": "The human report states whether the digest matches; the complete hash remains machine-readable." }
+      ]
+    },
+    {
+      "name": "verify-proof-offline",
+      "argv": ["verify-proof", "{proofBundle}", "--offline"],
+      "stage": "clean",
+      "mode": "reread",
+      "note": "Offline success cannot establish source completeness, identities, or bases.",
+      "required": [
+        { "pointer": "/repository/reason", "rule": "exact" },
+        { "pointer": "/trust/statement", "rule": "exact" }
+      ],
+      "jsonOnly": []
+    },
+    {
       "name": "merge-plan",
       "argv": [
         "merge-plan",

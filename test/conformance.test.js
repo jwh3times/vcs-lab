@@ -138,8 +138,10 @@ function scenario() {
   // An exported envelope for the import preview renderer.
   const envelope = path.join(parent, "envelope");
   vlab(repo, "metadata", "export", envelope, "--json");
+  const proofBundle = path.join(parent, "proof.json");
+  fs.writeFileSync(proofBundle, vlab(repo, "proof-bundle", "plan-source"));
 
-  const clean = { repo, parent, envelope };
+  const clean = { repo, parent, envelope, proofBundle };
 
   // Stage two: a second conflicted reconciliation, left paused.
   git(repo, "switch", "-c", "second", baseCommit);
@@ -149,7 +151,7 @@ function scenario() {
   const paused = vlabResult(repo, "reconcile", "second", "--json");
   assert.notEqual(paused.status, 0, "the second reconcile must pause on a conflict");
 
-  scenarioState = { clean, paused: clean, repo, parent, envelope };
+  scenarioState = { clean, paused: clean, repo, parent, envelope, proofBundle };
   return scenarioState;
 }
 
@@ -179,7 +181,8 @@ function resolvePointer(document, pointer) {
 
 /** Substitute the scenario's runtime values into a fixture argument. */
 function materialize(argument, state) {
-  return argument.replace(/\{envelope\}/g, state.envelope);
+  return argument.replace(/\{envelope\}/g, state.envelope)
+    .replace(/\{proofBundle\}/g, state.proofBundle);
 }
 
 // ---------------------------------------------------------------------------

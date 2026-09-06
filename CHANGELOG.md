@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Reject correctly rehashed proof bundles that omit, duplicate, inject, reorder,
+  or misidentify source changes (issue #46). Repository verification independently
+  checks source history, commit identities and subjects, summary counts, lineage
+  fields, and physical/effective bases as well as coverage evidence. Offline
+  verification rejects inconsistent counts and duplicate commits and explicitly
+  states that source completeness, identities, and bases remain unchecked.
+  Human and JSON reports identify failed checks; bundle v1 bytes are unchanged.
+
 - Replace `docs/roadmap.md` with the
   [vcs-lab project board](https://github.com/users/jwh3times/projects/7), one
   issue per future increment, each carrying a `Status`, the `Gate` that must

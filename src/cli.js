@@ -246,6 +246,8 @@ function formatProofVerification(result) {
     `bundle       ${result.bundleSchema}`,
     `integrity    ${result.integrity.intact ? "intact" : "BROKEN"} (${result.integrity.algorithm ?? "unknown"})`,
     `changes      ${result.classification.reproduced}/${result.classification.changes} reproduced from the evidence the bundle states`,
+    `counts       ${result.classification.counts.agrees ? "agree" : "DO NOT AGREE"} with the supplied changes`,
+    `inventory    ${result.classification.uniqueCommits ? "unique commits" : "DUPLICATE commits"}`,
     `evidence     ${
       result.repository.checked
         ? result.repository.matches
@@ -254,6 +256,9 @@ function formatProofVerification(result) {
         : `not checked against a repository (${result.repository.reason})`
     }`,
   ];
+  for (const [check, matches] of Object.entries(result.repository.checks ?? {})) {
+    if (!matches) lines.push(`  ! repository ${check} does not match`);
+  }
   for (const item of result.classification.disagreements) {
     lines.push(
       `  ! ${short(item.commit)} ${item.changeId}: claimed ` +
@@ -1131,9 +1136,7 @@ export async function main(rawArgs) {
         throw new CliError(`Proof bundle '${file}' is not valid JSON.`,
           { code: "malformed-input" });
       }
-      // The document is refused here, before the repository comparison, so
-      // that the comparison's catch below (which turns "not a repository"
-      // into a reported reason) can never swallow a malformed bundle.
+      // Refuse malformed documents before attempting repository reads.
       assertProofBundleDocument(bundle);
       // Check the evidence against this repository unless asked not to. A
       // verifier holding only the file can still run with --offline; the
@@ -1142,10 +1145,13 @@ export async function main(rawArgs) {
       let repository = null;
       if (!options.offline) {
         try {
-          repository = verifyAgainstRepository(bundle);
+          repoContext();
         } catch {
           repository = { checked: false, reason: "not-a-repository", matches: null };
         }
+        // Once a repository is found, a failed read must fail verification;
+        // it cannot silently downgrade the command to an offline success.
+        if (!repository) repository = verifyAgainstRepository(bundle);
       }
       const result = verifyProofBundle(bundle, repository);
       print(options.json ? result : formatProofVerification(result), options.json);
