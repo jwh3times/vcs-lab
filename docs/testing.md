@@ -386,9 +386,10 @@ review, service-level objectives, or broad platform performance.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` keeps automatic runs bounded while the repository
-is private. Every run performs syntax, documentation-link, agent-mirror,
-whitespace, CI-policy, and benchmark-analysis checks first. Suite jobs only
+`.github/workflows/ci.yml` keeps automatic runs bounded. The repository is
+public, so its standard GitHub-hosted runner execution is free; the reduced
+routine matrix still applies. Every run performs syntax, documentation-link,
+agent-mirror, whitespace, CI-policy, and benchmark-analysis checks first. Suite jobs only
 start after those checks pass.
 
 | Trigger | Suite jobs after static checks | Purpose |
@@ -438,10 +439,13 @@ latency budget. Controlled analysis tests cover below/at/above-budget decisions
 and process-amplification precedence. Demos, metadata validation, and the
 packed-install smoke test stay release-time steps.
 
-Track the account's included-minute budget and measured runner usage in
-[issue #58](https://github.com/jwh3times/vcs-lab/issues/58). Job-duration
-estimates are not billing totals. Recheck consumption after changes in PR
-volume, retry rate, qualification frequency, or GitHub runner pricing.
+[Issue #58](https://github.com/jwh3times/vcs-lab/issues/58) records the CI
+reduction, measured runner usage, publication review, and decision to make the
+repository public. Job-duration estimates are not billing totals. Standard
+hosted execution in this public repository is free under
+[GitHub's Actions billing policy](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
+Recheck billing treatment before changing repository visibility or runner
+classes; larger runners are charged even in public repositories.
 
 ## Evidence retention
 

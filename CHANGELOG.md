@@ -8,6 +8,9 @@
   explicit qualification, with conservative path selection and job timeouts.
   Replace benchmark tests' shared-runner latency assumptions with measured
   report consistency and deterministic budget-boundary coverage.
+  Following the publication review and owner approval, make the repository
+  public so standard hosted Actions execution is free; retain the reduced
+  routine CI policy.
 
 - Acquire the notes lock before creating an attributed commit (issue #24),
   holding it through provenance publication. Lock refusal preserves HEAD, staged
