@@ -1,6 +1,6 @@
 ---
 name: end-session
-description: End a vcs-lab work session cleanly — capture what was learned into memory, bring GitHub issues and durable records (ADRs, product gates, changelog debt, retained evidence) up to date, and clean the local checkout of disposable fixtures, stray worktrees, and runtime state. Use when the user says "end session", "wrap up", "done for the day", or asks to clean things up before stopping.
+description: End a vcs-lab work session cleanly — capture what was learned into memory, record required human follow-ups in private issues, board, and wiki; bring GitHub issues and durable records (ADRs, product gates, changelog debt, retained evidence) up to date, and clean the local checkout of disposable fixtures, stray worktrees, and runtime state. Use when the user says "end session", "wrap up", "done for the day", or asks to clean things up before stopping.
 ---
 
 # End session
@@ -38,11 +38,13 @@ memory lane applies only to an agent that has a persistent memory directory.
   comment is worse than silence.
 - **Nothing destroyed without a yes.** Every deletion, branch removal, worktree
   removal, or discard is shown as a list first.
-- **Nothing pushed.** This skill does not commit, push, tag, or open pull
-  requests; the user asks for those explicitly. It also does not rewrite
-  `README.md`, `AGENTS.md`, `CHANGELOG.md`, or `docs/`; those belong to the
-  work commits that change a contract (see `AGENTS.md`), and this pass only
-  records debt.
+- **Respect existing shipping authority.** Session cleanup alone does not
+  authorize source commits, releases, or unrelated publication; honor the user's
+  existing instructions when those actions are already authorized. Required
+  human follow-up issues, board updates, and private-wiki commits/pushes are part
+  of the requested handoff under `docs/human-followups.md`. Verify destinations
+  before publishing. Source documentation changes normally belong to the work
+  commits; record outstanding debt when they are outside the authorized scope.
 - **Never run destructive experiments in this checkout.** `vlab` commands
   mutate the refs, notes, and workspace registry of whatever repository is the
   working directory. Experiments belong in disposable repositories under the
@@ -96,12 +98,12 @@ one-line pointer in `MEMORY.md`. Codex sessions skip this lane and say so.
 ### 3. Update GitHub issues
 
 Issues are the tracker for active work, bugs, implementation briefs, and
-session handoffs (`docs/README.md`). Use `gh`, which infers the repository from
-the clone. The repository uses GitHub's default labels only (`bug`,
-`enhancement`, `documentation`, `question`, `wontfix`, and so on); do not
-invent a triage scheme.
+session handoffs (`docs/README.md`). Use explicit `gh --repo owner/repo`
+arguments for private follow-ups; never let the public clone select their
+repository implicitly. Preserve existing labels and use
+`human-action-required` for required human dependencies.
 
-Every open issue also sits on the
+Ordinary source work sits on the
 [vcs-lab project board](https://github.com/users/jwh3times/projects/7). Its
 `Status`, `Gate`, and `Area` fields are a cheap view; the issue body and its
 comments remain the record, so never let a fact live only on a card. Two things
@@ -120,23 +122,42 @@ For each issue this session touched:
   its issue is effectively lost: `gh issue comment <n> --body "..."`.
 - **Close what shipped**, naming the commit or tag that delivered it:
   `gh issue close <n> --comment "..."`. If the work merged but a follow-up
-  remains, close the issue and open the follow-up rather than leaving a
-  half-done issue open.
+  remains, close the issue and open or reuse the follow-up rather than leaving
+  a half-done issue open. Human follow-ups must use the private destinations in
+  the policy below; do not close them with the implementation issue.
 - **Open issues for deferred work discovered this session**: the divergence
   you noticed and chose not to fix, the ADR a conversation decision still
   needs, the evidence rerun another host must produce. Write the body to a file
   in the scratchpad and pass `--body-file`; a heredoc through this shell
   mangles long Markdown. Say which document, ADR, or issue the new issue serves,
-  and put it on the board.
+  and put it on the appropriate board; human follow-ups use the private route below.
 - **Attach evidence to issues rather than the tree.** Benchmark JSON, gate
   logs, and review outputs from the scratchpad belong in an issue comment, a
   pull request, or a CI artifact, never as a committed timestamped report.
 
+### 3a. Complete every required human handoff
+
+Read and apply [the required human follow-up policy](../../../docs/human-followups.md).
+Inventory every human action left by completed work, including setup, owner
+choices, real-host measurements, manual validation, and user evidence. For each,
+create or reuse a private follow-up issue, apply `human-action-required`, add it
+to the verified private board, and publish the linked private wiki procedure
+with numbered execution steps, prerequisites, expected results, verification,
+cleanup/recovery, and completion evidence. Link it from `Human TODO`.
+
+This is required even when implementation and public documentation have shipped.
+A reminder in the final response or a public issue does not fulfill the handoff.
+Verify the published issue/board/wiki records. If a destination or access is
+missing, prepare the complete local draft and report the private handoff as
+pending; reuse an existing question and continue other session work. Do not
+invent blockers for work the agent remains authorized and able to perform.
+
 ### 4. Update durable records and retained evidence
 
-This repository keeps no private companion; the equivalent lane is the set of
-records that `docs/README.md` says must stay current, plus the evidence policy
-in `docs/testing.md`.
+Keep the durable records described by `docs/README.md` and the evidence policy
+in `docs/testing.md` current. Required human execution instructions also live in
+the designated private wiki under the policy above; never assume the public
+source repository is that destination.
 
 - **Decisions without a record.** If the session reached a decision that
   changes a durable contract (a schema, an algorithm, a persistence scope, a
@@ -259,15 +280,20 @@ One short paragraph per lane — memory, issues, durable records, checkout —
 naming what changed and what was deliberately left alone. End with **what is
 still open**: the uncommitted work, the issue awaiting a reply, the evidence
 another host still has to produce, the next increment on the board. That
-paragraph is what makes the next session cheap to start.
+paragraph is what makes the next session cheap to start. Include verified
+private follow-up issue, board, and wiki links for the authorized user; report
+any unpublished handoff and its concrete obstacle separately. Do not claim all
+follow-ups are documented when only local drafts exist.
 
 ## Do not
 
-- Commit, push, tag, or open pull requests; the user asks for those.
+- Infer authority for source commits, releases, or unrelated publication from
+  cleanup alone. Existing user shipping instructions and the required private
+  follow-up publication remain applicable.
 - Run `vlab` or any state-changing Git command against this checkout as an
   experiment; use disposable repositories.
 - Delete uncommitted or untracked files, branches, worktrees, or temp
   fixtures without showing the list first.
-- Rewrite `README.md`, `AGENTS.md`, `CHANGELOG.md`, or `docs/` here; record
-  debt as an issue instead.
+- Rewrite `README.md`, `AGENTS.md`, `CHANGELOG.md`, or `docs/` outside the
+  authorized work; record remaining debt as an issue instead.
 - Invent memories, issue comments, or evidence to make a lane look productive.
