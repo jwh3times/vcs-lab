@@ -851,16 +851,50 @@ reconciliation receipts report active application time, excluding time spent
 waiting for a person between a conflict and `--continue`, plus total elapsed
 wall time.
 
-`npm run test:benchmark -- --host <label>` compares a reduced scale fixture and a 12-change
-forecast in all three modes against the committed per-host baseline in
-`benchmarks/baseline.json`, failing on higher process counts or medians above
-twice the baseline plus a 5 ms floor (ADR-0017); a host whose Git cannot run
-the merge-tree engine has that mode reported as skipped.
-`npm run benchmark:record -- --host <label>` refreshes the explicitly identified
-machine's entry, including hardware and environment provenance. Alternatively,
-set `VLAB_BENCHMARK_HOST` to the same stable label for both commands. Unknown or
-unselected machines skip latency comparisons; historical OS entries still check
-deterministic counts. A skipped latency check does not qualify a release host.
+Check benchmark regressions against this machine's identified baseline:
+
+```bash
+npm run test:benchmark -- --host lab-linux-a
+```
+
+Use the stable label assigned to the actual machine, not just its operating
+system. `--host` takes precedence over `VLAB_BENCHMARK_HOST`, which can select
+the same label for checks and recording. Labels remain stable across toolchain
+upgrades; different machines need different labels.
+
+The check compares reduced scale, three-mode forecast, and six-change
+publication fixtures against `benchmarks/baseline.json`. Process counts must
+not grow; latency must stay within `max(2 × baseline, baseline + 5 ms)`.
+Unsupported forecast modes are reported as skipped.
+
+Unknown, unselected, or hardware/settings-mismatched hosts **skip latency**.
+Compatible historical OS entries can still check deterministic counts when no
+engine/session overrides are set; forecast semantic checks always run. JSON
+reports `latencySkipped` and `reference`: `passed: true` with
+`latencySkipped: true` is only a deterministic pass and **does not qualify host
+latency for release**.
+
+To establish a baseline, or refresh it after a reviewed performance change, run
+these commands deliberately on the actual quiet qualification machine:
+
+```bash
+npm run benchmark:record -- --host lab-linux-a
+npm run test:benchmark -- --host lab-linux-a
+```
+
+Recording requires a label and captures hardware and environment provenance.
+Review and commit the baseline diff with the reason for recording; do not
+re-record just to clear a regression. Schema v3 preserves the old Linux/Windows
+measurements unchanged in `legacyHosts`, without using their latency limits for
+unidentified machines. Existing historical entries do not establish identified
+qualification baselines.
+
+See the [benchmark testing guide](docs/testing.md#benchmark-regression-check)
+for label syntax, provenance matching, and migration rules, or the
+[wiki walkthrough](https://github.com/jwh3times/vcs-lab/wiki/Benchmark-host-baselines).
+The actual Windows re-record and multi-host evidence remain tracked in
+[issue #22](https://github.com/jwh3times/vcs-lab/issues/22) and
+[issue #42](https://github.com/jwh3times/vcs-lab/issues/42).
 
 Measure indexing and raw/estimated-compressed metadata size without changing the
 current repository:
