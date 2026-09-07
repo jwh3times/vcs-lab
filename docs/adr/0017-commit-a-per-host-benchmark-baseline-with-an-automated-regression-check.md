@@ -34,6 +34,9 @@ by tens of percent between runs with antivirus, sync, and cache effects.
 
 ## Decision
 
+The original OS-keyed latency selection below is superseded by the
+[identified-host amendment](#identified-host-amendment-2026-09-06).
+
 ### Baseline shape
 
 `benchmarks/baseline.json` carries schema `vcs-lab.benchmark-baseline/v2`
@@ -209,6 +212,39 @@ materializes 60 files and 61,500 bytes in a median 261 ms.
   guards regressions only.
 - A regression is fixed or the baseline is re-recorded deliberately; the
   tolerance is never widened to make a run pass.
+
+## Identified-host amendment (2026-09-06)
+
+[Issue #52](https://github.com/jwh3times/vcs-lab/issues/52) demonstrated that
+`process.platform` identifies an OS, not a machine: unrelated Linux hosts
+inherited one latency baseline. The original rejection of machine-specific
+keys is superseded for latency. Schema `vcs-lab.benchmark-baseline/v3` uses
+explicit operator-assigned labels via `--host <label>` or `VLAB_BENCHMARK_HOST`
+(command-line selection wins). Labels remain stable across toolchain upgrades;
+no hostname or private machine identifier is collected.
+
+Identified entries include platform, architecture, CPU models and count, memory
+capacity, OS release, benchmark engine/session overrides, Git, and Node
+provenance. Label, hardware, and overrides must match before comparing latency.
+Version changes remain visible provenance for interpreting a result. Recording
+requires a label before fixtures are created. Hardware changes or reused labels
+require deliberate re-recording rather than silent baseline reassignment.
+
+The v2 OS entries move intact to `legacyHosts`; `hosts` initially has no identified
+machines. No historical measurement, date, profile, or tolerance changes. Legacy
+latencies remain historical only. Their deterministic counts can still check
+unknown machines using the same platform defaults; explicit engine/session
+overrides cannot borrow those counts. Semantic forecast checks always run.
+Unknown hosts report latency as skipped in human and JSON output, including when
+deterministic counts pass. This does not satisfy release latency qualification.
+
+Recording preserves all other identified and historical entries. Reading v2
+normalizes its shape without writing. Unlike the earlier destructive recorder
+migration, unsupported schemas and profile/tolerance changes now require an
+explicit migration instead of silently dropping entries. The latency ratio and
+process tolerances are unchanged. Establishing measured identities on the actual
+qualification machines remains evidence work under issues #22 and #42; this
+amendment does not infer which machine produced the old Linux or Windows data.
 
 ## Consequences
 

@@ -683,8 +683,9 @@ A release is eligible when:
 8. New automated decisions identify their proof/confidence and approval model.
 9. Documentation links resolve, and every issue the release closed is closed
    with the commit or tag that delivered it.
-10. `npm run test:benchmark` passes on every host with an entry in
-    `benchmarks/baseline.json`.
+10. `npm run test:benchmark -- --host <label>` passes on each identified
+    qualification machine in `benchmarks/baseline.json`. Skipped latency and
+    deterministic-only passes do not qualify host latency.
 
 Production-readiness requires additional threat modeling, fuzzing, crash/fault
 injection, remote interoperability, performance targets, and a support policy.

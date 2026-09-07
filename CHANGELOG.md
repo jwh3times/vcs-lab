@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Require explicit machine identities for benchmark latency comparisons (issue
+  #52), with hardware and environment provenance. Preserve old OS measurements
+  as historical deterministic references; unknown hosts report skipped latency
+  without borrowing another machine's limits. Recording requires a host label
+  and preserves other entries. No measurements or tolerances were refreshed.
+
 - Suppress repeated cherry-picks of ordinary Git commits (issue #50) using
   exact target ancestry and validated, reachable identity-preserving application
   records. Covered picks preserve HEAD, refs, index, worktree, and operation
