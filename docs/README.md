@@ -28,6 +28,8 @@ the versioned record of delivered behavior.
   labels, recording, skipped latency, and qualification requirements; the
   [wiki walkthrough](https://github.com/jwh3times/vcs-lab/wiki/Benchmark-host-baselines)
   provides a quick operational guide.
+- [Required human follow-ups](human-followups.md) — agent completion policy for
+  private follow-up issues, board membership, and step-by-step wiki procedures.
 - [Architecture decision records](adr/README.md) — decisions whose constraints
   should survive refactoring.
 
@@ -69,3 +71,11 @@ Performance results belong in an ADR when they support a decision. Commit a
 machine-readable benchmark baseline only when an automated regression check
 consumes it; otherwise retain the result with the relevant issue, pull request,
 or CI run.
+
+Required human actions left by agent-completed work follow
+[the private handoff policy](human-followups.md): a labeled issue in the
+verified private repository, membership on its private board, and a linked
+private wiki procedure with step-by-step execution and verification. The wiki's
+`Human TODO` page indexes those issues and instructions; it is not an in-tree
+backlog or a replacement for issue status. Public product documentation remains
+public; private operational details must not be copied into it.
