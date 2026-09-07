@@ -467,7 +467,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | NFR-PERF-03 | Performance reports shall include process count and semantic equality, not wall time alone. |
 | NFR-PERF-04 | The prototype shall avoid a resident service until measured use cases justify lifecycle, locking, and security complexity. |
 | NFR-PERF-05 | No fixed production scale claim is made until representative large-repository fixtures and targets are ratified. |
-| NFR-PERF-06 | Per-invocation latency budgets for agent loops shall be measured per host by the benchmark suite; once a baseline is committed with the automated regression check that consumes it (`docs/README.md`), a regression against it blocks a release. |
+| NFR-PERF-06 | Per-invocation latency budgets for agent loops shall be measured on explicitly identified hosts by the benchmark suite; skipped latency or a deterministic-only pass does not qualify a host (see `docs/testing.md`); once a baseline is committed with the automated regression check that consumes it (`docs/README.md`), a regression against it blocks a release. |
 | NFR-PERF-07 | Storage efficiency shall be measured as bytes on disk and bytes transferred for repository content and causal metadata, compared against plain Git and any named alternative on the same fixture. |
 
 ### 10.4 Durability and recoverability

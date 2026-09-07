@@ -24,6 +24,10 @@ the versioned record of delivered behavior.
   serialization profile, encoder registry, and shared test vectors.
 - [Testing](testing.md) — supported validation commands and release evidence
   policy.
+- [Benchmark host baselines](testing.md#benchmark-regression-check) — machine
+  labels, recording, skipped latency, and qualification requirements; the
+  [wiki walkthrough](https://github.com/jwh3times/vcs-lab/wiki/Benchmark-host-baselines)
+  provides a quick operational guide.
 - [Architecture decision records](adr/README.md) — decisions whose constraints
   should survive refactoring.
 
