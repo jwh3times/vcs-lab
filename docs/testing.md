@@ -293,7 +293,7 @@ operation by operation in any repository.
 
 ## Benchmark regression check
 
-`npm run test:benchmark` builds a reduced scale fixture and a 12-change
+`npm run test:benchmark -- --host <label>` builds a reduced scale fixture and a 12-change
 forecast fixture in disposable repositories and compares their Git process
 counts and medians against this host's entry in `benchmarks/baseline.json`
 (ADR-0017). Since the `reduced-local-v2` profile the scale fixture has a real
@@ -319,19 +319,55 @@ stopped measuring what it claims to.
 
 A process count above the baseline, a median above twice the
 baseline (or the baseline plus 5 ms, whichever is larger), or a forecast whose
-modes disagree fails the check; a host without an entry is skipped with a
-warning, and a forecast mode the host cannot run (merge-tree below Git 2.49)
-is reported as skipped. The entry's `recordedAt`, `git`, and `node` fields
-are the provenance the check prints, not a result report: the baseline is the
-one committed host-specific measurement, permitted because this check
-consumes it. An interrupted run removes its `vcs-lab-benchmark-check-*`
-fixtures on SIGINT. Record or refresh this host's entry deliberately, on a
-quiet host in a clean checkout, and commit it with the change that moved the
-numbers:
+modes disagree fails the check. A forecast mode the host cannot run
+(merge-tree below Git 2.49) is reported as skipped.
+
+Latency selection uses an explicit, stable operator-assigned machine label:
+`--host <label>` takes precedence over `VLAB_BENCHMARK_HOST`. Labels use 1–64
+lowercase ASCII letters, digits, dots, underscores, or hyphens, starting with a
+letter or digit. Choose a public-safe label such as `lab-linux-a`, retain it
+across toolchain upgrades, and use a different label for a different machine.
+The recorder never derives a label from the hostname or a private machine ID.
+Recording requires a label and refuses before measurement if it is missing.
+
+Schema v3 stores identified entries in `hosts`. Each entry includes its label,
+platform, architecture, CPU models, logical CPU count, memory capacity, OS
+release, and `VLAB_ENGINE`, `VLAB_GIT_SESSION`, and `VLAB_FORECAST_ENGINE`
+overrides in `host`, alongside `recordedAt`, `git`, and `node`. Hardware and
+overrides must match for latency comparison; OS, Git, and Node versions remain
+provenance for interpreting upgrades rather than creating new identities.
+A reused label with different hardware or settings skips latency until an
+intentional re-record. Review provenance before committing an entry.
+
+The previous Linux and Windows entries are preserved unchanged in `legacyHosts`;
+their original machines cannot be identified from the old data. Those entries
+never supply latency limits. On an unknown or unselected host, compatible
+legacy OS entries still supply deterministic process, record, and materialization
+counts when no benchmark overrides are set. Forecast semantic equality checks
+always run. With no compatible reference, all baseline comparisons are skipped.
+Human output explains the scope; JSON reports `latencySkipped` and `reference`,
+and skipped latency findings have no baseline or limit. `passed: true` on a
+deterministic-only check does **not** qualify host latency for release.
+
+The baseline is the one committed measurement artifact, permitted because the
+check consumes it. Reading v2 data migrates its shape in memory only; recording
+preserves those historical measurements and every other identified entry.
+Unsupported schemas or changed profiles/tolerances require an explicit migration;
+recording never silently discards old measurements or relaxes the limits.
+An interrupted run removes its `vcs-lab-benchmark-check-*` fixtures on SIGINT.
+Record or refresh an identified host deliberately on a quiet machine in a clean
+checkout, review the diff, and commit it with the reason the numbers changed:
 
 ```bash
-npm run benchmark:record
+npm run benchmark:record -- --host lab-linux-a
+npm run test:benchmark -- --host lab-linux-a
 ```
+
+Establish identified baselines on the actual qualification machines before using
+latency evidence for release gates; historical entries alone are insufficient.
+The Windows re-record remains tracked in
+[issue #22](https://github.com/jwh3times/vcs-lab/issues/22), and multi-host evidence
+in [issue #42](https://github.com/jwh3times/vcs-lab/issues/42).
 
 ## Static checks
 
@@ -369,9 +405,10 @@ A release candidate is eligible only when:
 8. version constants, package metadata, changelog, and release tag agree; and
 9. the packed artifact passes an install and smoke test outside the source
    checkout; and
-10. `npm run test:benchmark` passes on every host that has an entry in
-    `benchmarks/baseline.json`; hosts without an entry are reported as
-    skipped.
+10. `npm run test:benchmark -- --host <label>` passes on each identified
+    qualification machine in `benchmarks/baseline.json`. Unknown hosts report
+    skipped latency; deterministic-only passes and historical OS entries do not
+    satisfy host latency qualification.
 
 Item 2 is enforced by `test/repository-hygiene.test.js`, so item 3 already
 covers it; it is named separately because it is a property of the checkout

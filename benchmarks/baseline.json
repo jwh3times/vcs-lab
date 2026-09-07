@@ -1,5 +1,5 @@
 {
-  "schema": "vcs-lab.benchmark-baseline/v2",
+  "schema": "vcs-lab.benchmark-baseline/v3",
   "profile": {
     "name": "reduced-local-v3",
     "history": 100,
@@ -18,7 +18,8 @@
     "latencyFloorMs": 5,
     "processes": 0
   },
-  "hosts": {
+  "hosts": {},
+  "legacyHosts": {
     "linux": {
       "recordedAt": "2026-09-01",
       "git": "git version 2.55.0",

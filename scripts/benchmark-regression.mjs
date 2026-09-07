@@ -4,13 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MERGE_TREE_ENGINE_MIN_GIT } from "../src/git.js";
+import { BASELINE_SCHEMA, parseOptions, hostProvenance, migrateBaseline, selectBaseline, recordBaseline } from "./benchmark-host.mjs";
 
 /**
  * Compare the bounded benchmarks against the committed per-host baseline
  * (ADR-0017). Process counts must not grow; medians must stay within the
  * documented latency ratio, with an absolute floor so sub-millisecond phases
  * do not fail on scheduler noise. A host without a baseline is skipped with a
- * warning. `--record` rewrites this host's baseline entry from a fresh run.
+ * warning for latency; deterministic comparisons can use legacy OS entries.
+ * `--record --host <label>` rewrites an identified host entry from a fresh run.
  *
  * The comparator and the constants are exported so the integration suite can
  * exercise them without measuring anything; the measurement flow runs only
@@ -20,7 +22,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const cli = path.join(projectRoot, "bin", "vlab.js");
 export const baselinePath = path.join(projectRoot, "benchmarks", "baseline.json");
 
-export const BASELINE_SCHEMA = "vcs-lab.benchmark-baseline/v2";
+export { BASELINE_SCHEMA };
 export const PROFILE = {
   name: "reduced-local-v3",
   history: 100,
@@ -63,7 +65,6 @@ export const SCALE_PHASES = [
   "workspaceCreateCone",
 ];
 const FIXTURE_PREFIX = "vcs-lab-benchmark-check-";
-const hostKey = process.platform;
 const activeFixtures = new Set();
 
 function run(command, commandArgs, cwd, env = {}) {
@@ -330,26 +331,10 @@ function measurePublication() {
   }
 }
 
-/**
- * Read the committed baseline. A baseline written under an older schema is a
- * migration, not a dead end: `--record` starts a fresh baseline for the new
- * schema and says which host entries it dropped, exactly as it already does
- * when the profile changes. A check still refuses, because comparing against
- * a baseline of a different shape would be meaningless.
- */
-function readBaseline({ allowSchemaChange = false } = {}) {
+/** Read-only normalization preserves v2 measurements as unidentified history. */
+function readBaseline() {
   if (!fs.existsSync(baselinePath)) return null;
-  const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
-  if (baseline.schema !== BASELINE_SCHEMA) {
-    if (!allowSchemaChange) {
-      throw new Error(
-        `Unsupported baseline schema '${baseline.schema}' in ${baselinePath}. ` +
-        `This build records '${BASELINE_SCHEMA}'; re-record it with npm run benchmark:record.`,
-      );
-    }
-    return { ...baseline, schemaChangedFrom: baseline.schema };
-  }
-  return baseline;
+  return migrateBaseline(JSON.parse(fs.readFileSync(baselinePath, "utf8")));
 }
 
 function round(value) {
@@ -368,9 +353,13 @@ function sameJson(left, right) {
  * never as a regression, so a host whose Git cannot run the merge-tree engine
  * still checks everything else.
  */
-export function compare(entry, current, tolerance = TOLERANCE) {
+export function compare(entry, current, tolerance = TOLERANCE, { latency = true } = {}) {
   const findings = [];
   const check = (subject, metric, before, after, kind) => {
+    if (kind === "latency" && !latency) {
+      findings.push({ subject, metric, baseline: null, current: after, limit: null, status: "skipped", reason: "No matching identified host baseline." });
+      return;
+    }
     const limit = kind === "processes"
       ? before + tolerance.processes
       : round(Math.max(before * tolerance.latencyRatio, before + tolerance.latencyFloorMs));
@@ -448,19 +437,18 @@ function formatFindings(findings) {
   const width = Math.max(...findings.map((item) => `${item.subject} ${item.metric}`.length));
   return findings.map((item) => {
     const label = `${item.subject} ${item.metric}`.padEnd(width);
-    if (item.status === "skipped") return `${label}  skipped (not measured on this host or absent from the baseline)`;
+    if (item.status === "skipped") return `${label}  skipped (${item.reason ?? "not measured on this host or absent from the baseline"})`;
     return `${label}  ${String(item.baseline).padStart(9)} -> ${String(item.current).padStart(9)}  (limit ${item.limit})  ${item.status}`;
   }).join("\n");
 }
 
 function main() {
-  const args = process.argv.slice(2);
-  const record = args.includes("--record");
-  const json = args.includes("--json");
-  const unknown = args.filter((item) => !["--record", "--json"].includes(item));
-  if (unknown.length) {
-    console.error(`Unknown option: ${unknown.join(" ")}. Use --record and/or --json.`);
-    process.exit(2);
+  // Refuse invalid recording requests before building any benchmark fixtures.
+  const { record, json, host: hostKey } = parseOptions(process.argv.slice(2));
+  const host = hostProvenance(hostKey);
+  const baseline = readBaseline();
+  if (baseline && (!sameJson(baseline.profile, PROFILE) || !sameJson(baseline.tolerance, TOLERANCE))) {
+    throw new Error("The baseline profile or tolerance differs; migrate it explicitly before checking or recording.");
   }
   process.on("SIGINT", () => {
     removeAllFixtures();
@@ -485,6 +473,7 @@ function main() {
     removeAllFixtures();
   }
   const current = {
+    host,
     recordedAt: new Date().toISOString().slice(0, 10),
     git: scale.environment.git,
     node: scale.environment.node,
@@ -495,73 +484,29 @@ function main() {
   };
 
   if (record) {
-    const existing = readBaseline({ allowSchemaChange: true });
-    const staleHosts = existing &&
-      (existing.schemaChangedFrom ||
-        !sameJson(existing.profile, PROFILE) ||
-        !sameJson(existing.tolerance, TOLERANCE))
-      ? Object.keys(existing.hosts ?? {}).filter((host) => host !== hostKey)
-      : [];
-    if (existing?.schemaChangedFrom) {
-      console.error(
-        `The committed baseline uses schema '${existing.schemaChangedFrom}'; recording '${BASELINE_SCHEMA}'.`,
-      );
-      delete existing.schemaChangedFrom;
-      existing.schema = BASELINE_SCHEMA;
-    }
-    const baseline = existing ?? {
-      schema: BASELINE_SCHEMA,
-      profile: PROFILE,
-      tolerance: TOLERANCE,
-      hosts: {},
-    };
-    if (staleHosts.length) {
-      console.error(
-        `The benchmark profile or tolerance changed since the baseline was recorded; dropping the ${staleHosts.join(", ")} entries, which must be re-recorded on those hosts.`,
-      );
-      for (const host of staleHosts) delete baseline.hosts[host];
-    }
-    baseline.profile = PROFILE;
-    baseline.tolerance = TOLERANCE;
-    baseline.hosts[hostKey] = current;
-    baseline.hosts = Object.fromEntries(
-      Object.entries(baseline.hosts).sort(([left], [right]) => left.localeCompare(right)),
-    );
+    const next = recordBaseline(baseline, current, PROFILE, TOLERANCE);
     fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
-    fs.writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
-    const message = `Recorded the ${hostKey} baseline in ${path.relative(projectRoot, baselinePath)}.`;
-    console.log(
-      json
-        ? JSON.stringify({ recorded: hostKey, baseline: current, notes, droppedHosts: staleHosts }, null, 2)
-        : [message, ...notes].join("\n"),
-    );
+    fs.writeFileSync(baselinePath, `${JSON.stringify(next, null, 2)}\n`);
+    const message = `Recorded host '${hostKey}' in ${path.relative(projectRoot, baselinePath)}; other entries and historical measurements were preserved.`;
+    console.log(json ? JSON.stringify({ recorded: hostKey, baseline: current, notes }, null, 2) : [message, ...notes].join("\n"));
     process.exit(0);
   }
 
-  const baseline = readBaseline();
-  const entry = baseline?.hosts?.[hostKey];
+  const selection = selectBaseline(baseline, host);
+  const { entry, reference, latencySkipped, reason } = selection;
+  if (latencySkipped) notes.push(`Latency comparison skipped: ${reason} Record deliberately on a quiet host with npm run benchmark:record -- --host <label>. This run does not qualify host latency.`);
   if (!entry) {
-    const message = `No committed benchmark baseline for host '${hostKey}'; skipping the regression check. Record one on a quiet host with: npm run benchmark:record`;
-    console.log(json ? JSON.stringify({ host: hostKey, skipped: true, current, notes }, null, 2) : [message, ...notes].join("\n"));
+    notes.push("No compatible deterministic reference; forecast semantic checks ran, but baseline comparisons were skipped.");
+    console.log(json ? JSON.stringify({ host: hostKey, reference, skipped: true, latencySkipped, current, notes }, null, 2) : notes.join("\n"));
     process.exit(0);
   }
-  if (!sameJson(baseline.profile, PROFILE)) {
-    console.error(
-      "The committed baseline was recorded with a different benchmark profile; re-record it with npm run benchmark:record.",
-    );
-    process.exit(2);
-  }
-  if (!sameJson(baseline.tolerance, TOLERANCE)) {
-    console.error(
-      "The committed baseline records a different tolerance than this check applies; re-record it with npm run benchmark:record.",
-    );
-    process.exit(2);
-  }
-  const findings = compare(entry, current, baseline.tolerance);
+  const findings = compare(entry, current, baseline.tolerance, { latency: !latencySkipped });
   const regressions = findings.filter((item) => item.status === "regressed");
   if (json) {
     console.log(JSON.stringify({
       host: hostKey,
+      reference,
+      latencySkipped,
       baseline: entry,
       current,
       tolerance: baseline.tolerance,
@@ -570,12 +515,14 @@ function main() {
       passed: regressions.length === 0,
     }, null, 2));
   } else {
-    console.log(`Benchmark regression check for ${hostKey} against the ${entry.recordedAt} baseline (${entry.git}, Node ${entry.node})`);
+    console.log(`Benchmark ${latencySkipped ? "deterministic-only" : "regression"} check using ${reference} against the ${entry.recordedAt} baseline (${entry.git}, Node ${entry.node})`);
     console.log(formatFindings(findings));
     for (const note of notes) console.log(note);
     console.log(
       regressions.length === 0
-        ? "\nNo regression: process counts did not grow and medians stayed within the tolerated ratio."
+        ? latencySkipped
+          ? "\nNo deterministic regression; latency comparison was skipped."
+          : "\nNo regression: process counts did not grow and medians stayed within the tolerated ratio."
         : `\n${regressions.length} regression${regressions.length === 1 ? "" : "s"}: fix the cause or re-record the baseline deliberately with npm run benchmark:record and explain the change in the changelog.`,
     );
   }
@@ -584,4 +531,11 @@ function main() {
 
 const invokedDirectly = process.argv[1] &&
   path.resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase();
-if (invokedDirectly) main();
+if (invokedDirectly) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 2;
+  }
+}

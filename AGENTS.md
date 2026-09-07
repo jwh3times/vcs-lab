@@ -41,8 +41,10 @@ or build step.
   high-risk platform qualification as described in `docs/testing.md`.
   The per-host benchmark remains local.
 - `npm run test:benchmark` compares bounded benchmarks against the committed
-  per-host baseline in `benchmarks/baseline.json`; `npm run benchmark:record`
-  refreshes this host's entry on a quiet machine.
+  per-host baseline in `benchmarks/baseline.json`; `npm run benchmark:record -- --host <label>`
+  refreshes an explicitly identified machine's entry on a quiet machine. Use the
+  same `-- --host <label>` for checks, or set `VLAB_BENCHMARK_HOST`; otherwise
+  latency comparison is skipped.
 - `npm run sync:agents` regenerates `.claude/skills/` from `.agents/skills/`;
   `npm run sync:agents -- --check` reports drift without writing.
 - `npm run demo` runs the primary workflow demonstration; the other `demo:*`
