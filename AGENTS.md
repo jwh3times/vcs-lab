@@ -107,21 +107,23 @@ validate (`docs/testing.md`).
 
 ## Required Human Follow-ups
 
-Every required human action left by agent-completed work must have a follow-up
-issue in the designated private repository, the `human-action-required` label,
-a card on its verified private project board, and linked step-by-step instructions
-in the private wiki's `Human TODO` page or a procedure linked from it. Apply
-[the human follow-up policy](docs/human-followups.md) before reporting a task or
-session complete; it defines prerequisites, commands/UI steps, expected results,
-verification, recovery, ownership, and completion evidence.
+Every required human action left by agent-completed work must have a public
+follow-up issue in `jwh3times/vcs-lab`, the `human-action-required` label, a card
+on the private project board, and linked step-by-step instructions in the public
+wiki's `human-todo` page or a procedure linked from it. Sensitive vulnerability
+actions use a draft repository security advisory with detailed instructions and
+access-appropriate private board tracking; do not expose those details publicly.
+Apply [the human follow-up policy](docs/human-followups.md) before reporting a
+task or session complete; it defines prerequisites, commands/UI steps, expected
+results, verification, recovery, ownership, and completion evidence.
 
-Reuse existing private follow-ups instead of duplicating them. Verify repository,
-board, and wiki visibility explicitly: a private board does not make a public
-issue or wiki private. If the private destination is missing or inaccessible,
-prepare the complete draft outside the tracked tree, request the missing
-information once, and report the private handoff as pending while continuing
-independent authorized work. Never silently substitute a public destination.
-The private issue is the tracker; the wiki provides the execution instructions.
+Reuse existing follow-ups. Public issues/wiki plus the private board are the
+established destinations; no separate private repository is required. If access
+is unavailable, prepare the complete draft outside the tracked tree and report
+the handoff as pending while continuing independent authorized work. The issue
+(or restricted advisory) is the record; wiki procedures provide ordinary human
+execution instructions. Publishing a draft security advisory requires separate
+disclosure authorization; do not treat routine documentation work as permission.
 Use [docs-updater](.agents/skills/docs-updater/SKILL.md) for documentation updates
 and [end-session](.agents/skills/end-session/SKILL.md) when closing a session;
 both apply this same policy.
