@@ -46,6 +46,20 @@ export const PROFILE = {
   publishChanges: 6,
 };
 export const TOLERANCE = { latencyRatio: 2, latencyFloorMs: 5, processes: 0 };
+/**
+ * The maintainer's stated performance criterion (issue #42): `vlab` must not be
+ * worse than 110% of the equivalent plain-Git work, with Node start-up excluded
+ * until a native CLI exists.
+ *
+ * Both sides of this ratio are timed in-process inside one `vlab metadata
+ * benchmark` run, so neither includes Node boot or module load: the exclusion
+ * is a property of the measurement rather than a correction applied afterwards.
+ *
+ * **Reported, not enforced.** The criterion is not ratified yet and several
+ * phases exceed it today; making it a gate before that decision would turn one
+ * stated intent into a failing build. `compare()` is unchanged.
+ */
+export const GIT_EQUIVALENT_TARGET_RATIO = 1.1;
 /** The merge-tree engine floor is the CLI's (`src/git.js`): `merge-tree --stdin` flushes records only from Git 2.49. */
 export { MERGE_TREE_ENGINE_MIN_GIT };
 export const FORECAST_MODES = {
@@ -180,6 +194,7 @@ function measureScale() {
         medianMs: measurement.medianMs,
         p95Ms: measurement.p95Ms,
         medianProcesses: measurement.medianProcesses,
+        floor: measurement.floor ?? null,
       };
     }
     return {
@@ -442,6 +457,30 @@ function formatFindings(findings) {
   }).join("\n");
 }
 
+export function formatGitEquivalents(phases) {
+  const rows = [];
+  for (const name of SCALE_PHASES) {
+    const phase = phases?.[name];
+    if (phase) rows.push({ name, phase, floor: phase.floor });
+  }
+  if (!rows.length || rows.every((row) => !row.floor)) return null;
+  const width = Math.max(...rows.map((row) => row.name.length));
+  const lines = rows.map(({ name, phase, floor }) => {
+    const label = name.padEnd(width);
+    if (!floor) return `${label}  ${String(phase.medianMs).padStart(9)} ms  no plain-Git equivalent`;
+    const ratio = floor.medianMs ? phase.medianMs / floor.medianMs : null;
+    const verdict = ratio === null
+      ? "floor too small to divide"
+      : `${(ratio * 100).toFixed(0)}%${ratio > GIT_EQUIVALENT_TARGET_RATIO ? "  over" : ""}`;
+    return `${label}  ${String(phase.medianMs).padStart(9)} ms vs ${String(floor.medianMs).padStart(9)} ms `
+      + `(${String(phase.medianProcesses).padStart(2)} vs ${String(floor.medianProcesses).padStart(2)} processes)  ${verdict}`;
+  });
+  return [
+    `\nWork against the plain-Git equivalent (Node start-up excluded from both sides; target ${(GIT_EQUIVALENT_TARGET_RATIO * 100).toFixed(0)}%, reported not enforced)`,
+    ...lines,
+  ].join("\n");
+}
+
 function main() {
   // Refuse invalid recording requests before building any benchmark fixtures.
   const { record, json, host: hostKey } = parseOptions(process.argv.slice(2));
@@ -488,7 +527,10 @@ function main() {
     fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
     fs.writeFileSync(baselinePath, `${JSON.stringify(next, null, 2)}\n`);
     const message = `Recorded host '${hostKey}' in ${path.relative(projectRoot, baselinePath)}; other entries and historical measurements were preserved.`;
-    console.log(json ? JSON.stringify({ recorded: hostKey, baseline: current, notes }, null, 2) : [message, ...notes].join("\n"));
+    const recordedEquivalents = formatGitEquivalents(current.phases);
+    console.log(json
+      ? JSON.stringify({ recorded: hostKey, baseline: current, notes }, null, 2)
+      : [message, ...notes, ...(recordedEquivalents ? [recordedEquivalents] : [])].join("\n"));
     process.exit(0);
   }
 
@@ -517,6 +559,8 @@ function main() {
   } else {
     console.log(`Benchmark ${latencySkipped ? "deterministic-only" : "regression"} check using ${reference} against the ${entry.recordedAt} baseline (${entry.git}, Node ${entry.node})`);
     console.log(formatFindings(findings));
+    const equivalents = formatGitEquivalents(current.phases);
+    if (equivalents) console.log(equivalents);
     for (const note of notes) console.log(note);
     console.log(
       regressions.length === 0

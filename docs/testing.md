@@ -317,6 +317,26 @@ which is exactly how the original regression hid. Both figures are held to the
 process rule, and `records` is a semantic guard: if it moves, the phase has
 stopped measuring what it claims to.
 
+Each scale phase also measures a **raw-Git floor**: the plain-Git commands a
+reader would run to obtain the same result, timed in the same process and the
+same way as the phase itself (issue #42). Both sides therefore exclude Node
+start-up and module load, which is what makes the ratio between them the
+maintainer's stated criterion -- `vlab` no worse than 110% of the equivalent
+plain-Git work -- rather than an approximation of it. Each floor publishes the
+commands it ran, because which commands count as "equivalent" is a judgement
+rather than a fact and belongs in review. `workspaceRegistry` reports no floor:
+Git has no workspace registry, and an invented denominator would be worse than
+none.
+
+The floors run after every phase on the same fixture, so no phase measurement
+moves and the committed deterministic baseline stays comparable; the phases that
+create worktrees would otherwise change what a later floor sees, so the status
+floor is given the worktree set its phase actually measured.
+
+The ratio is **reported, not enforced**. The 110% criterion is not ratified yet
+(issue #42) and several phases exceed it today, so `compare()` is unchanged and
+no run fails on a ratio. The report exists so the decision has numbers.
+
 A process count above the baseline, a median above twice the
 baseline (or the baseline plus 5 ms, whichever is larger), or a forecast whose
 modes disagree fails the check. A forecast mode the host cannot run

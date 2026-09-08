@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Measure a raw-Git floor for every repository-scale benchmark phase (issue
+  #42): the plain-Git commands a reader would run for the same result, timed in
+  the same process and the same way as the phase, so neither side includes Node
+  start-up. Each floor publishes the commands it ran, because which commands
+  count as equivalent is a judgement; `workspaceRegistry` reports none, since
+  Git has no workspace registry. Floors run after every phase on the same
+  fixture, so no phase measurement moves and committed baselines stay
+  comparable. The check and the record path report the ratio against a stated
+  110% target; it is reported, never enforced, and the comparator is unchanged.
+  The floors are `rawProbe` reads, joining the doctor's process-cost probes as
+  the second deliberate exemption from the read-side engine seam: measuring what
+  one Git process costs is the question the seam cannot answer about itself.
+  `vcs-lab.repository-scale-benchmark/v1` gains an optional nullable `floor`
+  member, which is an additive change within the version.
+
 - Require explicit machine identities for benchmark latency comparisons (issue
   #52), with hardware and environment provenance. Preserve old OS measurements
   as historical deterministic references; unknown hosts report skipped latency

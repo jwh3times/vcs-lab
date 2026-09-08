@@ -6233,8 +6233,12 @@ function stripVolatile(value) {
 }
 
 test("every repository read passes through the engine seam and the native engine passes through to Git", async (t) => {
-  // Import discipline: only the seam reads from the Git engine, and only the
-  // doctor's process-cost probes may bypass it.
+  // Import discipline: only the seam reads from the Git engine, and only a
+  // deliberate raw-Git measurement may bypass it -- the doctor's process-cost
+  // probes, and the scale benchmark's raw-Git floors (issue #42). Both exist to
+  // measure what one Git process costs on this host, which is the one question
+  // the seam cannot answer about itself.
+  const RAW_PROBE_MODULES = new Set(["cli.js", "scale-benchmark.js"]);
   const srcDir = path.join(projectRoot, "src");
   const engineModules = new Set([
     "git.js",
@@ -6245,7 +6249,7 @@ test("every repository read passes through the engine seam and the native engine
   for (const file of fs.readdirSync(srcDir).filter((name) => name.endsWith(".js"))) {
     const source = fs.readFileSync(path.join(srcDir, file), "utf8");
     if (engineModules.has(file)) continue;
-    if (file !== "cli.js") {
+    if (!RAW_PROBE_MODULES.has(file)) {
       assert.ok(!source.includes("rawProbe"), `${file} must not bypass the engine seam with rawProbe`);
     }
     for (const block of source.matchAll(/import\s*\{([^}]*)\}\s*from\s*"\.\/git\.js";/g)) {
