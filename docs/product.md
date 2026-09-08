@@ -859,6 +859,26 @@ in that telemetry is tracked by
 or rebase receipt's `timings.git` block covers the application phase only and
 excludes the receipt's own publication cost.
 
+**Evidence table.** Assembled under
+[issue #41](https://github.com/jwh3times/vcs-lab/issues/41). Every condition is
+mechanically evidenced or unevidenced; **no condition is satisfied**, so the
+decision row permitting phase 5 does not fire. Conditions 7 and 8 currently hold
+measurements pointing *away* from Gate B, which is a result rather than a gap.
+The remaining seven wait on the dogfooding the evidence plan names, because a
+suite fixture cannot establish a preference, an improvement, or a rate.
+
+| Condition | Evidence in hand, by schema and run | Missing before the condition is met |
+| --- | --- | --- |
+| 1. Users prefer compact landing and use receipts to recover squash causality | `vcs-lab.landing/v1`. Compact landing is one first-parent unit with a real causal parent, `vlab merge` lands compact by default, and hard-squash receipts suppress absorbed changes during reconciliation (`test/integration.test.js`) | Any user preference at all. No landing in this repository has been compact: it carried no `refs/notes/vcs-lab` before the [#19](https://github.com/jwh3times/vcs-lab/issues/19) pilot |
+| 2. Stable logical IDs materially improve rewrite and cherry-pick workflows | `vcs-lab.application/v1`, `vcs-lab.identity-audit/v1`. Identity preservation, deliberate fork, ordinary-Git coverage suppression, Change-ID origin-then-earliest-bearer resolution, and collision separation (`test/integration.test.js`) | "Materially improve" is a workload claim; no rewrite or cherry-pick workload has been measured on real work ([#19](https://github.com/jwh3times/vcs-lab/issues/19)) |
+| 3. Forecasts reproduce predicted trees reliably | `vcs-lab.forecast/v2`, `vcs-lab.rebase-forecast/v1`. Two independent engines agree: merge-tree reconciliation, rebase, and workspace forecasts match the worktree oracle with named fallbacks, stale forecasts fail before mutation, and an apply-time result mismatch blocks receipts and stays abortable (FR-REC-06, `test/integration.test.js`) | A reproduction rate over real conflicted histories. The agreeing cases are a bounded fixture set, not a corpus |
+| 4. Worktree workspace and checkpoint behavior improves parallel-agent operation | `vcs-lab.workspaces/v1`, `vcs-lab.checkpoint/v1`. Lifecycle identity across move, archive, repair, and prune; pending reconciliations isolated between linked worktrees; sparse cones surviving archive and restore; batched per-path status (`test/integration.test.js`) | Any observation of concurrent agents. The agent sessions on the maintainer's host run in plain `git worktree` checkouts, not `vlab workspace` workspaces, so the feature under test is not the feature in use ([#19](https://github.com/jwh3times/vcs-lab/issues/19)) |
+| 5. Exact resolution reuse avoids repeated work without unsafe automation | `vcs-lab.resolution/v1`. Exact resolutions suggested and reused across worktrees, heuristic candidates requiring explicit acceptance, Git rerere never resolving inside a vlab operation, and modified or rejected suggestions audited as variants (`test/integration.test.js`) | A reuse rate from real conflicts. The resolution catalog is empty in this repository |
+| 6. Stable specification entities and deterministic merge help real corpora | `vcs-lab.spec-manifest/v3`, `vcs-lab.spec-merge-plan/v1`. Block IDs stable across edits and moves, v2 manifests migrating without changing logical IDs, independent blocks merging deterministically, same-block edits blocking, and stability under checkout-time CRLF conversion (`test/integration.test.js`) | A real corpus. Every measurement comes from generated corpora (`vcs-lab.spec-benchmark/v2`), and the second document format is still contract work ([#31](https://github.com/jwh3times/vcs-lab/issues/31), [#33](https://github.com/jwh3times/vcs-lab/issues/33)) |
+| 7. Metadata portability requirements cannot be met cleanly with Git refs/notes | Evidence points the other way. `vcs-lab.metadata-envelope/v1` round-trips accepted facts between clones idempotently over `refs/notes/vcs-lab` and `refs/vcs-lab/resolutions/*`, carries a retention ref naming an annotated tag, and quarantines invalid claims from coverage (`test/integration.test.js`) | One named portability requirement that refs and notes fail to meet. The live candidate is lineage without a shared root commit ([#43](https://github.com/jwh3times/vcs-lab/issues/43)); until such a case is demonstrated this condition is evidenced against |
+| 8. Measured storage, process, or filesystem overhead is material enough to justify a new subsystem | Measured and negative. ADR-0022 measured the commit-graph and multi-pack index and reverted rather than shipped them; ADR-0024 records that Git's best mode misses no budget on either host. `benchmarks/baseline.json` (schema v3) holds only `legacyHosts.linux` and `legacyHosts.win32`, recorded 2026-09-01, which supply deterministic counts and never latency limits | Identified-host latency: `hosts` is empty, so no machine is qualified ([#22](https://github.com/jwh3times/vcs-lab/issues/22)). Also a ratified representative budget ([#42](https://github.com/jwh3times/vcs-lab/issues/42)) and the synced-OneDrive measurement ([#14](https://github.com/jwh3times/vcs-lab/issues/14), [#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
+| 9. Real agent-workload evidence from at least two hosts and one real repository | None. The branch-and-land pilot that produces it began under [#19](https://github.com/jwh3times/vcs-lab/issues/19); before it this repository only ever declared provenance and never carried it (ADR-0023's amendment) | Carried provenance, landing receipts, and the §13.3 metrics from actual agent sessions on one Windows or OneDrive host and one POSIX host, over one real repository |
+
 ### Native-core phase sequence
 
 [ADR-0015](adr/0015-adopt-a-phased-native-core-program-with-rust.md) replaces
@@ -896,7 +916,7 @@ a catalog or a service.
 | A path launches per-entity Git processes | Batch within the invocation. |
 | An already-batched path exceeds a representative budget | Propose an incremental catalog with lifecycle, migration, and equality tests. |
 | Cross-command cost remains material on representative Windows and POSIX repositories after justified catalogs | Propose a resident-service ADR covering ownership, locking, security, crash recovery, upgrade, shutdown, and fallback. |
-| All nine Gate B conditions have an evidence table naming schemas, hosts, and runs | Begin phase 5 (canonical fact log, transport, draft stacks) behind the existing observable contracts, with Git as oracle and escape hatch. |
+| All nine Gate B conditions are demonstrated in an evidence table naming schemas, hosts, and runs | Begin phase 5 (canonical fact log, transport, draft stacks) behind the existing observable contracts, with Git as oracle and escape hatch. |
 
 No representative budget has been ratified yet, which is one reason Gate A
 item 3 has no candidate; ratifying one is part of
