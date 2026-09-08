@@ -136,7 +136,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/identity-audit.js` | Repository-wide logical identity audit (`vcs-lab.identity-audit/v1`): union-find over identity-preserving application edges, multi-trailer, multi-origin, and invariant findings | Engine, notes |
 | `src/metadata-envelope.js` | Canonical envelope manifest, integrity hash, payload bounds, and parser | Metadata, schemas |
 | `src/metadata-transfer.js` | Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import | Metadata, envelope, Git |
-| `src/scale-benchmark.js` | Bounded synthetic repository fixture, scan measurements, semantic equality checks, and evidence-based optimization recommendations | Git, notes, metadata, resolutions, workspaces |
+| `src/scale-benchmark.js` | Bounded synthetic repository fixture, scan measurements, raw-Git floors for the phases with a plain-Git equivalent, semantic equality checks, and evidence-based optimization recommendations | Git, notes, metadata, resolutions, workspaces |
 | `src/landings.js` | Compact and hard-squash landing mechanics and receipts | Git adapter, notes |
 | `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
 | `src/proof-bundle.js` | Portable coverage proof bundles and their independent verifier, which applies its own copy of the lattice (`PROOF_RULES`) and compares the evidence with the repository | Merge plan, canonical JSON, metadata, engine |
@@ -287,7 +287,7 @@ use at the current development baseline:
 | `vcs-lab.spec-manifest/v3` | Sparse Markdown identity manifest | `specs.js` |
 | `vcs-lab.spec-merge-plan/v1` | Deterministic three-way semantic plan | `specs.js` |
 | `vcs-lab.spec-benchmark/v2` | Generated corpus measurements | `specs.js` |
-| `vcs-lab.repository-scale-benchmark/v1` | Disposable repository/shared-metadata volume, scan, process-amplification, and decision measurements | `scale-benchmark.js` |
+| `vcs-lab.repository-scale-benchmark/v1` | Disposable repository/shared-metadata volume, scan, raw-Git floor, process-amplification, and decision measurements | `scale-benchmark.js` |
 | `vcs-lab.metadata-status/v1` | Deterministic repository metadata inventory | `metadata.js` |
 | `vcs-lab.metadata-validation/v1` | Inventory plus strict/non-strict validity result | `metadata.js` |
 | `vcs-lab.metadata-envelope/v1` | Portable manifest for sanitized notes and resolution refs | `metadata-envelope.js` |
@@ -1003,8 +1003,13 @@ aggregated per operation and reason, and `directReads`.
 
 A read-only Git command that reaches `runGit` without the seam's private mark
 is a direct read: counted in `directReads`, traced, and refused in native
-mode. The doctor's process-cost probes are the only exemption. The read-only
-classification is the same one that decides object-session invalidation.
+mode. Two deliberate measurements are exempt, both marked `rawProbe`: the
+doctor's process-cost probes, and the scale benchmark's raw-Git floors
+(issue #42). Both exist to measure what one Git process costs on this host,
+which is the one question the seam cannot answer about itself — routing them
+through it would measure the seam. Their results are timings and never reach
+domain logic. The read-only classification is the same one that decides
+object-session invalidation.
 
 `vlab doctor` reports both selectors (`engine`, `forecastEngine`), and
 `vlab doctor --differential` runs every cataloged operation through each
@@ -1286,7 +1291,7 @@ The current development baseline covers:
 - the engine seam: no module other than the seam imports read operations
   from the Git engine, the native engine passes every operation through with
   recorded fallbacks and identical results, a read outside the seam is
-  refused in native mode, the differential doctor reports every cataloged
+  refused in native mode unless it is one of the two `rawProbe` measurements, the differential doctor reports every cataloged
   operation equal, and invalid engine selections fail before any work.
 - the focused suites [testing.md](testing.md) describes: schema-catalog and
   compatibility agreement, canonical-JSON vectors, human/JSON conformance,

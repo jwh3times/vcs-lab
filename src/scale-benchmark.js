@@ -115,6 +115,144 @@ function measurePhase(name, sampleCount, operation) {
 }
 
 /**
+ * The plain-Git work a reader would run to obtain what a phase produces, timed
+ * the same way the phase is (issue #42). A duration only becomes a ratio when
+ * something measures the denominator, and until now exactly one Git-equivalent
+ * comparison existed anywhere in the project, derived by hand.
+ *
+ * Three properties keep the comparison honest:
+ *
+ * - **The floors run after every phase**, on the same fixture, so no phase
+ *   measurement changes and the committed deterministic baseline stays
+ *   comparable. Adding a denominator must not move the numerator.
+ * - **They are `rawProbe` reads, deliberately outside the engine seam.**
+ *   A floor is a measurement of Git, not a read of repository state, and its
+ *   result never reaches domain logic; routing it through the seam would
+ *   measure the seam rather than Git. This is the same exemption the doctor's
+ *   process-cost probes carry, and it is enforced rather than conventional:
+ *   without the marker the native engine refuses the read outright.
+ * - **Each floor names the commands it ran.** Which Git commands count as
+ *   "equivalent" is a judgement, not a fact, so the judgement is published with
+ *   the number rather than buried in the harness. `workspaceRegistry` has no
+ *   equivalent at all -- Git has no workspace registry -- and reports `null`
+ *   rather than an invented denominator.
+ */
+function batchReadObjects(repo, oids) {
+  if (!oids.length) return;
+  runGit(["cat-file", "--batch"], { cwd: repo, input: `${oids.join("\n")}\n`, rawProbe: true });
+}
+
+function noteBlobOids(repo) {
+  const listed = runGit(["notes", "--ref=vcs-lab", "list"], { cwd: repo, rawProbe: true }).stdout;
+  return listed.split("\n").filter(Boolean).map((line) => line.split(" ")[0]);
+}
+
+function resolutionBlobOids(repo) {
+  const listed = runGit(
+    ["for-each-ref", "--format=%(objectname)", "refs/vcs-lab/resolutions/"],
+    { cwd: repo, rawProbe: true },
+  ).stdout;
+  return listed.split("\n").filter(Boolean);
+}
+
+function linkedWorktreePaths(repo) {
+  const listed = runGit(["worktree", "list", "--porcelain"], { cwd: repo, rawProbe: true }).stdout;
+  const paths = [];
+  for (const line of listed.split("\n")) {
+    if (line.startsWith("worktree ")) paths.push(line.slice("worktree ".length).trim());
+  }
+  // The first entry is the repository's own worktree, which no workspace owns.
+  return paths.slice(1);
+}
+
+const GIT_EQUIVALENTS = {
+  history: {
+    equivalent: "git rev-list --count refs/heads/main",
+    run: (repo) => runGit(["rev-list", "--count", "refs/heads/main"], { cwd: repo, rawProbe: true }),
+  },
+  gitWorktrees: {
+    equivalent: "git worktree list --porcelain",
+    run: (repo) => runGit(["worktree", "list", "--porcelain"], { cwd: repo, rawProbe: true }),
+  },
+  // Git has no workspace registry, so there is nothing to compare against.
+  workspaceRegistry: null,
+  workspaceStatus: {
+    equivalent: "git status --porcelain in each registered workspace worktree",
+    // The worktrees the phase actually saw. Floors run last, by which time the
+    // creation floors have added their own worktrees; statusing those would
+    // compare vlab's work over N workspaces with Git's over more than N.
+    run: (repo, context) => {
+      for (const worktree of context.statusWorktrees) {
+        runGit(["status", "--porcelain"], { cwd: worktree, rawProbe: true });
+      }
+    },
+  },
+  noteCatalog: {
+    equivalent: "git notes --ref=vcs-lab list, then git cat-file --batch over the note blobs",
+    run: (repo) => batchReadObjects(repo, noteBlobOids(repo)),
+  },
+  resolutionCatalog: {
+    equivalent:
+      "git for-each-ref refs/vcs-lab/resolutions/, then git cat-file --batch over the result blobs",
+    run: (repo) => batchReadObjects(repo, resolutionBlobOids(repo)),
+  },
+  metadataStatus: {
+    equivalent:
+      "git rev-parse --git-dir and git worktree list, then the note and resolution reads above",
+    run: (repo) => {
+      runGit(["rev-parse", "--git-dir"], { cwd: repo, rawProbe: true });
+      runGit(["worktree", "list", "--porcelain"], { cwd: repo, rawProbe: true });
+      batchReadObjects(repo, noteBlobOids(repo));
+      batchReadObjects(repo, resolutionBlobOids(repo));
+    },
+  },
+  workspaceCreate: {
+    equivalent: "git worktree add --detach <path> main",
+    run: (repo, context) => {
+      const target = path.join(context.worktreeRoot, `floor-create-${context.next()}`);
+      runGit(["worktree", "add", "--detach", target, "main"], { cwd: repo });
+    },
+  },
+  workspaceCreateCone: {
+    // The same three commands vlab issues in `addWorktree`, so the gap this
+    // floor exposes is vlab's own work rather than a different checkout.
+    equivalent:
+      "git worktree add --no-checkout --detach <path> main, git sparse-checkout set --cone <dir>, git checkout",
+    run: (repo, context) => {
+      const target = path.join(context.worktreeRoot, `floor-cone-${context.next()}`);
+      runGit(["worktree", "add", "--no-checkout", "--detach", target, "main"], { cwd: repo });
+      runGit(["sparse-checkout", "set", "--cone", "area000"], { cwd: target });
+      runGit(["checkout"], { cwd: target });
+    },
+  },
+};
+
+function measureFloor(name, sampleCount, repo, context) {
+  const equivalent = GIT_EQUIVALENTS[name];
+  if (!equivalent) return null;
+  const durations = [];
+  const processes = [];
+  for (let index = 0; index < sampleCount; index += 1) {
+    const collector = beginGitMetrics(`floor-${name}-${index}`);
+    const started = performance.now();
+    try {
+      equivalent.run(repo, context);
+    } finally {
+      const durationMs = performance.now() - started;
+      const git = endGitMetrics(collector);
+      durations.push(Number(durationMs.toFixed(2)));
+      processes.push(git.processes);
+    }
+  }
+  return {
+    equivalent: equivalent.equivalent,
+    medianMs: Number(percentile(durations, 0.5).toFixed(2)),
+    p95Ms: Number(percentile(durations, 0.95).toFixed(2)),
+    medianProcesses: percentile(processes, 0.5),
+  };
+}
+
+/**
  * Files and bytes present in a materialized workspace, ignoring Git's own
  * directory. This is the "bytes materialized per workspace" the v2 profile
  * records: on a synced or metered filesystem it is the cost a sparse cone
@@ -462,6 +600,9 @@ export function benchmarkRepositoryScale(options = {}) {
     };
     const createdFull = [];
     const createdCone = [];
+    // Captured before any phase runs, so the status floor measures the same
+    // worktrees the status phase does.
+    const statusWorktrees = linkedWorktreePaths(repo);
     const measurements = {
       history: measurePhase("history", sampleCount, () => ({
         commits: countCommits("refs/heads/main", repo),
@@ -521,6 +662,21 @@ export function benchmarkRepositoryScale(options = {}) {
         return { created: 1 };
       }),
     };
+
+    // Denominators last, so no phase measurement above is disturbed by the
+    // worktrees the creation floors add (issue #42).
+    let floorSequence = 0;
+    const floorContext = {
+      worktreeRoot,
+      statusWorktrees,
+      next: () => {
+        floorSequence += 1;
+        return floorSequence;
+      },
+    };
+    for (const name of Object.keys(measurements)) {
+      measurements[name].floor = measureFloor(name, sampleCount, repo, floorContext);
+    }
 
     const materialization = {
       full: materializedTree(createdFull[0]),

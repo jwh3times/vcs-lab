@@ -330,6 +330,34 @@
               }
             }
           }
+        },
+        "floor": {
+          "description": "The plain-Git work a reader would run to obtain the same result, timed in the same process and the same way as the phase, so neither side includes Node start-up (issue #42). Null for a phase with no honest Git equivalent.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "equivalent",
+            "medianMs",
+            "p95Ms",
+            "medianProcesses"
+          ],
+          "properties": {
+            "equivalent": {
+              "description": "The Git commands this floor ran. Which commands count as equivalent is a judgement, published with the number.",
+              "type": "string"
+            },
+            "medianMs": {
+              "type": "number"
+            },
+            "p95Ms": {
+              "type": "number"
+            },
+            "medianProcesses": {
+              "type": "number"
+            }
+          }
         }
       }
     }
