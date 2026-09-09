@@ -30,6 +30,29 @@
       ],
       "resultTree": "9e9800b4b2d6d712b0c512557d84204c2ef8cd07",
       "createdAt": "2026-09-09T23:42:08.809Z"
+    },
+    {
+      "schema": "vcs-lab.provenance/v1",
+      "type": "provenance",
+      "id": "prov_0mtuqtiaxfce230a9002f",
+      "commit": "834167c814708659f0c93cfd43fa215c85a2bd24",
+      "changeId": null,
+      "actors": [
+        {
+          "role": "generated",
+          "actor": "OpenAI Codex"
+        }
+      ],
+      "origin": "carried",
+      "carriedFrom": [
+        "29bfd5396f537628eded677a7aab234185411b80",
+        "545532426c1a9643b50e46225619e298cb3114ed",
+        "93a3696c691ea5ba7059e461d72bc5898b3b3707",
+        "9bf4c57e747c849578ad06f1823ec21697b74390",
+        "9ec6f054f1c62374461bfad41fe4858fa906a3ec",
+        "b0db8fbce337ff75496ba9aa592297823a96cd79"
+      ],
+      "createdAt": "2026-09-09T23:42:09.897Z"
     }
   ]
 }
