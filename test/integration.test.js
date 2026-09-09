@@ -194,11 +194,19 @@ function tracedGitCommands(cwd, ...args) {
   });
   assert.equal(result.status, 0, result.stderr);
   const commands = [];
+  // A traced line is an operation, not necessarily a process: an object session
+  // serves many reads from one persistent process. `processes` counts only the
+  // lines that actually started one, which is what a process budget is about.
+  const processes = [];
   for (const line of result.stderr.split(/\r?\n/)) {
-    const match = line.match(/^\[vlab trace\] [\d.]+ms git (\S+) \(/);
-    if (match) commands.push(match[1]);
+    const match = line.match(/^\[vlab trace\] [\d.]+ms git (\S+) \(([^)]+)\)/);
+    if (!match) continue;
+    commands.push(match[1]);
+    if (match[2] === "new process" || match[2] === "new persistent process") {
+      processes.push(match[1]);
+    }
   }
-  return { stdout: result.stdout, commands };
+  return { stdout: result.stdout, commands, processes };
 }
 
 function createIndexedSpecDivergence(repo, options = {}) {
@@ -4456,10 +4464,19 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
   // for-each-ref + cat-file (peel ref targets) + notes list + cat-file (note
   // blobs) + cat-file (referenced objects) + cat-file (retained results) = 6
   // processes plus that one context probe, independent of how many retention
-  // refs exist.
+  // refs exist. Since issue #42 those four object reads are served by one
+  // object session, so the same six operations cost three processes where
+  // sessions are enabled; without one they still cost six, which is the shape
+  // asserted separately below.
   const empty = tracedGitCommands(repo, "resolve", "list", "--json");
   assert.deepEqual(JSON.parse(empty.stdout), []);
   assert.deepEqual(empty.commands, ["for-each-ref"]);
+  // Asking for a session must not open one here: the ref scan answers that the
+  // catalog is empty before any object read is needed, so a repository with no
+  // retention refs never pays for a persistent process (issue #42).
+  const emptySession = tracedGitCommands(repo, "resolve", "list", "--json", "--git-session");
+  assert.deepEqual(JSON.parse(emptySession.stdout), []);
+  assert.deepEqual(emptySession.processes, ["for-each-ref"]);
   const repositoryContextCalls = 1;
   const processBound = 6 + repositoryContextCalls;
 
@@ -4513,6 +4530,28 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
   const session = tracedGitCommands(repo, "resolve", "list", "--json", "--git-session");
   assert.deepEqual(JSON.parse(session.stdout), catalog);
   assert.ok(session.commands.length <= processBound, session.commands.join(", "));
+
+  // The catalog costs the same operations either way; what a session changes is
+  // how many of them start a process (issue #42). Without one, every batched
+  // object read is its own process; with one, a single persistent `cat-file`
+  // serves the ref peel, the note blobs, the referenced-object validation, and
+  // the retained-result inspection.
+  const withoutSession = tracedGitCommands(repo, "resolve", "list", "--json", "--no-git-session");
+  assert.deepEqual(JSON.parse(withoutSession.stdout), catalog);
+  assert.equal(
+    withoutSession.processes.filter((command) => command === "cat-file").length,
+    4,
+    `expected four unsessioned object reads, traced: ${withoutSession.processes.join(", ")}`,
+  );
+  assert.ok(
+    session.processes.length < withoutSession.processes.length,
+    `a session must start fewer processes: ${session.processes.join(", ")} vs ${withoutSession.processes.join(", ")}`,
+  );
+  assert.equal(
+    session.processes.filter((command) => command.startsWith("cat-file")).length,
+    1,
+    `expected one persistent object process, traced: ${session.processes.join(", ")}`,
+  );
 });
 
 test("metadata export and import carry a retention ref that names an annotated tag of its retention commit", (t) => {

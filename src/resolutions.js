@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { runGit } from "./git.js";
+import { runGit, withGitObjectSession } from "./git.js";
 import {
   indexEntries,
   inspectGitObjects,
@@ -62,17 +62,23 @@ function compactResolution(record) {
  * resolution record and is quarantined from the catalog; a failed scan is an
  * error rather than an empty catalog.
  */
-function listResolutionRefs(cwd) {
-  let entries;
+function scanResolutionRefs(cwd) {
   try {
-    entries = listRefs(RESOLUTION_REFS, cwd);
+    return listRefs(RESOLUTION_REFS, cwd);
   } catch (error) {
     throw new CliError("Could not scan resolution retention refs.", {
       code: "git-command-failed",
       details: error.details,
     });
   }
-  if (entries.length === 0) return [];
+}
+
+/**
+ * The retention refs that name a commit. A ref pointing at anything else, or at
+ * an object that has since gone, is not a retained resolution and is dropped
+ * here rather than being reported as one.
+ */
+function peelResolutionRefs(entries, cwd) {
   const objects = inspectGitObjects(
     entries.map((entry) => `${entry.oid}^{commit}`),
     cwd,
@@ -87,9 +93,35 @@ function listResolutionRefs(cwd) {
   return refs;
 }
 
+/**
+ * The retained resolution catalog.
+ *
+ * Every object read after the ref scan is served by one persistent
+ * `cat-file --batch` rather than a process apiece (issue #42): the note blobs,
+ * the referenced-object validation inside `acceptedCausalRecords`, and the
+ * retained-result inspection are four separate batched reads, and without a
+ * session each one costs a process — which is what made this the phase furthest
+ * from its plain-Git equivalent.
+ *
+ * The session opens after the ref scan and before everything else, which is
+ * where it belongs: a repository with no resolution refs returns first and
+ * never pays for a persistent process it would not use, while the ref peel --
+ * the first object read, and the one that decides whether any ref names a
+ * commit at all -- falls inside rather than costing a process of its own.
+ * `withGitObjectSession` is re-entrant, so a caller that already holds one for
+ * this repository -- a reconciliation capturing conflict descriptors, say --
+ * reuses it rather than nesting.
+ */
 export function listResolutionRecords(cwd = process.cwd()) {
-  const refs = listResolutionRefs(cwd);
-  if (refs.length === 0) return [];
+  const entries = scanResolutionRefs(cwd);
+  if (entries.length === 0) return [];
+  return withGitObjectSession(cwd, () => {
+    const refs = peelResolutionRefs(entries, cwd);
+    return refs.length === 0 ? [] : retainedResolutions(refs, cwd);
+  });
+}
+
+function retainedResolutions(refs, cwd) {
   const notes = readNotes(refs.map((entry) => entry.commit), cwd);
   const records = [];
   for (const { ref, commit } of refs) {
