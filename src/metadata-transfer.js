@@ -25,6 +25,7 @@ import {
 import { referencedObjectsForRecord } from "./schemas.js";
 import { CliError } from "./errors.js";
 import { withNotesLock } from "./notes.js";
+import { buildNoteTree, commitWithParents, buildRetentionCommit, recordDependencies, checkedRefUpdate, RETENTION_REF } from "./git-carriers.js";
 import { temporaryDirectory } from "./store.js";
 
 const NOTES_REF = "refs/notes/vcs-lab";
@@ -75,6 +76,13 @@ function collapseCommitParents(parents, tree, cwd, env, message) {
 }
 
 function buildNotesCommit(entries, cwd, options = {}) {
+  if (options.baseRef) {
+    let tree = `${options.baseRef}^{tree}`;
+    for (const [attachment, records] of groupRecords(entries)) {
+      tree = buildNoteTree({ schema: "vcs-lab.note/v1", records }, attachment, tree, cwd);
+    }
+    return { tree, commit: commitWithParents(tree, options.parents ?? [], cwd, options) };
+  }
   const temporary = temporaryDirectory("vlab-metadata-index-");
   const indexPath = path.join(temporary, "index");
   const env = {
@@ -89,11 +97,7 @@ function buildNotesCommit(entries, cwd, options = {}) {
     } : {}),
   };
   try {
-    if (options.baseRef) {
-      runGit(["read-tree", `${options.baseRef}^{tree}`], { cwd, env });
-    } else {
-      runGit(["read-tree", "--empty"], { cwd, env });
-    }
+    runGit(["read-tree", "--empty"], { cwd, env });
     for (const [attachment, records] of groupRecords(entries)) {
       const body = `${JSON.stringify({ schema: "vcs-lab.note/v1", records }, null, 2)}\n`;
       const blob = runGit(["hash-object", "-w", "--stdin"], {
@@ -201,18 +205,14 @@ export function exportMetadata(envelopePath, options = {}) {
     const refs = [];
     const bundleRefs = [];
     if (snapshot.portableRecords.length) {
-      const retainedCommits = new Set(
-        snapshot.portableRecords.flatMap((entry) => [
-          entry.attachment,
-          ...referencedObjectsForRecord(entry.record)
-            .filter((reference) => reference.type === "commit")
-            .map((reference) => reference.oid),
-        ]),
+      const carrier = buildRetentionCommit(
+        recordDependencies(snapshot.portableRecords, context.root, { validate: false }),
+        null, context.root, { deterministic: true, message: `vcs-lab metadata objects ${exportKey}` },
       );
       const notes = buildNotesCommit(snapshot.portableRecords, context.root, {
         message: `vcs-lab metadata export ${exportKey}`,
         deterministic: true,
-        parents: [...retainedCommits].sort(),
+        parents: [carrier],
       });
       runGit(["update-ref", temporaryNoteRef, notes.commit], { cwd: context.root });
       refs.push({ ref: NOTES_REF, bundleRef: temporaryNoteRef, oid: notes.commit });
@@ -258,11 +258,11 @@ export function exportMetadata(envelopePath, options = {}) {
   }
 }
 
-function initInspectionRepository() {
+function initInspectionRepository(objectFormat) {
   const parent = temporaryDirectory("vlab-envelope-inspect-");
   const repo = path.join(parent, "repo");
   fs.mkdirSync(repo);
-  runGit(["init", "-b", "main"], { cwd: repo });
+  runGit(["init", "-b", "main", `--object-format=${objectFormat}`], { cwd: repo });
   runGit(["config", "user.name", "vcs-lab metadata inspector"], { cwd: repo });
   runGit(["config", "user.email", "metadata-inspector@example.invalid"], { cwd: repo });
   return { parent, repo };
@@ -284,7 +284,7 @@ function inspectEnvelopePayload(envelope) {
   if (!envelope.bundlePath) {
     return { records: [], refs: [], providedObjects: new Set() };
   }
-  const temporary = initInspectionRepository();
+  const temporary = initInspectionRepository(envelope.manifest.repository.objectFormat);
   try {
     const refspecs = envelope.manifest.refs.map((entry) => `${entry.bundleRef}:${entry.ref}`);
     runGit(["fetch", "--no-tags", envelope.bundlePath, ...refspecs], {
@@ -488,6 +488,9 @@ function applyImport(envelope, incoming, preview, cwd) {
   if (!envelope.bundlePath || incoming.refs.length === 0) {
     return { ...preview, schema: "vcs-lab.metadata-import/v1", applied: true, changed: false };
   }
+  if (preview.summary.addRecords === 0 && preview.summary.createRefs === 0 && preview.summary.mergeRefs === 0) {
+    return { ...preview, schema: "vcs-lab.metadata-import/v1", applied: true, changed: false };
+  }
   const staged = stageEnvelopeRefs(envelope, cwd);
   try {
     // The notes ref is read and then replaced in one transaction, under the
@@ -497,8 +500,8 @@ function applyImport(envelope, incoming, preview, cwd) {
       const commands = ["start"];
       const notesStage = staged.find((entry) => entry.ref === NOTES_REF);
       const existingNotes = refTarget(NOTES_REF, cwd);
-      const notesPreview = preview.refs.find((entry) => entry.ref === NOTES_REF);
-      if (notesStage && notesPreview?.action !== "noop") {
+      const existingRetention = refTarget(RETENTION_REF, cwd);
+      if (notesStage) {
         if (existingNotes === null) {
           commands.push(`create ${NOTES_REF} ${notesStage.oid}`);
         } else {
@@ -522,6 +525,12 @@ function applyImport(envelope, incoming, preview, cwd) {
           throw new CliError(`Resolution ref '${entry.ref}' changed or conflicts during import.`,
             { code: "stale-input" });
         }
+      }
+      const retained = buildRetentionCommit(recordDependencies(incoming.records, cwd), existingRetention, cwd);
+      commands.push(checkedRefUpdate(RETENTION_REF, retained, existingRetention));
+      // Even an unchanged notes tree must match the snapshot used for this publication.
+      if (!commands.some(command => command.startsWith(`create ${NOTES_REF} `) || command.startsWith(`update ${NOTES_REF} `))) {
+        commands.push(`verify ${NOTES_REF} ${existingNotes ?? "0".repeat(repoContext(cwd).objectFormat === "sha256" ? 64 : 40)}`);
       }
       for (const entry of staged) commands.push(`delete ${entry.stageRef} ${entry.oid}`);
       commands.push("prepare", "commit");

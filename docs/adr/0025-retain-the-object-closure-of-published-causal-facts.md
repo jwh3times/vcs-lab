@@ -1,6 +1,6 @@
 # ADR-0025: Retain the object closure of published causal facts
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-09
 - **Owners:** Repository maintainers
 - **Related issue:** [#49](https://github.com/jwh3times/vcs-lab/issues/49)
@@ -26,7 +26,7 @@ The runtime authority for required dependencies already exists:
 requires the attachment commit itself. Retention must cover both, including
 trees and blobs that are not reachable from any listed commit.
 
-The envelope exporter currently parents its sanitized notes commit with
+Before this decision, the envelope exporter parented its sanitized notes commit with
 referenced commits. That protects their commit ancestry, but does not carry
 independent required trees or blobs. A locally valid resolution can consequently
 export an envelope that its destination refuses for missing stage blobs.
@@ -35,7 +35,7 @@ Disposable reproduction and carrier experiments are recorded on #49. They
 establish the Git reachability mechanism; they do not establish production
 publication atomicity, migration, performance, or platform qualification.
 
-## Proposed decision
+## Decision
 
 ### One shared retention root, separate from causal evidence
 
@@ -134,8 +134,9 @@ Existing notes require an explicit, inspectable backfill operation. Its preview
 reports accepted facts eligible for retention and facts whose objects are
 already missing; apply pins only still-valid facts under the same checked
 publication discipline. It cannot reconstruct missing objects or silently
-accept quarantined records. The CLI/JSON contract for that operation belongs
-in the implementation review. New publication alone must not be described as
+accept quarantined records. The implementation exposes `metadata retain
+--dry-run|--apply` and the `vcs-lab.metadata-retention/v1` JSON result. New
+publication alone must not be described as
 retroactively protecting every old fact.
 
 ## Consequences and alternatives
@@ -166,9 +167,8 @@ Alternatives considered:
 
 ## Acceptance boundary
 
-Maintainer acceptance must settle the fixed shared root, atomic publication,
-and the conservative lifetime before live persistence changes under #49.
-Implementation must then prove:
+The maintainer accepted the fixed shared root, atomic publication, and
+conservative lifetime on 2026-09-09. Implementation must prove:
 
 - GC survival and post-GC export/import for hard squash, applications, causal
   rebase, carried provenance, and independent resolution stage blobs;
@@ -181,5 +181,5 @@ Implementation must then prove:
   expectation changes and no unexplained baseline refresh;
 - the repository's complete validation matrix on Windows and POSIX.
 
-This ADR is a proposed contract, not a claim that these guarantees are already
-implemented. #49 remains open until its implementation and qualification land.
+Acceptance establishes the contract. Implementation and qualification evidence
+belongs on #49 and its pull request; the defect closes when both land.

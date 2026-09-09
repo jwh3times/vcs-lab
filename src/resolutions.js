@@ -261,8 +261,18 @@ export function publishResolution(outcome, application, cwd = process.cwd()) {
     cwd,
     input: `${message}\n`,
   }).stdout;
+  const record = {
+    schema: "vcs-lab.resolution/v1", type: "resolution", id: newId("resolution"),
+    signature: outcome.signature, algorithm: outcome.algorithm,
+    base: outcome.base, ours: outcome.ours, theirs: outcome.theirs,
+    resultBlob: outcome.resultBlob, resultMode: outcome.resultMode,
+    originalPath: outcome.path, originatingApplication: application.id,
+    originatingCommit: application.appliedCommit,
+    originatingChangeId: application.appliedChangeId, decision: outcome.decision,
+    ref, resolutionCommit: commit, createdAt: new Date().toISOString(),
+  };
   try {
-    runGit(["update-ref", ref, commit], { cwd });
+    appendNote(commit, record, cwd, { refUpdates: [`create ${ref} ${commit}`] });
   } catch (error) {
     // Diagnose only a failed path creation, never an existing lock or a
     // permission refusal. Successful publication pays no extra read cost.
@@ -288,27 +298,6 @@ export function publishResolution(outcome, application, cwd = process.cwd()) {
     }
     throw error;
   }
-  const record = {
-    schema: "vcs-lab.resolution/v1",
-    type: "resolution",
-    id: newId("resolution"),
-    signature: outcome.signature,
-    algorithm: outcome.algorithm,
-    base: outcome.base,
-    ours: outcome.ours,
-    theirs: outcome.theirs,
-    resultBlob: outcome.resultBlob,
-    resultMode: outcome.resultMode,
-    originalPath: outcome.path,
-    originatingApplication: application.id,
-    originatingCommit: application.appliedCommit,
-    originatingChangeId: application.appliedChangeId,
-    decision: outcome.decision,
-    ref,
-    resolutionCommit: commit,
-    createdAt: new Date().toISOString(),
-  };
-  appendNote(commit, record, cwd);
   return { ...record, commit };
 }
 

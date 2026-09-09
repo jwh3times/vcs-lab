@@ -797,7 +797,9 @@ function publisher(repo, commit, recordId, env = {}) {
   const script = [
     `import { appendNote } from ${JSON.stringify(notes)};`,
     `appendNote(${JSON.stringify(commit)}, {`,
-    `  type: "test-record", id: ${JSON.stringify(recordId)},`,
+    `  schema: "vcs-lab.provenance/v1", type: "provenance", id: ${JSON.stringify(recordId)},`,
+    `  commit: ${JSON.stringify(commit)}, changeId: null, origin: "declared", carriedFrom: [],`,
+    '  actors: [{ role: "generated", actor: "concurrent test" }],',
     "  createdAt: new Date().toISOString(),",
     "});",
   ].join("\n");
