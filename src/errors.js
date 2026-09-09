@@ -78,6 +78,7 @@ export const ERROR_CODES = Object.freeze({
   // --- Git subprocess and transport ----------------------------------------
   "git-unavailable": "Git could not be started at all. Check that it is installed and on PATH.",
   "git-command-failed": "A Git command exited non-zero. The details carry its output.",
+  "path-length-exceeded": "Git could not create a resolution retention ref at the Windows path-length limit. Shorten the Git directory path or enable Git long paths, then retry.",
   "revision-not-resolved": "A revision or object did not resolve to the expected type. Check the reference.",
   "git-response-malformed": "Git returned output this build could not parse. Report it with the Git version.",
   "session-unavailable": "A batched Git session is closed, timed out, or failed. The command falls back to ordinary Git where it can.",

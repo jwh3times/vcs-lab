@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Diagnose Windows resolution retention path failures with the additive
+  `path-length-exceeded` error code, the measured ref lock-path length, and
+  recovery guidance (issue #67). Cover the 259/260-character boundary, linked
+  worktrees, Git long-path support, existing locks, and reconciliation abort.
+
 - Record the first identified-host benchmark baseline, `lab-windows-a`
   (issues #22, #52). Until now `hosts` was empty, so every latency comparison
   was skipped on every machine and release-gate item 10 could not pass

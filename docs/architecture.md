@@ -689,6 +689,15 @@ record points to a result blob retained in a small commit under:
 refs/vcs-lab/resolutions/<signature>/<result-blob>
 ```
 
+On Windows, the absolute ref path plus `.lock` must fit within 259 characters
+when Git long paths are disabled. After a failed directory/path creation,
+publication resolves the actual ref location through the engine's `gitPath`
+operation and reports `path-length-exceeded` if the lock path reaches 260
+characters. Successful publication incurs no extra reads. Existing-lock and
+permission errors keep their Git classification; no ref layout or Git setting
+is changed. See [Windows resolution retention paths](testing.md#windows-resolution-retention-paths)
+for path budgets, linked-worktree behavior, and recovery.
+
 Selection rules:
 
 - zero candidates: resolve manually; successful continuation can create one;
