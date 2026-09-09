@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Take the whole metadata inventory under one object session (issue #42). The
+  inventory reads objects from four independent validators -- portable notes,
+  tracked specifications, shared-local registries, and worktree-private state --
+  and each batched read cost a Git process. `metadata status` and
+  `metadata validate` now cost eight Git processes rather than twelve where
+  object sessions are enabled, with byte-identical output. A repository with no
+  metadata to read still starts no persistent process, because the session
+  starts its worker on first use rather than on entry.
+
 - Serve the retained resolution catalog from one object session instead of a
   process per batched read (issue #42). The scan made four separate batched
   object reads -- the ref peel, the note blobs, the referenced-object
