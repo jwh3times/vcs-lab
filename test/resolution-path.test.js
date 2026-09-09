@@ -52,9 +52,7 @@ function publish(repo, overrides = {}) {
   return { ...result, value: JSON.parse(result.stdout) };
 }
 
-test("resolution retention diagnoses the Windows lock-path boundary and supports long paths", {
-  skip: process.platform !== "win32",
-}, (t) => {
+test("resolution retention diagnoses the Windows lock-path boundary and supports long paths", (t) => {
   const short = fixture(t, 113).repo;
   assert.equal(publish(short).status, 0);
   const { repo, parent } = fixture(t, 114);
@@ -62,6 +60,10 @@ test("resolution retention diagnoses the Windows lock-path boundary and supports
   git(repo, "worktree", "add", "-b", "linked", linked);
   // A short linked worktree still stores shared refs in the long common dir.
   const failed = publish(linked);
+  if (process.platform !== "win32") {
+    assert.equal(failed.status, 0, failed.stdout + failed.stderr);
+    return;
+  }
   assert.equal(failed.status, 1);
   assert.equal(failed.value.code, "path-length-exceeded");
   assert.match(failed.value.message, /260 characters.*259/);
@@ -74,11 +76,14 @@ test("resolution retention diagnoses the Windows lock-path boundary and supports
   assert.equal(publish(linked).status, 0);
 });
 
-test("SHA-256 resolution failures measure the longer object ID in the ref path", {
-  skip: process.platform !== "win32",
-}, (t) => {
+test("SHA-256 resolution failures measure the longer object ID in the ref path", (t) => {
   const { repo } = fixture(t, 114, "sha256");
   const failed = publish(repo);
+  if (process.platform !== "win32") {
+    assert.equal(failed.status, 0, failed.stdout + failed.stderr);
+    assert.equal(failed.value.resultBlob.length, 64);
+    return;
+  }
   assert.equal(failed.status, 1);
   assert.equal(failed.value.code, "path-length-exceeded");
   assert.match(failed.value.message, /284 characters/);
@@ -98,9 +103,7 @@ test("an existing resolution lock retains the Git error classification", (t) => 
   assert.ok(fs.existsSync(lock));
 });
 
-test("CLI resolution publication reports a path error and reconciliation remains abortable", {
-  skip: process.platform !== "win32",
-}, (t) => {
+test("CLI resolution publication reports a path error and reconciliation remains abortable", (t) => {
   const { repo } = fixture(t, 114);
   const start = git(repo, "rev-parse", "HEAD");
   git(repo, "switch", "-c", "source");
@@ -118,6 +121,13 @@ test("CLI resolution publication reports a path error and reconciliation remains
   fs.writeFileSync(path.join(repo, "a.txt"), "resolved\n");
   git(repo, "add", "a.txt");
   const failed = run("reconcile", "--continue", "--json");
+  if (process.platform !== "win32") {
+    assert.equal(failed.status, 0, failed.stdout + failed.stderr);
+    assert.notEqual(git(repo, "rev-parse", "HEAD"), target);
+    assert.equal(git(repo, "status", "--porcelain"), "");
+    assert.equal(fs.readFileSync(path.join(repo, "a.txt"), "utf8"), "resolved\n");
+    return;
+  }
   assert.equal(failed.status, 1);
   assert.equal(failed.stderr, "");
   assert.equal(JSON.parse(failed.stdout).code, "path-length-exceeded");

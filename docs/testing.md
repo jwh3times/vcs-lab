@@ -35,8 +35,9 @@ Existing lock files and permission failures retain `git-command-failed`.
 
 `test/resolution-path.test.js` exercises the Windows boundary, shared refs from
 a linked worktree, successful publication with long paths enabled, existing
-locks, and CLI JSON failure followed by reconciliation abort. Windows-specific
-cases skip on other hosts; no synced folder or special hardware is required.
+locks, and CLI JSON failure followed by reconciliation abort. On other hosts,
+the same long paths must publish successfully; no synced folder or special
+hardware is required.
 
 ## Development validation
 
