@@ -18,7 +18,164 @@
     "latencyFloorMs": 5,
     "processes": 0
   },
-  "hosts": {},
+  "hosts": {
+    "lab-windows-a": {
+      "host": {
+        "id": "lab-windows-a",
+        "platform": "win32",
+        "arch": "x64",
+        "cpuModels": [
+          "AMD Ryzen 7 5800X3D 8-Core Processor           "
+        ],
+        "logicalCpus": 16,
+        "memoryBytes": 34277711872,
+        "osRelease": "10.0.26200",
+        "overrides": {
+          "VLAB_ENGINE": null,
+          "VLAB_GIT_SESSION": null,
+          "VLAB_FORECAST_ENGINE": null
+        }
+      },
+      "recordedAt": "2026-09-09",
+      "git": "git version 2.55.0.windows.3",
+      "node": "v26.4.0",
+      "phases": {
+        "history": {
+          "medianMs": 40.58,
+          "p95Ms": 42.01,
+          "medianProcesses": 1,
+          "floor": {
+            "equivalent": "git rev-list --count refs/heads/main",
+            "medianMs": 39.75,
+            "p95Ms": 42.61,
+            "medianProcesses": 1
+          }
+        },
+        "gitWorktrees": {
+          "medianMs": 35.87,
+          "p95Ms": 38.08,
+          "medianProcesses": 1,
+          "floor": {
+            "equivalent": "git worktree list --porcelain",
+            "medianMs": 39.77,
+            "p95Ms": 45.35,
+            "medianProcesses": 1
+          }
+        },
+        "workspaceRegistry": {
+          "medianMs": 0.3,
+          "p95Ms": 0.49,
+          "medianProcesses": 0,
+          "floor": null
+        },
+        "workspaceStatus": {
+          "medianMs": 149.76,
+          "p95Ms": 313.13,
+          "medianProcesses": 4,
+          "floor": {
+            "equivalent": "git status --porcelain in each registered workspace worktree",
+            "medianMs": 146.47,
+            "p95Ms": 150.33,
+            "medianProcesses": 4
+          }
+        },
+        "noteCatalog": {
+          "medianMs": 84.01,
+          "p95Ms": 90.67,
+          "medianProcesses": 2,
+          "floor": {
+            "equivalent": "git notes --ref=vcs-lab list, then git cat-file --batch over the note blobs",
+            "medianMs": 77.79,
+            "p95Ms": 82.39,
+            "medianProcesses": 2
+          }
+        },
+        "resolutionCatalog": {
+          "medianMs": 138.59,
+          "p95Ms": 147.1,
+          "medianProcesses": 3,
+          "floor": {
+            "equivalent": "git for-each-ref refs/vcs-lab/resolutions/, then git cat-file --batch over the result blobs",
+            "medianMs": 67.89,
+            "p95Ms": 70.27,
+            "medianProcesses": 2
+          }
+        },
+        "metadataStatus": {
+          "medianMs": 346.53,
+          "p95Ms": 466.11,
+          "medianProcesses": 8,
+          "floor": {
+            "equivalent": "git rev-parse --git-dir and git worktree list, then the note and resolution reads above",
+            "medianMs": 215.66,
+            "p95Ms": 222.78,
+            "medianProcesses": 6
+          }
+        },
+        "workspaceCreate": {
+          "medianMs": 423.28,
+          "p95Ms": 442.58,
+          "medianProcesses": 2,
+          "floor": {
+            "equivalent": "git worktree add --detach <path> main",
+            "medianMs": 356.14,
+            "p95Ms": 366.6,
+            "medianProcesses": 1
+          }
+        },
+        "workspaceCreateCone": {
+          "medianMs": 237.12,
+          "p95Ms": 248.7,
+          "medianProcesses": 4,
+          "floor": {
+            "equivalent": "git worktree add --no-checkout --detach <path> main, git sparse-checkout set --cone <dir>, git checkout",
+            "medianMs": 169.19,
+            "p95Ms": 177.37,
+            "medianProcesses": 3
+          }
+        }
+      },
+      "materialization": {
+        "full": {
+          "files": 600,
+          "bytes": 615000
+        },
+        "cone": {
+          "files": 60,
+          "bytes": 61500
+        }
+      },
+      "forecast": {
+        "worktree-ordinary": {
+          "engine": "worktree",
+          "fallbacks": 0,
+          "processes": 62,
+          "queries": 62,
+          "forecastMs": 2347.5
+        },
+        "worktree-session": {
+          "engine": "worktree",
+          "fallbacks": 0,
+          "processes": 23,
+          "queries": 62,
+          "forecastMs": 1126.44
+        },
+        "merge-tree-session": {
+          "engine": "merge-tree",
+          "fallbacks": 0,
+          "processes": 9,
+          "queries": 24,
+          "forecastMs": 431.43
+        }
+      },
+      "publication": {
+        "changes": 6,
+        "processes": 42,
+        "records": 19,
+        "elapsedMs": 345
+      }
+    }
+  },
   "legacyHosts": {
     "linux": {
       "recordedAt": "2026-09-01",
