@@ -50,6 +50,9 @@ function readTree(oid, cwd, oidBytes) {
 function replaceNote(tree, suffix, blob, cwd, oidBytes) {
   const entries = tree ? readTree(tree, cwd, oidBytes) : [];
   const exact = entries.find(entry => entry.name.toString("utf8") === suffix);
+  if (exact && exact.type !== "blob") {
+    throw new CliError("A non-note object occupies the notes attachment path; publication refused.", { code: "malformed-input" });
+  }
   const directory = entries.find(entry => entry.type === "tree" &&
     /^[0-9a-f]{2}$/.test(entry.name.toString("utf8")) &&
     entry.name.length < suffix.length && suffix.startsWith(entry.name.toString("utf8")));
