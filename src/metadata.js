@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { withGitObjectSession } from "./git.js";
 import {
   inspectGitObjects,
   listNoteEntries,
@@ -723,9 +724,27 @@ function publicStatus(snapshot, schema) {
   };
 }
 
+/**
+ * The whole metadata inventory, taken under one object session (issue #42).
+ *
+ * The inventory reads objects from four independent validators -- portable
+ * notes, tracked specifications, shared-local registries, and worktree-private
+ * state -- and each batched read cost a process of its own, which is most of
+ * the distance between this phase and its plain-Git equivalent.
+ *
+ * Wrapping the whole snapshot is safe for a repository that has no metadata to
+ * read: the session starts its `cat-file` worker on first use, not on entry, so
+ * an inventory that reads no objects still starts no persistent process.
+ * `withGitObjectSession` is re-entrant, so a caller that already holds one
+ * reuses it.
+ */
 export function metadataSnapshot(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const context = repoContext(cwd);
+  return withGitObjectSession(context.root, () => takeSnapshot(context, options));
+}
+
+function takeSnapshot(context, options) {
   const diagnostics = [];
   const portable = validatePortableNotes(context, diagnostics, options);
   const trackedPortable = options.portableOnly ? {

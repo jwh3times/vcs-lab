@@ -4554,6 +4554,63 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
   );
 });
 
+test("the metadata inventory reads objects through one session, and starts none when there are no objects to read", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", ".");
+  const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
+  vlab(repo, "init");
+
+  // A repository with no vcs-lab metadata reads no objects, and a session
+  // starts its worker on first use rather than on entry -- so asking for one
+  // here must still start no persistent process (issue #42).
+  const bare = tracedGitCommands(repo, "metadata", "status", "--json", "--git-session");
+  assert.equal(
+    bare.processes.filter((command) => command.startsWith("cat-file")).length,
+    0,
+    `an empty inventory must start no object process, traced: ${bare.processes.join(", ")}`,
+  );
+
+  const baseBlob = writeBlob(repo, "base\n");
+  const oursBlob = writeBlob(repo, "ours\n");
+  const resultBlob = writeBlob(repo, "resolved\n");
+  for (let index = 0; index < 4; index += 1) {
+    publishRetainedResolution(repo, {
+      id: `res_inv_${index}`,
+      stages: {
+        base: { mode: "100644", blob: baseBlob },
+        ours: { mode: "100644", blob: oursBlob },
+        theirs: { mode: "100644", blob: writeBlob(repo, `theirs ${index}\n`) },
+      },
+      createdAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+      originalPath: `inv-${index}.txt`,
+      originatingCommit: base.commit,
+      resultBlob,
+    });
+  }
+
+  // The inventory validates portable notes, tracked specifications, shared-local
+  // registries, and worktree-private state, each with its own batched object
+  // read. Without a session each read is a process; with one they share a
+  // persistent `cat-file`, and the inventory itself is unchanged.
+  const sessioned = tracedGitCommands(repo, "metadata", "status", "--json", "--git-session");
+  const unsessioned = tracedGitCommands(repo, "metadata", "status", "--json", "--no-git-session");
+  assert.deepEqual(JSON.parse(sessioned.stdout), JSON.parse(unsessioned.stdout));
+  assert.ok(
+    unsessioned.processes.filter((command) => command === "cat-file").length > 1,
+    `expected several unsessioned object processes, traced: ${unsessioned.processes.join(", ")}`,
+  );
+  assert.equal(
+    sessioned.processes.filter((command) => command.startsWith("cat-file")).length,
+    1,
+    `expected one persistent object process, traced: ${sessioned.processes.join(", ")}`,
+  );
+  assert.ok(
+    sessioned.processes.length < unsessioned.processes.length,
+    `a session must start fewer processes: ${sessioned.processes.join(", ")} vs ${unsessioned.processes.join(", ")}`,
+  );
+});
+
 test("metadata export and import carry a retention ref that names an annotated tag of its retention commit", (t) => {
   const { repo, parent } = makeRepo(t);
   // The stage blobs are committed so a fresh clone carries every object the
