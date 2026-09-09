@@ -3,6 +3,23 @@
   "description": "Human/JSON parity contract for the vlab CLI (FR-GIT-06; ADR-0015 phase 0b, issue #11 item 5). Each command entry names the JSON members its human rendering must present and the members it deliberately does not. test/conformance.test.js runs every entry against the real CLI; see README.md for the match rules and the scenario stages.",
   "commands": [
     {
+      "name": "metadata-retain-preview",
+      "argv": ["metadata", "retain", "--dry-run"],
+      "stage": "clean", "mode": "reread",
+      "note": "Backfill reports eligible and quarantined facts without publishing a ref.",
+      "required": [
+        { "pointer": "/mode", "rule": "exact" },
+        { "pointer": "/eligibleRecords", "rule": "exact" },
+        { "pointer": "/quarantinedRecords", "rule": "exact" },
+        { "pointer": "/objects/commits", "rule": "exact" },
+        { "pointer": "/objects/trees", "rule": "exact" },
+        { "pointer": "/objects/blobs", "rule": "exact" },
+        { "pointer": "/notesTip", "rule": "exact" },
+        { "pointer": "/retentionBefore", "rule": "exact" }
+      ],
+      "jsonOnly": []
+    },
+    {
       "name": "verify-proof",
       "argv": ["verify-proof", "{proofBundle}"],
       "stage": "clean",

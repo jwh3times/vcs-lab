@@ -688,6 +688,25 @@ remain inspectable but cannot prove coverage, appear as exact resolutions, or
 enter an export. Strict validation additionally fails on warnings such as a
 missing workspace path or active private operation.
 
+Newly published facts retain their required commits, trees, and blobs under
+`refs/vcs-lab/retention`, so deleting a rewritten source branch and running Git
+GC does not invalidate its receipts. Retention is monotonic: aborting an operation
+or deleting a note does not release objects. Retained receipts still prove
+coverage only when their attachments are reachable from the selected target.
+See [ADR-0025](docs/adr/0025-retain-the-object-closure-of-published-causal-facts.md).
+
+For notes created by an older version, preview and apply an explicit backfill:
+
+```bash
+vlab metadata retain --dry-run --json
+vlab metadata retain --apply --json
+```
+
+Backfill retains still-valid facts and reports quarantined records, including
+already missing objects. It cannot restore missing history. A partial backfill
+with quarantined records returns exit status 1; repeating an unchanged backfill
+does not move any refs.
+
 Create an offline envelope, clone the ordinary project content, preview the
 exact destination actions, then apply them:
 
@@ -703,7 +722,9 @@ An envelope directory contains `manifest.json` and, when portable facts exist,
 `objects.bundle`. Export is deterministic for fixed accepted facts. It carries
 sanitized `refs/notes/vcs-lab` data, the commit history required by accepted
 causal records (including rewritten rebase origins), and accepted
-`refs/vcs-lab/resolutions/*` commits/blobs. Tracked spec manifests already move
+`refs/vcs-lab/resolutions/*` commits/blobs, including independent conflict-stage
+blobs. The envelope builds a carrier for its accepted facts and excludes the
+local retention chain. Tracked spec manifests already move
 with ordinary Git content. Workspace registries, checkpoint refs, active
 reconciliation/rebase journals, and saved forecasts are excluded.
 
@@ -720,6 +741,7 @@ actor identity, landing authorization, or permission to execute content.
 ## Metadata locations
 
 - Git notes: `refs/notes/vcs-lab`
+- Required objects of published facts: `refs/vcs-lab/retention`
 - Pending reconciliation: the current worktree Git directory under `vcs-lab/reconciliation.json`
 - Pending causal rebase: the current worktree Git directory under `vcs-lab/rebase.json`
 - Saved forecasts: the current worktree Git directory under `vcs-lab/forecasts/<forecast-id>.json`
@@ -738,7 +760,8 @@ git fetch origin 'refs/vcs-lab/resolutions/*:refs/vcs-lab/resolutions/*'
 
 Both refs are required for reusable resolution data: notes carry the records
 and the hidden resolution refs retain the result blobs. Fetching them manually
-does not perform envelope validation, conflict preview, or quarantine.
+does not provide complete dependency retention, envelope validation, conflict
+preview, or quarantine. Use the envelope for supported transfers.
 
 ## Measuring the compatibility layer
 

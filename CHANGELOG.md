@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Retain the required object closure of published causal facts under one shared
+  Git ref (issue #49, ADR-0025). Notes, retention, and new resolution refs publish
+  atomically; source deletion and Git GC preserve valid receipts and independent
+  conflict-stage blobs. Envelope export/import carries the complete closure
+  without changing manifest v1. Add `metadata retain --dry-run|--apply` for
+  inspectable, idempotent backfill of still-valid historical facts. Retention
+  does not expire automatically or grant coverage to unreachable receipts.
+- Initialize metadata envelope inspection repositories with the manifest's
+  object format, allowing SHA-256 envelope imports.
+
 - Diagnose Windows resolution retention path failures with the additive
   `path-length-exceeded` error code, the measured ref lock-path length, and
   recovery guidance (issue #67). Cover the 259/260-character boundary, linked

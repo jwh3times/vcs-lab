@@ -53,6 +53,7 @@ sequence in §15.
 | [0022](0022-reject-git-read-side-maintenance-caches-on-measured-evidence.md) | Accepted | Reject Git's read-side maintenance caches on measured evidence |
 | [0023](0023-locate-the-model-substrate-mismatch-in-facts-not-content.md) | Accepted | Locate the model/substrate mismatch in causal facts, not content |
 | [0024](0024-close-the-native-read-engine-program-at-phase-0b.md) | Proposed | Close the native read-engine program at phase 0b with a complete outcome |
+| [0025](0025-retain-the-object-closure-of-published-causal-facts.md) | Accepted | Retain published facts' required Git objects under a shared root without granting target coverage |
 
 ## Creating or changing an ADR
 

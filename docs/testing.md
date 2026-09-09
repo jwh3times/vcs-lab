@@ -15,6 +15,32 @@ run history-changing manual experiments in a valuable repository.
 
 The package has no runtime dependencies and no build step.
 
+### Published-object retention
+
+`test/retention.test.js` deletes source branches, expires reflogs, runs
+`git gc --prune=now`, and checks `git fsck` only in disposable fixtures. It
+verifies hard-squash, cherry-pick, rebase, provenance, and raw resolution-stage
+dependencies across local GC and envelope round trips, for SHA-1 and SHA-256.
+Interrupted publication followed by abort must preserve valid facts while
+granting no target coverage. Hard-exit and competing-writer tests exercise the
+checked notes/retention/resolution transaction; a locked retention ref must
+leave import destinations unchanged.
+
+Backfill tests cover read-only preview, quarantine, idempotence, and shared
+retention from a linked worktree. Carrier tests bound parent fan-in at 64 and
+exercise publication into imported fanned notes. Release qualification also
+checks old-reader/new-writer and new-reader/old-writer envelope compatibility,
+records publication process/storage costs on the issue or PR, and runs the full
+platform matrix required by [ADR-0025](adr/0025-retain-the-object-closure-of-published-causal-facts.md).
+
+The six-change publication fixture still produces 19 records. Atomic retention
+raises its identified-host process expectation from 42 to 140; only that
+deterministic expectation changes in `hosts.lab-windows-a`. Existing latency
+measurements, tolerances, and historical OS-only entries remain unchanged. The
+old and new process/storage measurements belong on #49 and its PR. OS-only
+publication counts predate retention and are historical comparisons, not a
+qualification of the new publication mechanism.
+
 ### Windows resolution retention paths
 
 With Git long paths disabled, a resolution ref's absolute `.lock` path must

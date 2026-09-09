@@ -402,6 +402,7 @@ function scenario() {
 
   // Metadata inventory, envelope round trip, and the engine differential.
   keep("metadata-status", vlabJson(repo, "metadata", "status", "--json"));
+  keep("metadata-retention", vlabJson(repo, "metadata", "retain", "--dry-run", "--json"));
   const validation = vlabResult(repo, "metadata", "validate", "--json");
   keep("metadata-validation", JSON.parse(validation.stdout));
   const envelopeDir = path.join(parent, "envelope");
