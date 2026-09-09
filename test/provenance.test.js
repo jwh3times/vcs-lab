@@ -327,15 +327,16 @@ test("carrying provenance does not scale the notes ref reads with the queue", ()
   //
   // Measured as growth rather than as an absolute count, so the test pins the
   // shape of the cost rather than a number that legitimately moves. Each extra
-  // application costs exactly four notes processes: the read-modify-write of
-  // its own application record, and the same for the provenance record carried
-  // onto it. A fifth means the notes ref is being listed once per application
+  // application costs exactly two notes processes: the container read for
+  // its own application record and for the provenance record carried onto it.
+  // Publication now uses checked ref transactions, not `git notes add`.
+  // A third means the notes ref is being listed once per application
   // again instead of once for the queue.
   //
   // Provenance must actually be declared for this to discriminate. With none in
   // the repository the batched path returns before the loop, so batched and
   // unbatched cost the same and the test would pass either way. Verified by
-  // mutation: reading per application gives five, not four.
+  // mutation: an extra listing per application increases this slope by one.
   const notesProcesses = (changes) => {
     const repo = makeRepo();
     git(repo, "switch", "-c", "feature");
@@ -358,9 +359,9 @@ test("carrying provenance does not scale the notes ref reads with the queue", ()
   const large = notesProcesses(6);
   assert.equal(
     (large - small) / 4,
-    4,
+    2,
     `${small} notes processes for 2 changes and ${large} for 6: each extra ` +
-      "application must cost four, not five. A fifth means the provenance read " +
+      "application must cost two notes reads. A third means the provenance read " +
       "is per application again instead of once for the queue.",
   );
 });

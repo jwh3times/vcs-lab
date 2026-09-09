@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { testEnv } from "../test-support/git-environment.js";
+import { resolutionSignatureFor } from "../src/schemas.js";
 
 const cli = fileURLToPath(new URL("../bin/vlab.js", import.meta.url));
 const publisher = new URL("../src/resolutions.js", import.meta.url).href;
@@ -41,7 +42,8 @@ function publish(repo, overrides = {}) {
     catch (error) { console.log(JSON.stringify(errorEnvelope(error))); process.exitCode = 1; }
   `;
   const outcome = {
-    signature: `rsig_${"a".repeat(64)}`,
+    signature: resolutionSignatureFor({}),
+    algorithm: "ordered-three-way-blobs/v1", base: null, ours: null, theirs: null,
     resultBlob: git(repo, "rev-parse", "HEAD:a.txt"),
     resultMode: "100644",
     ...overrides,
@@ -94,7 +96,7 @@ test("an existing resolution lock retains the Git error classification", (t) => 
   const { repo } = fixture(t, process.platform === "win32" ? 114 : 160);
   git(repo, "config", "core.longpaths", "true");
   const blob = git(repo, "rev-parse", "HEAD:a.txt");
-  const lock = path.join(repo, ".git", "refs", "vcs-lab", "resolutions", `rsig_${"a".repeat(64)}`, `${blob}.lock`);
+  const lock = path.join(repo, ".git", "refs", "vcs-lab", "resolutions", resolutionSignatureFor({}), `${blob}.lock`);
   fs.mkdirSync(path.dirname(lock), { recursive: true });
   fs.writeFileSync(lock, "");
   const failed = publish(repo);

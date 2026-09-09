@@ -94,6 +94,7 @@ import {
   forecastWorkspaces,
 } from "./forecasts.js";
 import { metadataStatus, validateMetadata } from "./metadata.js";
+import { retainMetadata, formatRetention } from "./retention.js";
 import { exportMetadata, importMetadata } from "./metadata-transfer.js";
 import { benchmarkRepositoryScale } from "./scale-benchmark.js";
 
@@ -133,6 +134,7 @@ Usage:
   vlab audit identity [--json]
   vlab metadata status [--json]
   vlab metadata validate [--strict] [--json]
+  vlab metadata retain --dry-run|--apply [--json]
   vlab metadata export <directory> [--json]
   vlab metadata import <directory> --dry-run [--json]
   vlab metadata import <directory> --apply [--json]
@@ -1363,6 +1365,12 @@ export async function main(rawArgs) {
     }
     case "metadata": {
       const subcommand = positionals[0];
+      if (subcommand === "retain") {
+        const result = retainMetadata({ dryRun: options.dryRun, apply: options.apply });
+        print(options.json ? result : formatRetention(result), options.json);
+        if (result.quarantinedRecords || result.diagnostics.some(entry => entry.severity === "error")) process.exitCode = 1;
+        return;
+      }
       if (subcommand === "status") {
         const result = metadataStatus();
         print(options.json ? result : formatMetadataStatus(result), options.json);
@@ -1404,7 +1412,7 @@ export async function main(rawArgs) {
         print(options.json ? result : formatScaleBenchmark(result), options.json);
         return;
       }
-      throw new CliError("Unknown metadata command. Use status, validate, export, import, or benchmark.",
+      throw new CliError("Unknown metadata command. Use status, validate, retain, export, import, or benchmark.",
         { code: "usage-unknown-command" });
     }
     case "workspace": {

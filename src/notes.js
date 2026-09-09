@@ -7,11 +7,13 @@ import {
   reachableCommits,
   readGitObjects,
   readNoteText,
+  refTarget,
 } from "./engine.js";
 import { CliError } from "./errors.js";
-import { gatePoint } from "./faults.js";
+import { gatePoint, faultPoint } from "./faults.js";
 import { RESOURCE_BOUNDS, withinBound } from "./schemas.js";
 import { ensureLabRuntime } from "./store.js";
+import { buildNoteCommit, buildRetentionCommit, checkedRefUpdate, recordDependencies, RETENTION_REF } from "./git-carriers.js";
 
 export const NOTES_REF = "vcs-lab";
 
@@ -120,12 +122,10 @@ export function readNotes(objects, cwd = process.cwd()) {
 /**
  * The notes ref is shared by every worktree of a repository, and every
  * receipt reaches it through a read-modify-write: read a commit's container,
- * append, write the whole blob back with `git notes add -f`. Git serializes
- * the ref update but not the read-modify-write, and `git notes add` itself
- * builds its tree from the ref as it stood when the command started and then
- * updates the ref unconditionally, so two publishers running at once could
- * each lose the other's record: on the same commit the later blob lacks the
- * earlier record, on different commits the later tree lacks the earlier note.
+ * append, and construct a replacement notes tree. The checked transaction
+ * publishes that tree and its object retention together. The lock serializes
+ * cooperating writers; checking both previous tips also refuses races with
+ * foreign writers instead of replacing their newer notes or retention.
  * `withNotesLock` serializes every vcs-lab writer of the ref on one lock file
  * in the shared runtime directory, created exclusively the way Git creates
  * its own `.lock` files. It costs no Git process.
@@ -269,14 +269,16 @@ function releaseNotesLock(lockPath) {
 /**
  * Append one record to a commit's note container, under the notes lock so a
  * second publisher's append between the read and the write cannot be lost.
- * `git notes add -f` replaces the whole blob, so this refuses to rewrite a
+ * Replacing the whole blob requires refusing to rewrite a
  * note it could not fully read: a container of another version, or one over
  * a published resource bound, would otherwise be destroyed by the rewrite
  * (ADR-0020). Publishing a receipt fails closed instead, leaving the existing
  * note byte-for-byte intact.
  */
-export function appendNote(commit, record, cwd = process.cwd()) {
+export function appendNote(commit, record, cwd = process.cwd(), options = {}) {
   return withNotesLock(cwd, () => {
+    const previousNotes = refTarget(`refs/notes/${NOTES_REF}`, cwd);
+    const previousRetention = refTarget(RETENTION_REF, cwd);
     const text = readNoteText(NOTES_REF, commit, cwd);
     const { note, disposition } = classifyNoteText(text === null ? "" : text);
     if (disposition === "foreign") {
@@ -308,14 +310,23 @@ export function appendNote(commit, record, cwd = process.cwd()) {
         `${RESOURCE_BOUNDS.noteContainerRecords}.`, { code: "resource-bound-exceeded" },
       );
     }
+    if (!withinBound("noteContainerBytes", Buffer.byteLength(`${JSON.stringify(note, null, 2)}\n`))) {
+      throw new CliError("The resulting note exceeds the noteContainerBytes bound.", { code: "resource-bound-exceeded" });
+    }
+    const dependencies = recordDependencies([{ attachment: commit, record }], cwd);
     // The window between the read and the write, where a second publisher's
     // append would be lost without the lock; the failure-boundary suite parks
     // a process here to prove the lock closes it.
     gatePoint("notes:after-read");
-    runGit(
-      ["notes", `--ref=${NOTES_REF}`, "add", "-f", "-F", "-", commit],
-      { cwd, input: `${JSON.stringify(note, null, 2)}\n` },
-    );
+    const nextNotes = buildNoteCommit(note, commit, previousNotes, cwd);
+    const nextRetention = buildRetentionCommit(dependencies, previousRetention, cwd);
+    faultPoint("retention:before-publish");
+    runGit(["update-ref", "--stdin"], { cwd, input: [
+      "start", checkedRefUpdate(`refs/notes/${NOTES_REF}`, nextNotes, previousNotes),
+      checkedRefUpdate(RETENTION_REF, nextRetention, previousRetention),
+      ...(options.refUpdates ?? []), "prepare", "commit", "",
+    ].join("\n") });
+    faultPoint("retention:after-publish");
     return note;
   });
 }

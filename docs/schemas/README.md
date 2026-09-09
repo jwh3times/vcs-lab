@@ -117,6 +117,7 @@ vocabulary is published in [errors.md](errors.md).
 | `vcs-lab.repository-scale-benchmark/v1` | [repository-scale-benchmark.v1.schema.json](repository-scale-benchmark.v1.schema.json) |
 | `vcs-lab.metadata-status/v1` | [metadata-status.v1.schema.json](metadata-status.v1.schema.json) |
 | `vcs-lab.metadata-validation/v1` | [metadata-validation.v1.schema.json](metadata-validation.v1.schema.json) |
+| `vcs-lab.metadata-retention/v1` | [metadata-retention.v1.schema.json](metadata-retention.v1.schema.json) |
 | `vcs-lab.metadata-export/v1` | [metadata-export.v1.schema.json](metadata-export.v1.schema.json) |
 | `vcs-lab.metadata-import-preview/v1` | [metadata-import-preview.v1.schema.json](metadata-import-preview.v1.schema.json) |
 | `vcs-lab.metadata-import/v1` | [metadata-import.v1.schema.json](metadata-import.v1.schema.json) |
@@ -164,6 +165,7 @@ rendering at all.
 | `vlab receipts` | Array of note records (any note-record family above) with `attachedTo` added |
 | `vlab metadata status` | `vcs-lab.metadata-status/v1` |
 | `vlab metadata validate` | `vcs-lab.metadata-validation/v1` |
+| `vlab metadata retain --dry-run/--apply` | `vcs-lab.metadata-retention/v1` |
 | `vlab metadata export` | `vcs-lab.metadata-export/v1` (writes a `vcs-lab.metadata-envelope/v1` manifest) |
 | `vlab metadata import --dry-run` | `vcs-lab.metadata-import-preview/v1` |
 | `vlab metadata import --apply` | `vcs-lab.metadata-import/v1` |

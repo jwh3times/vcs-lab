@@ -136,6 +136,8 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/identity-audit.js` | Repository-wide logical identity audit (`vcs-lab.identity-audit/v1`): union-find over identity-preserving application edges, multi-trailer, multi-origin, and invariant findings | Engine, notes |
 | `src/metadata-envelope.js` | Canonical envelope manifest, integrity hash, payload bounds, and parser | Metadata, schemas |
 | `src/metadata-transfer.js` | Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import | Metadata, envelope, Git |
+| `src/git-carriers.js` | Copy-on-write notes trees, typed dependency closure, bounded carrier parents, and checked ref commands | Engine, Git writes, schemas |
+| `src/retention.js` | Read-only retention preview and checked, idempotent historical backfill | Metadata, carriers, notes lock |
 | `src/scale-benchmark.js` | Bounded synthetic repository fixture, scan measurements, raw-Git floors for the phases with a plain-Git equivalent, semantic equality checks, and evidence-based optimization recommendations | Git, notes, metadata, resolutions, workspaces |
 | `src/landings.js` | Compact and hard-squash landing mechanics and receipts | Git adapter, notes |
 | `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
@@ -240,6 +242,7 @@ identity belongs in tracked files.
 | --- | --- | --- | --- |
 | Git source/history state | Shared repository | Git objects and ordinary refs | Normal Git lifecycle |
 | Causal notes | Shared repository | `refs/notes/vcs-lab` | Portable through a validated metadata envelope |
+| Published object retention | Shared repository | `refs/vcs-lab/retention` | Monotonic derived carrier; envelopes rebuild from selected accepted facts |
 | Resolution result objects | Shared repository | `refs/vcs-lab/resolutions/<signature>/<result-blob>` | Hidden ref prevents GC; envelope transports accepted refs |
 | Workspace registry | Shared repository installation | `<common-git-dir>/vcs-lab/workspaces.json` | Local; not automatically remote-portable |
 | Checkpoints | Shared repository | Latest under `refs/vcs-lab/checkpoints/<workspace-id>`; prior snapshots under `refs/vcs-lab/checkpoint-history/<workspace-id>/<oid>` | Local immutable snapshots retained across materialization changes |
@@ -294,6 +297,7 @@ use at the current development baseline:
 | `vcs-lab.metadata-export/v1` | Export result and process/storage metrics | `metadata-transfer.js` |
 | `vcs-lab.metadata-import-preview/v1` | Exact dry-run record/ref/object actions | `metadata-transfer.js` |
 | `vcs-lab.metadata-import/v1` | Applied/idempotent import result | `metadata-transfer.js` |
+| `vcs-lab.metadata-retention/v1` | Historical retention preview/apply counts, refs, and diagnostics | `retention.js` |
 | `vcs-lab.engine-differential/v1` | Operation-by-operation read-engine comparison | `engine.js` |
 | `vcs-lab.identity-audit/v1` | Repository-wide identity collision and duplicate-origin audit | `identity-audit.js` |
 | `vcs-lab.error/v1` | Failure envelope printed on stdout under `--json`, with a code from the closed vocabulary in `docs/schemas/errors.md` (ADR-0021) | `errors.js` |
@@ -470,11 +474,13 @@ hard-resets the exact original source tip and clears the journal without shared
 receipts. Linked worktrees therefore share completed facts but cannot overwrite
 or continue one another's active operation.
 
-Metadata export retains every commit referenced by accepted facts as a sorted
-parent of its deterministic synthetic notes commit. This makes pre-rewrite
-origins travel in `objects.bundle` even after ordinary branch refs no longer
-reach them; import preview accepts required objects already present either in
-the destination or in the verified bundle.
+Metadata export builds a deterministic carrier from accepted facts: attachment
+and referenced commits become parents, while required trees and blobs become
+real entries under `trees` and `blobs`. Parent fan-in is bounded at 64. The
+sanitized notes commit parents this carrier, so pre-rewrite origins and raw
+conflict-stage blobs travel in `objects.bundle`. Import preview accepts required
+objects present in the destination or verified bundle. The local retention
+chain is excluded from export; manifest v1 destination refs remain unchanged.
 
 ## 8. Landing flows
 
@@ -1106,10 +1112,11 @@ leaves inert records behind. They are not a correctness problem and
 history rewrite orphans records; they are also not collected.
 
 Publication is also the one stretch two worktrees can enter at once. Every
-record reaches the notes ref through a read-modify-write, and `git notes add`
-builds its tree from the ref as it stood when the command started and then
-updates the ref unconditionally, so two publishers running at once could each
-lose the other's record. `appendNote` and the metadata import therefore hold
+record reaches the notes ref through a read-modify-write. `appendNote` builds
+a candidate notes tree, preserving flat, fanned, and mixed layouts, and publishes
+notes and retention in one transaction that checks both previous tips. A new
+resolution ref participates in the same transaction. Foreign ref changes cause
+the transaction to refuse. `appendNote` and metadata import also hold
 one lock file, `<common-git-dir>/vcs-lab/notes.lock`, created exclusively
 the way Git creates its own lock files and costing no Git process. A lock
 whose holder is on this host and no longer running, or a minute-old lock
@@ -1117,6 +1124,21 @@ whose holder cannot be checked, is abandoned; a running holder's lock is
 waited for five seconds and then refused with `notes-locked`. The
 failure-boundary suite proves the window is closed by parking one publisher
 inside it with `VLAB_TEST_GATE` while another runs.
+
+`refs/vcs-lab/retention` retains each published attachment and the typed closure
+specified by `referencedObjectsForRecord`. Its previous tip remains an ancestor
+of every new carrier. Objects survive branch deletion, reflog expiry, GC, note
+deletion, and operation abort; retention never substitutes for target ancestry.
+Before the checked transaction an interruption leaves only collectible candidate
+objects; afterward each published fact has its closure retained. This does not
+make an entire multi-record finalization atomic.
+
+`metadata retain --dry-run|--apply` backfills accepted historical facts. It reports
+eligible/quarantined records and dependency counts, verifies the inspected tips,
+and applies under the notes lock. A notes-tip marker makes repeated backfill
+idempotent. Missing objects remain quarantined and cause exit status 1, including
+when valid facts were retained successfully. No automatic expiry or selective
+pruning is implemented; see [ADR-0025](adr/0025-retain-the-object-closure-of-published-causal-facts.md).
 
 `createCommit` acquires the same reentrant notes lock before `git commit` when
 actors are declared, retaining it through the provenance append. A refused lock
