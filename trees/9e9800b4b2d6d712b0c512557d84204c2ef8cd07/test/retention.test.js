@@ -200,6 +200,39 @@ test("mixed flat and fanned notes preserve unrelated notes and opaque entries", 
   assert.equal(git(repo, "rev-parse", `${NOTES}:opaque.txt`), opaque);
 });
 
+test("opaque hexadecimal directories are not mistaken for Git notes fan-out", (t) => {
+  const { repo } = fixture(t);
+  const head = git(repo, "rev-parse", "HEAD");
+  const opaque = gitInput(repo, ["hash-object", "-w", "--stdin"], "opaque content\n");
+  const directory = gitInput(repo, ["mktree"], `100644 blob ${opaque}\topaque.txt\n`);
+  const tree = gitInput(repo, ["mktree"], `040000 tree ${directory}\t${head.slice(0, 4)}\n`);
+  const notes = gitInput(repo, ["commit-tree", tree], "opaque notes tree\n");
+  git(repo, "update-ref", NOTES, notes);
+  const record = { schema: "vcs-lab.provenance/v1", type: "provenance", id: "prov_opaque", commit: head,
+    changeId: null, actors: [{ role: "generated", actor: "test" }], origin: "declared", carriedFrom: [] };
+  const result = scriptRun(repo, `import { appendNote } from ${JSON.stringify(notesModule)}; appendNote(${JSON.stringify(head)}, ${JSON.stringify(record)});`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(git(repo, "notes", "--ref=vcs-lab", "show", head)).records.length, 1);
+  assert.equal(git(repo, "rev-parse", `${NOTES}:${head.slice(0, 4)}/opaque.txt`), opaque);
+});
+
+test("an opaque tree occupying an attachment path is never overwritten", (t) => {
+  const { repo } = fixture(t);
+  const head = git(repo, "rev-parse", "HEAD");
+  const opaque = gitInput(repo, ["hash-object", "-w", "--stdin"], "opaque content\n");
+  const directory = gitInput(repo, ["mktree"], `100644 blob ${opaque}\topaque.txt\n`);
+  const tree = gitInput(repo, ["mktree"], `040000 tree ${directory}\t${head}\n`);
+  git(repo, "update-ref", NOTES, gitInput(repo, ["commit-tree", tree], "opaque notes tree\n"));
+  const before = refs(repo);
+  const record = { schema: "vcs-lab.provenance/v1", type: "provenance", id: "prov_collision", commit: head,
+    changeId: null, actors: [{ role: "generated", actor: "test" }], origin: "declared", carriedFrom: [] };
+  const result = scriptRun(repo, `import { appendNote } from ${JSON.stringify(notesModule)}; appendNote(${JSON.stringify(head)}, ${JSON.stringify(record)});`);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /non-note object occupies/);
+  assert.equal(refs(repo), before);
+  assert.equal(git(repo, "rev-parse", `${NOTES}:${head}/opaque.txt`), opaque);
+});
+
 test("independent resolution stage blobs survive GC and envelope transfer", (t) => {
   const { repo, parent } = fixture(t);
   const published = scriptRun(repo, resolutionScript(repo));
