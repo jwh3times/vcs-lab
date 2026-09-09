@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Record the first identified-host benchmark baseline, `lab-windows-a`
+  (issues #22, #52). Until now `hosts` was empty, so every latency comparison
+  was skipped on every machine and release-gate item 10 could not pass
+  anywhere; this host is now qualified, with 30 comparisons passing and none
+  skipped. Recorded on a quiet machine at platform defaults, with hardware and
+  environment provenance. Historical `legacyHosts` measurements are untouched
+  and no tolerance changed.
+
+  Four deterministic counts differ from the preserved `win32` entry, each
+  explained: `publication` 41 to 42, the reconcile abort guard's one
+  `git symbolic-ref` per reconciliation; `resolutionCatalog` 6 to 3 and
+  `metadataStatus` 12 to 8, the object sessions above; and both worktree
+  forecast modes one process lower, 63 to 62 and 24 to 23, because the
+  fixture's conflicted steps no longer run the per-path resolution-catalog
+  scan. No phase grew.
+
 - Take the whole metadata inventory under one object session (issue #42). The
   inventory reads objects from four independent validators -- portable notes,
   tracked specifications, shared-local registries, and worktree-private state --
