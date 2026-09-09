@@ -179,6 +179,27 @@ test("publication after importing fanned notes replaces the existing leaf", (t) 
   assert.equal(vlab(clone, "metadata", "validate", "--json").summary.acceptedPortableRecords, 2);
 });
 
+test("mixed flat and fanned notes preserve unrelated notes and opaque entries", (t) => {
+  const { repo } = fixture(t);
+  const head = generatedChange(repo, "mixed");
+  const base = git(repo, "rev-parse", "HEAD^");
+  const previous = git(repo, "rev-parse", NOTES);
+  const noteBlob = git(repo, "notes", "--ref=vcs-lab", "list", head);
+  const opaque = gitInput(repo, ["hash-object", "-w", "--stdin"], "opaque notes tree content\n");
+  const fanned = gitInput(repo, ["mktree"], `100644 blob ${opaque}\t${base.slice(2)}\n`);
+  const root = gitInput(repo, ["mktree"], `100644 blob ${noteBlob}\t${head}\n040000 tree ${fanned}\t${base.slice(0, 2)}\n100644 blob ${opaque}\topaque.txt\n`);
+  const mixed = gitInput(repo, ["commit-tree", root, "-p", previous], "mixed notes\n");
+  git(repo, "update-ref", NOTES, mixed, previous);
+  const record = { schema: "vcs-lab.provenance/v1", type: "provenance", id: "prov_mixed", commit: head,
+    changeId: null, actors: [{ role: "generated", actor: "test" }], origin: "declared", carriedFrom: [] };
+  const result = scriptRun(repo, `import { appendNote } from ${JSON.stringify(notesModule)}; appendNote(${JSON.stringify(head)}, ${JSON.stringify(record)});`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(git(repo, "notes", "--ref=vcs-lab", "list").split("\n").length, 2);
+  assert.equal(JSON.parse(git(repo, "notes", "--ref=vcs-lab", "show", head)).records.length, 2);
+  assert.equal(git(repo, "notes", "--ref=vcs-lab", "list", base), opaque);
+  assert.equal(git(repo, "rev-parse", `${NOTES}:opaque.txt`), opaque);
+});
+
 test("independent resolution stage blobs survive GC and envelope transfer", (t) => {
   const { repo, parent } = fixture(t);
   const published = scriptRun(repo, resolutionScript(repo));
