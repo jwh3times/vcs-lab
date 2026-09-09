@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Serve the retained resolution catalog from one object session instead of a
+  process per batched read (issue #42). The scan made four separate batched
+  object reads -- the ref peel, the note blobs, the referenced-object
+  validation, and the retained-result inspection -- and each cost a process,
+  which made `resolutionCatalog` the phase furthest from its plain-Git
+  equivalent at three times the floor. It now costs three Git processes rather
+  than six where object sessions are enabled, with identical records. The
+  session opens after the ref scan, so a repository with no resolution refs
+  still pays nothing, and it is re-entrant, so a reconciliation that already
+  holds one reuses it.
+
 - Measure a raw-Git floor for every repository-scale benchmark phase (issue
   #42): the plain-Git commands a reader would run for the same result, timed in
   the same process and the same way as the phase, so neither side includes Node
