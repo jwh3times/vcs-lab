@@ -15,6 +15,30 @@ run history-changing manual experiments in a valuable repository.
 
 The package has no runtime dependencies and no build step.
 
+### Windows resolution retention paths
+
+With Git long paths disabled, a resolution ref's absolute `.lock` path must
+fit within 259 characters. For an ordinary SHA-1 repository with a `.git`
+directory, a blob-result resolution consumes 146 characters below the root:
+a 113-character root fits, and a 114-character root fails. SHA-256 object IDs
+consume another 24 characters; deletion results use the shorter `deleted`
+suffix. Linked worktrees store these refs in the common Git directory, so
+shortening only the linked worktree path does not solve this limit.
+
+When Git fails to create that path at or above 260 characters, publication
+reports `path-length-exceeded`, the measured lock-path length, and the required
+reduction. Use a shorter Git directory path or enable long paths locally with
+`git config core.longpaths true`. VLab does not change this setting for you.
+A failed publication can leave an operation journal; use the operation's
+`--abort` to restore its starting commit, then retry after addressing the path.
+Existing lock files and permission failures retain `git-command-failed`.
+
+`test/resolution-path.test.js` exercises the Windows boundary, shared refs from
+a linked worktree, successful publication with long paths enabled, existing
+locks, and CLI JSON failure followed by reconciliation abort. On other hosts,
+the same long paths must publish successfully; no synced folder or special
+hardware is required.
+
 ## Development validation
 
 Run the complete integration suite in ordinary mode:

@@ -3,6 +3,7 @@ import path from "node:path";
 import { runGit, withGitObjectSession } from "./git.js";
 import {
   indexEntries,
+  gitPath,
   inspectGitObjects,
   listRefs,
   readGitBlob,
@@ -260,7 +261,33 @@ export function publishResolution(outcome, application, cwd = process.cwd()) {
     cwd,
     input: `${message}\n`,
   }).stdout;
-  runGit(["update-ref", ref, commit], { cwd });
+  try {
+    runGit(["update-ref", ref, commit], { cwd });
+  } catch (error) {
+    // Diagnose only a failed path creation, never an existing lock or a
+    // permission refusal. Successful publication pays no extra read cost.
+    if (process.platform === "win32" && error.code === "git-command-failed" &&
+        /unable to create directory|filename too long/i.test(error.details) &&
+        !/permission denied|file exists/i.test(error.details)) {
+      let refPath;
+      try {
+        refPath = path.resolve(cwd, gitPath(ref, cwd));
+      } catch {
+        throw error;
+      }
+      const lockLength = `${refPath}.lock`.length;
+      if (lockLength >= 260) {
+        throw new CliError(
+          `Cannot retain conflict resolution: the Windows ref lock path is ${lockLength} characters; MAX_PATH permits at most 259.`,
+          {
+            code: "path-length-exceeded",
+            details: `Ref: ${refPath}\nShorten the repository's Git directory path by at least ${lockLength - 259} characters, or enable Git long paths with git config core.longpaths true. If an operation is pending, use its --abort command before starting it again.\n${error.details}`,
+          },
+        );
+      }
+    }
+    throw error;
+  }
   const record = {
     schema: "vcs-lab.resolution/v1",
     type: "resolution",
