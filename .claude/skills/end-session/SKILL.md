@@ -1,4 +1,5 @@
 ---
+# GENERATED — do not edit. Source: .agents/skills/end-session/SKILL.md — regenerate with 'npm run sync:agents'.
 name: end-session
 description: End a vcs-lab work session cleanly — capture what was learned into memory, record required human follow-ups in public issues/wiki and the private board, with sensitive vulnerabilities in draft advisories; bring GitHub issues and durable records (ADRs, product gates, changelog debt, retained evidence) up to date, and clean the local checkout of disposable fixtures, stray worktrees, and runtime state. Use when the user says "end session", "wrap up", "done for the day", or asks to clean things up before stopping.
 ---
