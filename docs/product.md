@@ -785,10 +785,12 @@ Each links to the issue that carries it; the board is where its status lives.
   ([#38](https://github.com/jwh3times/vcs-lab/issues/38),
   [#39](https://github.com/jwh3times/vcs-lab/issues/39)).
 - Additional deterministic structured-document adapters, behind a shared
-  conformance suite and an adapter contract
-  ([#31](https://github.com/jwh3times/vcs-lab/issues/31),
-  [#33](https://github.com/jwh3times/vcs-lab/issues/33),
-  [#32](https://github.com/jwh3times/vcs-lab/issues/32)).
+  [conformance suite](semantic-conformance/README.md) and an
+  [adapter contract](structured-document-adapters.md), both delivered.
+  [Requirement-level merging](structured-document-adapters.md#requirement-level-merge-evaluation)
+  remains an unselected candidate after #32's evaluation. A future proposal
+  needs explicit body/context and migration rules; the current literal-boundary
+  defect remains [#51](https://github.com/jwh3times/vcs-lab/issues/51).
 - Lower-confidence resolution only as a visibly separate tier
   ([#35](https://github.com/jwh3times/vcs-lab/issues/35)), and sub-commit
   authorship anchoring
@@ -946,7 +948,7 @@ acceptance signals.
 | FR-RES-07 | Planned | [#35](https://github.com/jwh3times/vcs-lab/issues/35) |
 | FR-WS-08 | Deferred | [#40](https://github.com/jwh3times/vcs-lab/issues/40), under Gate B |
 | FR-WS-09 | Batched status implemented; Linux and Windows synthetic evidence recorded | Real-repository evidence is [#42](https://github.com/jwh3times/vcs-lab/issues/42); zero-process status is phase 1, closed by ADR-0024 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
-| FR-SPEC-13 | Planned | [#31](https://github.com/jwh3times/vcs-lab/issues/31) and [#33](https://github.com/jwh3times/vcs-lab/issues/33) first, then [#32](https://github.com/jwh3times/vcs-lab/issues/32) |
+| FR-SPEC-13 | Gated; no additional format selected | [#31](https://github.com/jwh3times/vcs-lab/issues/31) and [#33](https://github.com/jwh3times/vcs-lab/issues/33) delivered the suite and contract. [#32](https://github.com/jwh3times/vcs-lab/issues/32) records the requirement-level evaluation and can be reopened for a concrete proposal. [#51](https://github.com/jwh3times/vcs-lab/issues/51) tracks current parser correctness, not delivery of another format. |
 | FR-PERF-09 | Evidence gate | [#42](https://github.com/jwh3times/vcs-lab/issues/42); phases 1-3 are closed by ADR-0024 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
 | FR-PROTO-06 | Deferred | [#37](https://github.com/jwh3times/vcs-lab/issues/37) |
 | FR-TRUST-02, FR-TRUST-03 | Deferred | [#38](https://github.com/jwh3times/vcs-lab/issues/38) and [#39](https://github.com/jwh3times/vcs-lab/issues/39) |

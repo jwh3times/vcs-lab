@@ -191,3 +191,92 @@ the unresolved #51 fence defect; passing them does not claim fence correctness.
 It is distinct from the [human/JSON conformance suite](conformance/README.md).
 A second format requires the shared suite and corresponding adapter evidence,
 including resolution of applicable known defects, before acceptance.
+
+## Requirement-level merge evaluation
+
+The evaluation in [#32](https://github.com/jwh3times/vcs-lab/issues/32) recommends
+retaining the current section-level merge contract. Requirement-level merging
+is a possible future version, but its byte ownership, enclosing-section rules,
+and migration are not specified sufficiently to select an implementation.
+This conclusion applies ADR-0008's existing versioning rule; it does not assign
+new algorithm identifiers or accept a speculative parser contract.
+
+### Benefit and boundary
+
+The `requirements-share-section` conformance case demonstrates the benefit:
+editing `REQ-ONE` on the target and `REQ-TWO` on the source inside one section
+currently reports `same-block-edit`. With independently owned requirement
+bodies, a future algorithm could combine those edits. The existing
+`nested-heading-units` case shows that explicitly separating content with
+headings already enables independent merging under the current contract.
+
+Promoting the current indexed requirement entities directly to merge units is
+not sufficient. A requirement entity covers one declaration line, while its
+containing section covers that line and surrounding content. Selecting both
+would give the same bytes two owners. Selecting only the declaration line
+would leave continuation paragraphs, examples, lists, and section prose without
+a defined merge rule. Finer granularity therefore needs a source partition and
+context policy, not just another entry in the primary-block filter.
+
+### Candidate approaches
+
+| Approach | Benefit | Limitation | Evaluation |
+| --- | --- | --- | --- |
+| Keep sections as primary units | Preserves current identities, conservative conflicts, rendering, and replay | Different requirements in one section still conflict | Retain for the supported version; headings can separate independently edited topics |
+| Merge declaration lines only | Could combine edits to distinct `REQ-*:` lines | Does not define multiline bodies or surrounding bytes; existing sections overlap those lines | Insufficient as an adapter contract |
+| Partition a section into enclosing prose and requirement bodies | Could combine independent requirement edits while retaining canonical Markdown | Requires explicit body boundaries, parent-context and ordering rules, identity mapping, and versioned rendering | Candidate for a separately specified and evidenced future version |
+
+### Questions a future contract must settle
+
+These are acceptance questions, not decisions already made for a new version:
+
+| Scenario | Required contract |
+| --- | --- |
+| Requirement followed by a paragraph, list, or example | Define exactly where its body ends and which entity owns intervening whitespace; every source byte must have one rendering owner |
+| Shared section prose changes on one side while a child requirement changes on the other | Define whether that context change blocks the child merge; disjoint byte spans alone do not prove compatible meaning |
+| Section deleted while a child is edited or moved | Define parent/child deletion and movement precedence; do not silently revive a deleted container or discard a child edit |
+| Requirement moves between sections | Define whether identity survives a parent change and how changed context is reviewed |
+| Duplicate requirement names or concurrent insertions | Define correspondence without relying on occurrence shifts to identify the same requirement |
+| Different child orders on both sides | Define compatible movement and insertion order, with explicit blockers for ambiguity |
+| `REQ-*:` or headings inside a literal example | Establish supported syntax and literal boundaries before interpreting declarations |
+
+Current requirement keys are artifact-scoped names plus occurrence numbers;
+they do not include the enclosing section. Inserting an earlier duplicate can
+assign an existing occurrence key to different text. A future design must compare
+artifact-wide unique names, parent-scoped keys, and explicit exceptional IDs:
+the first constrains documents, the second changes identity on moves, and the
+third adds metadata and correspondence work. None is selected by this evaluation.
+
+### Compatibility and evidence requirements
+
+Changed merge granularity requires new parser/merge semantics under the
+[compatibility contract](schemas/compatibility.md) and an ADR before code.
+The current v3 manifest's published schema fixes the v1 parser and ID algorithm;
+a new parser value must not be slipped into that frozen contract. Any manifest
+version change must define old/new readers and writers and explicit reindexing.
+
+Preserve old section views when reading old records. Define which existing
+requirement IDs still name the same entity and which new bodies need new IDs;
+a matching label alone does not prove correspondence after a boundary change.
+Old forecasts and semantic signatures must not authorize new-granularity output.
+Raw exact-resolution records remain tied to their exact Git conflict stages;
+they do not certify a new semantic interpretation. The migration must state
+which artifacts can be reused, which require regeneration, and which are refused.
+
+The future representation must remain sparse: derive the partition and ordinary
+identities from source, persist only necessary exceptional mappings, and measure
+sidecar size and churn on representative documents. No storage or conflict-rate
+improvement has been measured by this evaluation.
+
+Before selecting an implementation, resolve the literal-boundary and migration
+contract tracked by [#51](https://github.com/jwh3times/vcs-lab/issues/51), then
+demonstrate a concrete requirement-body syntax and the scenarios above against
+the shared fixtures. Fence correctness and finer merge granularity are separate
+changes and must not silently redefine one another's versions. Representative
+examples should establish that remaining same-section conflicts justify the
+additional identity and migration machinery.
+
+Requirement-level merging remains an unselected candidate; #32 is the record
+for a concrete proposal against these constraints. The existing section
+behavior and #51's correction remain the current supported scope and tracked
+defect respectively.
