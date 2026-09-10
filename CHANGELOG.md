@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Clarify reconciliation and rebase receipt timing boundaries, including
+  publication exclusions and continuation scope, without changing stored
+  records or schema versions (issue #17).
+
 - Document the structured-document adapter acceptance contract and the current
   Markdown behavior, including parser and rendering limitations (issue #33).
 

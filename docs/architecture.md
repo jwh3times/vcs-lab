@@ -341,6 +341,11 @@ tests.
 
 ## 7. Causal planning architecture
 
+Completed reconciliation and rebase receipts contain
+[pre-publication timing snapshots](schemas/receipt-timings.md). Their Git
+metrics cover application-queue scopes, excluding planning, finalization,
+publication, and cleanup; they are not whole-command telemetry.
+
 `buildMergePlan(sourceRef)` performs these steps inside an optional Git object
 session:
 

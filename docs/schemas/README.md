@@ -21,6 +21,8 @@ the [canonical JSON profile](../canonical-json/README.md) freezes the
 byte-exact serialization used for hashing; the
 [human/JSON conformance contract](../conformance/README.md) pins which command
 output is text, which is JSON, and which members the two must agree on.
+The [receipt timing contract](receipt-timings.md) defines what reconciliation
+and rebase timing snapshots include and exclude.
 
 ## Conventions
 
