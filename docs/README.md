@@ -22,6 +22,8 @@ the versioned record of delivered behavior.
   namespace set, entropy, and cross-repository import rule.
 - [Canonical JSON profile](canonical-json/README.md) — the frozen RFC 8785
   serialization profile, encoder registry, and shared test vectors.
+- [Structured-document adapter contract](structured-document-adapters.md) —
+  acceptance requirements for formats and the current Markdown worked example.
 - [Testing](testing.md) — supported validation commands and release evidence
   policy.
 - [Benchmark host baselines](testing.md#benchmark-regression-check) — machine

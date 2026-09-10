@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Document the structured-document adapter acceptance contract and the current
+  Markdown behavior, including parser and rendering limitations (issue #33).
+
 - Generate the architecture module and persisted-schema tables from the source
   inventory and schema registry, with drift checks on every CI run (issue #45).
 

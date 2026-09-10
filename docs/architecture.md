@@ -867,6 +867,10 @@ states `source-checkpoint`; it is never presented as a committed-head comparison
 
 ## 13. Specification architecture
 
+The [adapter contract](structured-document-adapters.md) specifies the required
+format acceptance evidence and documents Markdown's current bytes, entities,
+identity, merge rules, blockers, migrations, and sparse storage limitations.
+
 ### 13.1 Canonical and derived data
 
 Markdown is canonical. A v3 manifest persists only:
