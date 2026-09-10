@@ -24,6 +24,8 @@ the versioned record of delivered behavior.
   serialization profile, encoder registry, and shared test vectors.
 - [Structured-document adapter contract](structured-document-adapters.md) —
   acceptance requirements for formats and the current Markdown worked example.
+- [Semantic-merge conformance](semantic-conformance/README.md) — shared merge
+  fixtures, exact output checks, and explicit known-defect characterizations.
 - [Testing](testing.md) — supported validation commands and release evidence
   policy.
 - [Benchmark host baselines](testing.md#benchmark-regression-check) — machine

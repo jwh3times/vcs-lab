@@ -67,6 +67,12 @@ hardware is required.
 
 ## Development validation
 
+`node --test test/semantic-conformance.test.js` runs the shared semantic-merge
+[fixtures](semantic-conformance/README.md) through the real CLI. The suite checks
+exact classifications, entities, rendered bytes, stable identity, and read-only
+repeatability. Known #51 fence cases execute as explicit defect characterizations
+without skips; a green run does not certify their desired behavior.
+
 `npm run sync:architecture -- --check` checks the generated architecture tables
 against the source inventory and persisted-schema registry. The focused
 `test/architecture-tables.test.js` suite also exercises drift detection and
