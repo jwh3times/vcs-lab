@@ -1,4 +1,5 @@
 ---
+# GENERATED — do not edit. Source: .agents/skills/docs-updater/SKILL.md — regenerate with 'npm run sync:agents'.
 name: docs-updater
 description: Update vcs-lab README, durable documentation, and wiki guidance after implemented changes; capture required human actions as public issue/wiki follow-ups on the private board, with sensitive vulnerabilities in draft security advisories. Use when asked to update docs or reconcile documentation with completed work.
 ---

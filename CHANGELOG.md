@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Install the engineering skills and repository configuration with `AGENTS.md`
+  as canonical guidance. Extend `sync:agents` to generate Codex agent definitions
+  from Claude sources and mark generated skill instructions, with drift and
+  failure-safety coverage. Documentation link checks skip fenced examples.
+
 - Retain the required object closure of published causal facts under one shared
   Git ref (issue #49, ADR-0025). Notes, retention, and new resolution refs publish
   atomically; source deletion and Git GC preserve valid receipts and independent

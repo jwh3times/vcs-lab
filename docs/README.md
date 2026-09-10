@@ -48,6 +48,15 @@ native-core phase sequence, and the incomplete-requirement trace are in
 [product.md §15](product.md); the inherited invariants are §7; the open product
 questions are §17, each citing the issue that will settle it.
 
+## Agent configuration
+
+Engineering skills use the [issue tracker configuration](agents/issue-tracker.md),
+[triage label mapping](agents/triage-labels.md), and
+[domain documentation rules](agents/domain.md).
+Edit these files directly when repository conventions change.
+See [agent and skill mirrors](agents/mirrors.md) for authored sources,
+generated outputs, and regeneration rules.
+
 ## Documentation lifecycle
 
 Commit documentation when it describes a current contract, a durable decision,

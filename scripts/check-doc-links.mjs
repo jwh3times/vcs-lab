@@ -131,7 +131,20 @@ let anchorCount = 0;
 for (const file of markdownFiles(root)) {
   const relativeFile = path.relative(root, file);
   const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  let linkFence = null;
   for (const [index, line] of lines.entries()) {
+    const opening = line.match(FENCE);
+    if (linkFence) {
+      const closing = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+      if (closing && closing[1][0] === linkFence[0] && closing[1].length >= linkFence.length) {
+        linkFence = null;
+      }
+      continue;
+    }
+    if (opening) {
+      linkFence = opening[1];
+      continue;
+    }
     for (const match of line.matchAll(/!?\[[^\]]*\]\(([^)]+)\)/g)) {
       const target = localTarget(match[1]);
       if (!target) continue;

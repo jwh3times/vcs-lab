@@ -46,7 +46,10 @@ or build step.
   same `-- --host <label>` for checks, or set `VLAB_BENCHMARK_HOST`; otherwise
   latency comparison is skipped.
 - `npm run sync:agents` regenerates `.claude/skills/` from `.agents/skills/`;
+  it also generates `.codex/agents/*.toml` from `.claude/agents/*.md`.
   `npm run sync:agents -- --check` reports drift without writing.
+  Before adding or updating agent definitions, read
+  [the mirror conventions](docs/agents/mirrors.md).
 - `npm run demo` runs the primary workflow demonstration; the other `demo:*`
   scripts exercise conflicts, resolutions, forecasts, specs, and Git sessions.
   Each deliberately leaves its repository in the OS temporary directory for
@@ -135,3 +138,20 @@ worktrees and use bounded temporary fixtures. Treat Git metadata as untrusted
 input. Track active implementation briefs and run-specific evidence in issues,
 pull requests, or CI artifacts rather than committing session handoffs or
 timestamped result reports.
+
+## Agent skills
+
+### Issue tracker
+
+Use GitHub Issues in `jwh3times/vcs-lab`. Before ticket operations,
+read [the issue tracker configuration](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+Use the five default triage labels. Before triaging,
+read [the label mapping](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Use a single context. Before exploring domain behavior or recording
+terms and decisions, read [the domain documentation rules](docs/agents/domain.md).
