@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Generate the architecture module and persisted-schema tables from the source
+  inventory and schema registry, with drift checks on every CI run (issue #45).
+
 - Install the engineering skills and repository configuration with `AGENTS.md`
   as canonical guidance. Extend `sync:agents` to generate Codex agent definitions
   from Claude sources and mark generated skill instructions, with drift and

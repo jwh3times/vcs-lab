@@ -67,6 +67,11 @@ hardware is required.
 
 ## Development validation
 
+`npm run sync:architecture -- --check` checks the generated architecture tables
+against the source inventory and persisted-schema registry. The focused
+`test/architecture-tables.test.js` suite also exercises drift detection and
+safe regeneration; CI runs it even for documentation-only changes.
+
 Run the complete integration suite in ordinary mode:
 
 ```bash
