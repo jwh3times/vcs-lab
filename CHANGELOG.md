@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Complete the requirement-level merge evaluation (issue #32): retain the
+  current section contract and document the byte-ownership, context, identity,
+  and migration requirements for a future proposal. No new parser is selected.
+
 - Add shared semantic-merge conformance fixtures and real-CLI checks for content
   decisions, order, exact bytes, identity, and metadata refusal (issue #31).
   Explicitly characterize the unresolved fenced-code defect from #51 without

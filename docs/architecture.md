@@ -918,6 +918,9 @@ For repository-wide indexing:
 
 Merge units are non-overlapping preamble and heading sections. Requirements are
 nested identity/review entities, not a competing byte-merge layer.
+The [requirement-level evaluation](structured-document-adapters.md#requirement-level-merge-evaluation)
+explains why promoting indexed declaration lines is insufficient and what a
+future version must settle about byte ownership, context, identity, and migration.
 
 For each stable primary block, the algorithm compares base, target, and source
 presence, content, and placement:
