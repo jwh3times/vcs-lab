@@ -184,8 +184,10 @@ Markdown coverage is in [test/integration.test.js](../test/integration.test.js),
 including sparse indexing, legacy-ID migration, independent-section edits,
 same-section conflicts, moves, delete-versus-edit, and stale metadata.
 
-The shared semantic fixture suite is tracked by
-[#31](https://github.com/jwh3times/vcs-lab/issues/31); it is distinct from the
-[human/JSON conformance suite](conformance/README.md). This document does not
-claim that suite or the fence correction is delivered. A second format requires
-the shared suite and the corresponding adapter evidence before acceptance.
+The [shared semantic fixture suite](semantic-conformance/README.md) checks
+ordered inputs, entity boundaries, exact decisions and rendered bytes,
+repeatability, and read-only planning. It includes explicit characterizations of
+the unresolved #51 fence defect; passing them does not claim fence correctness.
+It is distinct from the [human/JSON conformance suite](conformance/README.md).
+A second format requires the shared suite and corresponding adapter evidence,
+including resolution of applicable known defects, before acceptance.

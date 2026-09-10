@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add shared semantic-merge conformance fixtures and real-CLI checks for content
+  decisions, order, exact bytes, identity, and metadata refusal (issue #31).
+  Explicitly characterize the unresolved fenced-code defect from #51 without
+  treating it as successful conformance or changing parser behavior.
+
 - Clarify reconciliation and rebase receipt timing boundaries, including
   publication exclusions and continuation scope, without changing stored
   records or schema versions (issue #17).
