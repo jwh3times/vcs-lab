@@ -258,6 +258,7 @@
     },
     "timings": {
       "type": "object",
+      "description": "Pre-publication operation measurements, not whole-command telemetry. See docs/schemas/receipt-timings.md for the distinct measurement boundaries.",
       "required": [
         "activeApplicationMs",
         "elapsedWallMs",
@@ -265,12 +266,15 @@
       ],
       "properties": {
         "activeApplicationMs": {
-          "type": "number"
+          "type": "number",
+          "description": "Accumulated active application spans, including successful continuation setup, excluding user pause time and finalization/publication."
         },
         "elapsedWallMs": {
-          "type": "number"
+          "type": "number",
+          "description": "Wall time from operation.startedAt to receipt construction before publication, including time paused between invocations; not end-to-end command latency."
         },
         "git": {
+          "description": "Accumulated Git metric scopes inside application-queue calls. Excludes planning, continuation work before queue entry, finalization, record/provenance publication, and journal cleanup. Null means unavailable, not zero cost.",
           "type": [
             "object",
             "null"

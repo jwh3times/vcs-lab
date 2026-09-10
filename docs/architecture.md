@@ -117,45 +117,52 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 
 ## 3. Source layout and component responsibilities
 
+<!-- generated:modules:start -->
 | File | Responsibility | Important dependencies |
 | --- | --- | --- |
 | `bin/vlab.js` | Minimal executable entry point and error/exit boundary | `src/cli.js` |
-| `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
-| `src/errors.js` | Expected CLI error type carrying a classification code from the closed `ERROR_CODES` vocabulary of the `vcs-lab.error/v1` failure envelope (ADR-0021) | None |
-| `src/ids.js` | Unique protocol IDs, SHA-256, Git blob hashing, slugs | Node crypto |
 | `src/canonical-json.js` | The frozen `vcs-lab.canonical-json/v1` profile: RFC 8785 restricted to UTF-16-code-unit-sorted members and safe integers, refusing what it cannot serialize byte-identically | None |
+| `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
 | `src/engine.js` | The read-side engine seam: the catalog of 40 read operations, the read-engine selector and native-engine stub, per-operation fallback, composites, and the differential comparison | `src/git.js` |
-| `src/git.js` | The Git engine: safe synchronous Git adapter, the Git implementation of every read operation, repository context, object and merge-tree sessions, engine selectors, the read-bypass rule, metrics | Git executable, workers |
-| `src/git-session-worker.js` | Owns asynchronous `git cat-file --batch-command` stream for a synchronous caller | Worker threads, Git |
-| `src/merge-tree-session-worker.js` | Owns one asynchronous `git merge-tree --stdin` stream for the synchronous merge-tree forecast engine | Worker threads, Git |
-| `src/store.js` | Common runtime directory and atomic JSON read/write | `src/git.js` |
-| `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab`, including one batched read for many targets; every writer of the ref is serialized on the notes lock in the shared runtime directory | `src/git.js`, `src/store.js` |
-| `src/provenance.js` | Declared authorship provenance (`vcs-lab.provenance/v1`): the closed role vocabulary, `VLAB_AGENT`, declaration at commit time, and exact carry onto rewritten commits | Notes, IDs, schemas |
-| `src/schemas.js` | Supported schema registry, structural record validation, object-reference and resolution-signature rules | IDs |
-| `src/metadata.js` | Deterministic inventory, scope classification, integrity diagnostics, lineage, and accepted-record filtering | Git, schemas, specs |
-| `src/identity-audit.js` | Repository-wide logical identity audit (`vcs-lab.identity-audit/v1`): union-find over identity-preserving application edges, multi-trailer, multi-origin, and invariant findings | Engine, notes |
-| `src/metadata-envelope.js` | Canonical envelope manifest, integrity hash, payload bounds, and parser | Metadata, schemas |
-| `src/metadata-transfer.js` | Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import | Metadata, envelope, Git |
-| `src/git-carriers.js` | Copy-on-write notes trees, typed dependency closure, bounded carrier parents, and checked ref commands | Engine, Git writes, schemas |
-| `src/retention.js` | Read-only retention preview and checked, idempotent historical backfill | Metadata, carriers, notes lock |
-| `src/scale-benchmark.js` | Bounded synthetic repository fixture, scan measurements, raw-Git floors for the phases with a plain-Git equivalent, semantic equality checks, and evidence-based optimization recommendations | Git, notes, metadata, resolutions, workspaces |
-| `src/landings.js` | Compact and hard-squash landing mechanics and receipts | Git adapter, notes |
-| `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
-| `src/proof-bundle.js` | Portable coverage proof bundles and their independent verifier, which applies its own copy of the lattice (`PROOF_RULES`) and compares the evidence with the repository | Merge plan, canonical JSON, metadata, engine |
-| `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
-| `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation | Rebase plan, forecast simulator, Git adapter |
-| `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts | Rebase plan/forecast, Git, notes, specs, resolutions |
-| `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
-| `src/pending-operation.js` | Safe reconciliation/rebase journal routing for shared conflict tools | Reconciliation and rebase state |
+| `src/errors.js` | Expected CLI error type carrying a classification code from the closed `ERROR_CODES` vocabulary of the `vcs-lab.error/v1` failure envelope (ADR-0021) | None |
 | `src/faults.js` | Test-only deterministic fault injection: `VLAB_TEST_FAULT` turns one named point on a mutating path into a hard `process.exit`; `VLAB_TEST_GATE` holds a process at a named point until a test releases it | None |
 | `src/forecasts.js` | Plan fingerprint, merge-tree and temporary-worktree simulation engines with recorded fallback, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
+| `src/git-carriers.js` | Copy-on-write notes trees, typed dependency closure, bounded carrier parents, and checked ref commands | Engine, Git writes, schemas |
+| `src/git-session-worker.js` | Owns asynchronous `git cat-file --batch-command` stream for a synchronous caller | Worker threads, Git |
+| `src/git.js` | The Git engine: safe synchronous Git adapter, the Git implementation of every read operation, repository context, object and merge-tree sessions, engine selectors, the read-bypass rule, metrics | Git executable, workers |
+| `src/identity-audit.js` | Repository-wide logical identity audit (`vcs-lab.identity-audit/v1`): union-find over identity-preserving application edges, multi-trailer, multi-origin, and invariant findings | Engine, notes |
+| `src/ids.js` | Unique protocol IDs, SHA-256, Git blob hashing, slugs | Node crypto |
+| `src/landings.js` | Compact and hard-squash landing mechanics and receipts | Git adapter, notes |
+| `src/merge-plan.js` | Coverage proof lattice, effective base, patch candidates, plan formatting | Git adapter, notes |
+| `src/merge-tree-session-worker.js` | Owns one asynchronous `git merge-tree --stdin` stream for the synchronous merge-tree forecast engine | Worker threads, Git |
+| `src/metadata-envelope.js` | Canonical envelope manifest, integrity hash, payload bounds, and parser | Metadata, schemas |
+| `src/metadata-transfer.js` | Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import | Metadata, envelope, Git |
+| `src/metadata.js` | Deterministic inventory, scope classification, integrity diagnostics, lineage, and accepted-record filtering | Git, schemas, specs |
+| `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab`, including one batched read for many targets; every writer of the ref is serialized on the notes lock in the shared runtime directory | `src/git.js`, `src/store.js` |
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
+| `src/pending-operation.js` | Safe reconciliation/rebase journal routing for shared conflict tools | Reconciliation and rebase state |
+| `src/proof-bundle.js` | Portable coverage proof bundles and their independent verifier, which applies its own copy of the lattice (`PROOF_RULES`) and compares the evidence with the repository | Merge plan, canonical JSON, metadata, engine |
+| `src/provenance.js` | Declared authorship provenance (`vcs-lab.provenance/v1`): the closed role vocabulary, `VLAB_AGENT`, declaration at commit time, and exact carry onto rewritten commits | Notes, IDs, schemas |
+| `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation | Rebase plan, forecast simulator, Git adapter |
+| `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts | Rebase plan/forecast, Git, notes, specs, resolutions |
+| `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
+| `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
 | `src/resolutions.js` | Exact three-way conflict signatures, candidate selection, result retention, outcome audit | Git adapter, notes, reconciliation state |
-| `src/workspaces.js` | Workspace registry/lifecycle, linked-worktree materialization, temporary-index checkpoints/history | Git adapter, store, workspace lock |
-| `src/workspace-lock.js` | Exclusive shared-local registry transaction lock, bounded refusal, and ownership-checked release | Store, errors, fault gates |
+| `src/retention.js` | Read-only retention preview and checked, idempotent historical backfill | Metadata, carriers, notes lock |
+| `src/scale-benchmark.js` | Bounded synthetic repository fixture, scan measurements, raw-Git floors for the phases with a plain-Git equivalent, semantic equality checks, and evidence-based optimization recommendations | Git, notes, metadata, resolutions, workspaces |
+| `src/schemas.js` | Supported schema registry, structural record validation, object-reference and resolution-signature rules | IDs |
 | `src/specs.js` | Markdown parsing, sparse manifest migration/indexing, deterministic merge, semantic resolution, benchmark | Git adapter, IDs, reconciliation state |
+| `src/store.js` | Common runtime directory and atomic JSON read/write | `src/git.js` |
 | `src/version.js` | Runtime version constant | None |
+| `src/workspace-lock.js` | Exclusive shared-local registry transaction lock, bounded refusal, and ownership-checked release | Store, errors, fault gates |
+| `src/workspaces.js` | Workspace registry/lifecycle, linked-worktree materialization, temporary-index checkpoints/history | Git adapter, store, workspace lock |
+<!-- generated:modules:end -->
+
+Supporting test and maintenance tools:
+
+| File | Responsibility | Important dependencies |
+| --- | --- | --- |
 | `test/*.test.js` | Disposable-repository end-to-end contract suite (`integration.test.js`) and the focused suites [testing.md](testing.md) describes: schema catalog, canonical JSON, conformance, compatibility, hostile input, failure boundary, error envelope, provenance, object format, and repository hygiene | CLI and Git |
 | `test-support/git-environment.js` | The isolated Git environment every suite file imports: no system configuration and an empty global one; outside `test/` because `node --test` would run it as a test file | `node:test` |
 | `scripts/*.mjs` | Reproducible user experiments and performance comparisons | Published CLI behavior |
@@ -264,36 +271,42 @@ worktree correctness.
 Schemas are namespaced and versioned in a `schema` field. The following are in
 use at the current development baseline:
 
+<!-- generated:schemas:start -->
+| Family | Readable versions | Written versions | Store | Scope |
+| --- | --- | --- | --- | --- |
+| `vcs-lab.application` | v1, v4 | v1, v4 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.forecast` | v1, v2 | v2 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
+| `vcs-lab.landing` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.metadata-envelope` | v1 | v1 | `manifest.json of a metadata export directory` | `envelope` |
+| `vcs-lab.note` | v1 | v1 | `refs/notes/vcs-lab note blobs` | `note-container` |
+| `vcs-lab.provenance` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.rebase` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.rebase-application` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.rebase-forecast` | v1 | v1 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
+| `vcs-lab.rebase-operation` | v1 | v1 | `<git dir>/vcs-lab/rebase.json` | `private` |
+| `vcs-lab.reconciliation` | v6 | v6 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.reconciliation-operation` | v4 | v4 | `<git dir>/vcs-lab/reconciliation.json` | `private` |
+| `vcs-lab.resolution` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.spec-manifest` | v1, v2, v3 | v3 | `.vcs-lab/specs/**` | `tracked` |
+| `vcs-lab.workspace` | v1 | v1 | `entries of <common dir>/vcs-lab/workspaces.json` | `shared-local` |
+| `vcs-lab.workspaces` | v1 | v1 | `<common dir>/vcs-lab/workspaces.json` | `shared-local` |
+<!-- generated:schemas:end -->
+
+Command and automation output shapes (outside the persisted-family registry):
+
 | Schema | Purpose | Primary owner |
 | --- | --- | --- |
-| `vcs-lab.note/v1` | Container for records attached to one Git object | `notes.js` |
-| `vcs-lab.landing/v1` | Compact or hard-squash causal receipt | `landings.js` |
-| `vcs-lab.application/v1` | Direct cherry-pick application record | `operations.js` |
-| `vcs-lab.application/v4` | Reconciliation application with conflict/spec decisions | `operations.js` |
-| `vcs-lab.reconciliation/v6` | Final operation summary, coverage, trees, timing | `operations.js` |
-| `vcs-lab.reconciliation-operation/v4` | Private resumable operation journal | `operations.js` |
 | `vcs-lab.merge-plan/v1` | Source/target coverage plan | `merge-plan.js` |
 | `vcs-lab.proof-bundle/v1` | Merge plan plus the evidence its classification rests on, for an independent verifier | `proof-bundle.js` |
 | `vcs-lab.proof-verification/v1` | Integrity, classification, and repository verification result of a proof bundle | `proof-bundle.js` |
 | `vcs-lab.rebase-plan/v1` | Read-only causal rebase selection and constraints | `rebase-plan.js` |
-| `vcs-lab.rebase-forecast/v1` | Private pinned causal-rebase simulation and caller invariants | `rebase-forecast.js` |
-| `vcs-lab.rebase-operation/v1` | Worktree-private supervised replay and recovery journal | `rebase-operations.js` |
-| `vcs-lab.rebase-application/v1` | Exact origin-to-rewritten-commit mapping and contextual decisions | `rebase-operations.js` |
-| `vcs-lab.rebase/v1` | Completed plan, omissions, applications, trees, and timing summary | `rebase-operations.js` |
-| `vcs-lab.forecast/v2` | Pinned simulation and approvals | `forecasts.js` |
-| `vcs-lab.resolution/v1` | Exact resolution result and provenance | `resolutions.js` |
-| `vcs-lab.provenance/v1` | Declared authorship provenance, attached to a commit and carried across rewrites | `provenance.js` |
-| `vcs-lab.workspaces/v1` | Workspace registry container | `workspaces.js` |
-| `vcs-lab.workspace/v1` | Workspace descriptor | `workspaces.js` |
 | `vcs-lab.checkpoint/v1` | Checkpoint command result | `workspaces.js` |
 | `vcs-lab.workspace-prune/v1` | Preview/apply stale-path prune result | `workspaces.js` |
-| `vcs-lab.spec-manifest/v3` | Sparse Markdown identity manifest | `specs.js` |
 | `vcs-lab.spec-merge-plan/v1` | Deterministic three-way semantic plan | `specs.js` |
 | `vcs-lab.spec-benchmark/v2` | Generated corpus measurements | `specs.js` |
 | `vcs-lab.repository-scale-benchmark/v1` | Disposable repository/shared-metadata volume, scan, raw-Git floor, process-amplification, and decision measurements | `scale-benchmark.js` |
 | `vcs-lab.metadata-status/v1` | Deterministic repository metadata inventory | `metadata.js` |
 | `vcs-lab.metadata-validation/v1` | Inventory plus strict/non-strict validity result | `metadata.js` |
-| `vcs-lab.metadata-envelope/v1` | Portable manifest for sanitized notes and resolution refs | `metadata-envelope.js` |
 | `vcs-lab.metadata-export/v1` | Export result and process/storage metrics | `metadata-transfer.js` |
 | `vcs-lab.metadata-import-preview/v1` | Exact dry-run record/ref/object actions | `metadata-transfer.js` |
 | `vcs-lab.metadata-import/v1` | Applied/idempotent import result | `metadata-transfer.js` |
@@ -327,6 +340,11 @@ interpreted. Schema-version changes still require migration/compatibility
 tests.
 
 ## 7. Causal planning architecture
+
+Completed reconciliation and rebase receipts contain
+[pre-publication timing snapshots](schemas/receipt-timings.md). Their Git
+metrics cover application-queue scopes, excluding planning, finalization,
+publication, and cleanup; they are not whole-command telemetry.
 
 `buildMergePlan(sourceRef)` performs these steps inside an optional Git object
 session:
@@ -853,6 +871,10 @@ files in both worktrees remain unread and unchanged. Forecast scope explicitly
 states `source-checkpoint`; it is never presented as a committed-head comparison.
 
 ## 13. Specification architecture
+
+The [adapter contract](structured-document-adapters.md) specifies the required
+format acceptance evidence and documents Markdown's current bytes, entities,
+identity, merge rules, blockers, migrations, and sparse storage limitations.
 
 ### 13.1 Canonical and derived data
 

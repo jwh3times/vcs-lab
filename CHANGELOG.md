@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Clarify reconciliation and rebase receipt timing boundaries, including
+  publication exclusions and continuation scope, without changing stored
+  records or schema versions (issue #17).
+
+- Document the structured-document adapter acceptance contract and the current
+  Markdown behavior, including parser and rendering limitations (issue #33).
+
+- Generate the architecture module and persisted-schema tables from the source
+  inventory and schema registry, with drift checks on every CI run (issue #45).
+
 - Install the engineering skills and repository configuration with `AGENTS.md`
   as canonical guidance. Extend `sync:agents` to generate Codex agent definitions
   from Claude sources and mark generated skill instructions, with drift and

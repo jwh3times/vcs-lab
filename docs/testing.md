@@ -67,6 +67,11 @@ hardware is required.
 
 ## Development validation
 
+`npm run sync:architecture -- --check` checks the generated architecture tables
+against the source inventory and persisted-schema registry. The focused
+`test/architecture-tables.test.js` suite also exercises drift detection and
+safe regeneration; CI runs it even for documentation-only changes.
+
 Run the complete integration suite in ordinary mode:
 
 ```bash
@@ -361,7 +366,9 @@ was added there and passed the entire suite, every suite mode, and this
 check. The count comes from the `VLAB_TRACE=1` trace rather than from the
 receipt, because the receipt's `timings.git` block covers the application phase
 only: the receipt is built before publication runs, so it cannot report its own
-publication cost. Provenance is declared on the fixture so the carry path
+publication cost. The [receipt timing contract](schemas/receipt-timings.md)
+specifies the exact active-duration, wall-clock, and Git-scope boundaries,
+including continuation work. Provenance is declared on the fixture so the carry path
 actually runs; with none in the repository that path returns before its loop,
 which is exactly how the original regression hid. Both figures are held to the
 process rule, and `records` is a semantic guard: if it moves, the phase has
