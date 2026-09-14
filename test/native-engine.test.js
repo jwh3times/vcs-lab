@@ -18,7 +18,7 @@ const available = engine.nativeEngine().available;
 if (process.env.VLAB_REQUIRE_NATIVE === "1") assert.equal(available, true, "native prebuild required");
 
 function fixture(t, options = []) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vlab-native-"));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "vlab-native-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const run = (...args) => {
     const result = spawnSync("git", args, { cwd: root, encoding: "utf8", env: testEnv() });
