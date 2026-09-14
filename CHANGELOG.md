@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Define current release latency qualification as Windows-only on the identified
+  `lab-windows-a` machine (issue #68). Preserve Windows/POSIX functional release
+  qualification and the separate multi-host workload and budget evidence gates.
+
 - Read bounded Git notes trees through the active object session (issue #73),
   removing the separate listing process while preserving Git's SHA-1/SHA-256
   fanout and ordering rules. Duplicate attachments, oversized traversals, and
