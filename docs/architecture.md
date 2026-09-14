@@ -1069,6 +1069,13 @@ selected engine lacks an operation or throws, the seam answers with Git and
 records the fallback; `endGitMetrics` reports `engine`, the `fallbacks`
 aggregated per operation and reason, and `directReads`.
 
+The bounded first native read increment is accepted in
+[ADR-0027](adr/0027-bound-native-read-engine-entry-by-the-resolution-catalog-budget.md)
+under the owner decision in #18, with dependency review required before code.
+The current unavailable binding
+means native-mode suite results qualify the seam/fallback, not a second backend
+or native performance.
+
 A read-only Git command that reaches `runGit` without the seam's private mark
 is a direct read: counted in `directReads`, traced, and refused in native
 mode. Two deliberate measurements are exempt, both marked `rawProbe`: the

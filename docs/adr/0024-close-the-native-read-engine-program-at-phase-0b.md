@@ -1,8 +1,9 @@
 # ADR-0024: Close the native read-engine program at phase 0b with a complete outcome
 
-- **Status:** Proposed
+- **Status:** Superseded by ADR-0027 for the bounded first phase-1 increment; wider phases remain gated
 - **Date:** 2026-09-02
 - **Owners:** Repository maintainers
+
 - **Related requirements:** GP-09, GP-12, FR-PERF-02 through FR-PERF-09,
   NFR-PERF-01 through NFR-PERF-07, NFR-PORT-05
 - **Related decisions:**
@@ -14,6 +15,12 @@
   [ADR-0023](0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
 
 ## Context
+
+This historical closure proposal was not accepted. The named
+110%-of-Git target and post-batching evidence are addressed by the accepted
+[ADR-0027](0027-bound-native-read-engine-entry-by-the-resolution-catalog-budget.md)
+decision. [Issue #18](https://github.com/jwh3times/vcs-lab/issues/18) records the
+maintainer's acceptance of that bounded increment; wider phases remain gated.
 
 ADR-0015 sequenced a phased native-core program and fixed how its phase 0b
 ends: "The phase 1 ADR names the Gate A item 3 budget from the phase 0a runs
@@ -48,10 +55,10 @@ Its medians against the profile's 1,000 ms interactive budget:
 | `noteCatalog` | 68 ms | 13 ms | 2 |
 | `history` | 40 ms | 4 ms | 1 |
 
-Nothing misses. The only figure over the budget anywhere in the baseline is
-the forecast through a temporary worktree without an object session (2,203 ms
-on Windows), which is not Git's best mode; the merge-tree session is the
-Windows default. The one miss the program ever found, `workspace create` at
+None of these best-mode figures misses the absolute budget. Both temporary
+worktree forecast modes exceed it on Windows: 2,203 ms without an object session
+and 1,147 ms with one. Neither is Windows' best mode; the merge-tree session is
+the Windows default. The one miss the program had found, `workspace create` at
 1,804 ms on a 3,000-file tree, was closed by sparse cones, which is what
 phase 0a was for. The publication phase differs in process count by host
 only because each host runs its default transport (FR-PERF-08).

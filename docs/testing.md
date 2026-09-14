@@ -389,15 +389,18 @@ process rule, and `records` is a semantic guard: if it moves, the phase has
 stopped measuring what it claims to.
 
 Each scale phase also measures a **raw-Git floor**: the plain-Git commands a
-reader would run to obtain the same result, timed in the same process and the
-same way as the phase itself (issue #42). Both sides therefore exclude Node
+reader would run to obtain the corresponding Git data, timed in the same process
+and the same way as the phase itself (issue #42). Both sides therefore exclude Node
 start-up and module load, which is what makes the ratio between them the
 maintainer's stated criterion -- `vlab` no worse than 110% of the equivalent
 plain-Git work -- rather than an approximation of it. Each floor publishes the
 commands it ran, because which commands count as "equivalent" is a judgement
 rather than a fact and belongs in review. `workspaceRegistry` reports no floor:
 Git has no workspace registry, and an invented denominator would be worse than
-none.
+none. A floor does not reproduce vlab's domain validation or registry/checkpoint
+work. Native-versus-Git-engine semantic equality must be tested separately from
+the latency ratio; [ADR-0027](adr/0027-bound-native-read-engine-entry-by-the-resolution-catalog-budget.md)
+defines the accepted bounded rule without adding an implicit allowance.
 
 The floors run after every phase on the same fixture, so no phase measurement
 moves and the committed deterministic baseline stays comparable; the phases that
