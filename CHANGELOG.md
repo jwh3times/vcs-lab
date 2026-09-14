@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Propose the portable-verification contract for issue #36 (ADR-0031,
+  Proposed): a proof-bundle v2 that carries the raw commit objects of the
+  source range, reachability and note-inclusion proofs for every positive
+  coverage claim, and the anchors a remote verifier must obtain independently,
+  with conclusions reported in named tiers and absence claims reported as
+  claimed rather than proven. Disposable-repository evidence records that four
+  of the five adversarial fixtures the issue names (omission, injection,
+  commit substitution, Change-Id substitution) pass today's offline verifier
+  while only duplication is caught. No runtime, schema, or persisted state
+  changes.
+
 - Propose the conflict policy for competing causal facts (issue #44,
   ADR-0030, Proposed): identity is the only conflict key, a conflicted fact
   contributes nothing on either side, conflicts park rather than block or

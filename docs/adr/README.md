@@ -59,6 +59,7 @@ sequence in §15.
 | [0028](0028-define-target-checkpoint-forecast-semantics.md) | Proposed | Carry a target checkpoint through forecasts and applications as pinned uncommitted context, never as a causal change |
 | [0029](0029-require-a-declared-lineage-bridge-for-imports-without-a-shared-root.md) | Proposed | Establish lineage without a shared root only through a declared, locally accepted lineage bridge; content never infers it |
 | [0030](0030-define-conflict-policy-for-competing-causal-facts.md) | Proposed | Quarantine identity-conflicted causal facts on both sides, park rather than refuse or overwrite, and resolve only by a declared local disposition |
+| [0031](0031-carry-a-bound-source-inventory-for-portable-verification.md) | Proposed | Carry a bound source inventory, compact Git-native proofs, and named anchors so a verifier without the repository reports tiered conclusions and never passes an absence claim |
 
 ## Creating or changing an ADR
 

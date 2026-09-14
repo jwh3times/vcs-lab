@@ -955,7 +955,7 @@ acceptance signals.
 | FR-ID-06, FR-ID-07 | Delivered in v0.12.0 | `vlab audit identity` and `vcs-lab.logical-id/v1`. Whether FR-ID-07 also needs an operation log and a second carrier of `ch_*` in commit headers is a Gate B question inside [#40](https://github.com/jwh3times/vcs-lab/issues/40) |
 | FR-ID-08, FR-TRUST-04 | Delivered in v0.12.0 for commit granularity | Sub-commit anchoring is [#34](https://github.com/jwh3times/vcs-lab/issues/34), which is open product question 11 |
 | FR-LAND-10 | Deferred | [#39](https://github.com/jwh3times/vcs-lab/issues/39) |
-| FR-PLAN-08 | Delivered in v0.12.0 | The remote half is [#36](https://github.com/jwh3times/vcs-lab/issues/36) |
+| FR-PLAN-08 | Delivered in v0.12.0 | The remote half is [#36](https://github.com/jwh3times/vcs-lab/issues/36); its contract is proposed in [ADR-0031](adr/0031-carry-a-bound-source-inventory-for-portable-verification.md) (Proposed) |
 | FR-RES-07 | Planned | [#35](https://github.com/jwh3times/vcs-lab/issues/35) |
 | FR-WS-08 | Deferred | [#40](https://github.com/jwh3times/vcs-lab/issues/40), under Gate B |
 | FR-WS-09 | Batched status implemented; Linux and Windows synthetic evidence recorded | Real-repository evidence is [#42](https://github.com/jwh3times/vcs-lab/issues/42); wider zero-process status remains gated beyond ADR-0027 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
