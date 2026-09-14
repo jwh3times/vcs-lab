@@ -1,0 +1,24 @@
+{
+  "schema": "vcs-lab.note/v1",
+  "records": [
+    {
+      "schema": "vcs-lab.application/v4",
+      "type": "application",
+      "id": "apply_0mu0u9bpze24509400605",
+      "reconciliationOperation": "reconcile_op_0mu0u9bj2ae54a321e77c",
+      "originCommit": "10b0f1ac2ca065fcce8ae53dacca5981358f18ed",
+      "originChangeId": "ch_0mu0u67i37d24359a78d1",
+      "appliedCommit": "3e5dfe6a3ec512b94ac4d6bbfa32aa9a538290d1",
+      "appliedChangeId": "ch_0mu0u67i37d24359a78d1",
+      "targetBefore": "e6904743624f3941e7d7db1d055cbf0e797a9bca",
+      "sourceTree": "d382e2b4a1876ce6522455d81e8ce01fad42fa5d",
+      "resultTree": "d382e2b4a1876ce6522455d81e8ce01fad42fa5d",
+      "relation": "causal-reconciliation",
+      "forecastId": "forecast_0mu0u8g8v7c1993a11c72",
+      "conflictedPaths": [],
+      "resolutions": [],
+      "semanticMerges": [],
+      "createdAt": "2026-09-14T06:05:03.767Z"
+    }
+  ]
+}
