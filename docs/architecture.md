@@ -1380,8 +1380,9 @@ The current development baseline covers:
   retention refs and bare-array notes, with an export/import round trip that
   carries a tag-pointing retention ref between clones.
 - the engine seam: no module other than the seam imports read operations
-  from the Git engine, the native engine passes every operation through with
-  recorded fallbacks and identical results, a read outside the seam is
+  from the Git engine, unsupported or unavailable native operations pass through
+  with recorded fallbacks and identical results, supported native operations
+  assert actual execution, and a read outside the seam is
   refused in native mode unless it is one of the two `rawProbe` measurements, the differential doctor reports every cataloged
   operation equal, and invalid engine selections fail before any work.
 - the focused suites [testing.md](testing.md) describes: schema-catalog and
@@ -1475,13 +1476,14 @@ delivered as `workspace create --cone` (§12), and
 closed phase 0a by measuring and rejecting Git's read-side maintenance
 caches. The read-side engine seam of phase 0b is implemented
 ([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md), §14.4):
-every repository read is one of 39 cataloged operations, the native engine
-is selectable and passes through to Git with recorded fallbacks until its
-binding exists, and the suite's `VLAB_ENGINE=native` mode refuses any read outside the seam.
+every repository read is one of 40 cataloged operations, the native engine
+is selectable with per-operation Git fallback, and the suite's `VLAB_ENGINE=native`
+mode refuses any read outside the seam.
 The schema catalog, canonical-JSON profile, compatibility contract
 ([ADR-0020](adr/0020-freeze-per-family-compatibility-and-resource-bounds.md)),
-and conformance fixtures that complete phase 0b are delivered in v0.11.0; no
-phase 1 code exists. A canonical fact log with
+and conformance fixtures that complete phase 0b are delivered in v0.11.0.
+The five-operation optional binding is the bounded ADR-0027 increment;
+the wider phase-1 exit criteria remain unmet. A canonical fact log with
 Git notes and refs as projections, private draft stacks, and any gateway
 remain behind Gate B, and
 [ADR-0023](adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md)
