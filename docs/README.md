@@ -28,6 +28,8 @@ the versioned record of delivered behavior.
   fixtures, exact output checks, corrected fences, and historical parser views.
 - [Testing](testing.md) — supported validation commands and release evidence
   policy.
+- [Optional native reads](native-engine.md) — build, fallback boundaries, and
+  resolution-catalog qualification.
 - [Benchmark host baselines](testing.md#benchmark-regression-check) — machine
   labels, recording, skipped latency, and qualification requirements; the
   [wiki walkthrough](https://github.com/jwh3times/vcs-lab/wiki/Benchmark-host-baselines)

@@ -73,6 +73,20 @@ jobs:
         run: |
           git --version
           node --version
+      - name: Build the optional native backend
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          node scripts/build-native.mjs
+          echo "VLAB_REQUIRE_NATIVE=1" >> "$GITHUB_ENV"
+      - name: Native parser mutation fuzzing
+        run: cargo +1.98.1 run --manifest-path native/Cargo.toml --locked --release --bin fuzz-parsers -- 200000 83
+      - name: Retain optional prebuild and license notices
+        if: matrix.mode == 'default' && matrix.node == 24
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ runner.os }}-${{ github.sha }}
+          path: native/prebuilds/
+          if-no-files-found: error
       - name: Select the mode
         run: |
           case "${{ matrix.mode }}" in

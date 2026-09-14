@@ -227,6 +227,16 @@ const GIT_EQUIVALENTS = {
   },
 };
 
+/** The unchanged raw acquisition floor used by ADR-0027 qualification. */
+export function resolutionCatalogFloor(repo) {
+  return GIT_EQUIVALENTS.resolutionCatalog.run(repo);
+}
+
+/** Run a synchronous qualification on the ordinary scale fixture, then remove it. */
+export function withScaleFixture(options, callback) {
+  return benchmarkRepositoryScale(options, callback);
+}
+
 function measureFloor(name, sampleCount, repo, context) {
   const equivalent = GIT_EQUIVALENTS[name];
   if (!equivalent) return null;
@@ -393,7 +403,7 @@ export function buildAnalysis(measurements, fixture, budgetMs) {
   };
 }
 
-export function benchmarkRepositoryScale(options = {}) {
+export function benchmarkRepositoryScale(options = {}, fixtureCallback = null) {
   const historyDepth = integerOption(
     options.history,
     250,
@@ -598,6 +608,7 @@ export function benchmarkRepositoryScale(options = {}) {
       filesPerArea,
       treeFiles: areaCount * filesPerArea,
     };
+    if (fixtureCallback) return fixtureCallback(repo, fixture);
     const createdFull = [];
     const createdCone = [];
     // Captured before any phase runs, so the status floor measures the same

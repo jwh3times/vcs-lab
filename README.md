@@ -1,6 +1,6 @@
 # vcs-lab
 
-`vcs-lab` is a local, dependency-free prototype for experimenting with the source-control ideas discussed in this project:
+`vcs-lab` is a local prototype with a dependency-free Git engine for experimenting with the source-control ideas discussed in this project:
 
 - Git remains a real compatibility and storage layer.
 - logical changes keep a stable `Change-Id` across rebase and cherry-pick;
@@ -843,10 +843,11 @@ listing command. See [session safety rules](docs/architecture.md#142-invocation-
 engine for one invocation and `--forecast-engine worktree` the worktree
 simulator; without either, Windows uses the merge-tree engine and POSIX hosts
 the worktree simulator. `--engine native` (or `VLAB_ENGINE=native`) selects
-the native read engine of ADR-0015 for one invocation; no native binding
-exists yet, so every repository read passes through to Git and the result's
-Git metrics list each passthrough under `fallbacks` with the reason
-`binding-missing`, next to `engine` and `directReads`, the number of reads
+the optional [native resolution-read binding](docs/native-engine.md) for one
+invocation. Its five supported operations report successful execution under
+`nativeReads`; unsupported operations and unavailable bindings use Git and appear
+under `fallbacks`. A missing prebuild reports `binding-missing`. Metrics also
+include `engine` and `directReads`, the number of reads
 that bypassed the engine seam (always zero; such a read is refused in native
 mode). Trace output contains command names, durations, and whether a query
 started a process, reused a persistent process, or hit the immutable object

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add the optional Rust/gitoxide resolution-catalog read increment (issue #83).
+  Keep Git as the default, preserve complete-operation fallback, and expose
+  actual native execution counts. Native qualification uses the unchanged Git
+  floor and includes binding initialization and JavaScript validation.
+
 - Accept the bounded first native read-engine increment for the resolution
   catalog (issue #18, ADR-0027), with the 110%-of-Git target, dependency review,
   equality checks, and stop conditions. Wider native phases remain gated.

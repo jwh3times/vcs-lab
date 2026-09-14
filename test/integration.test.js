@@ -2906,7 +2906,17 @@ function assertBenchmarkLatencyAnalysis(report) {
   assert.equal(report.analysis.persistentIndex.recommendedNow, overBudget.length > 0);
 }
 
+function useGitTransport(t) {
+  const previous = process.env.VLAB_ENGINE;
+  process.env.VLAB_ENGINE = "git";
+  t.after(() => {
+    if (previous === undefined) delete process.env.VLAB_ENGINE;
+    else process.env.VLAB_ENGINE = previous;
+  });
+}
+
 test("doctor and repository-scale benchmarks expose process costs without repository content", (t) => {
+  useGitTransport(t);
   const { repo, parent } = makeRepo(t);
   write(repo, "base.txt", "base\n");
   git(repo, "add", "base.txt");
@@ -3979,6 +3989,7 @@ test("metadata envelope round-trips accepted facts between clones idempotently",
 });
 
 test("workspace listing batches one status query per existing path and preserves status contracts", (t) => {
+  useGitTransport(t);
   const { repo, parent } = makeRepo(t);
   write(repo, "base.txt", "base\n");
   write(repo, "rename-me.txt", "rename me\n");
@@ -4451,6 +4462,7 @@ test("batched resolution catalog lists retained records newest-first and quarant
 });
 
 test("batched resolution catalog scans use a bounded number of Git processes as refs grow", (t) => {
+  useGitTransport(t);
   const { repo } = makeRepo(t);
   write(repo, "shared.txt", "base\n");
   git(repo, "add", ".");
@@ -4556,6 +4568,7 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
 });
 
 test("the metadata inventory shares notes discovery and object reads without adding empty-inventory processes", (t) => {
+  useGitTransport(t);
   const { repo } = makeRepo(t);
   write(repo, "shared.txt", "base\n");
   git(repo, "add", ".");
@@ -6332,6 +6345,12 @@ function stripVolatile(value) {
 }
 
 test("every repository read passes through the engine seam and the native engine passes through to Git", async (t) => {
+  const previousBinding = process.env.VLAB_TEST_NATIVE_BINDING;
+  process.env.VLAB_TEST_NATIVE_BINDING = "missing";
+  t.after(() => {
+    if (previousBinding === undefined) delete process.env.VLAB_TEST_NATIVE_BINDING;
+    else process.env.VLAB_TEST_NATIVE_BINDING = previousBinding;
+  });
   // Import discipline: only the seam reads from the Git engine, and only a
   // deliberate raw-Git measurement may bypass it -- the doctor's process-cost
   // probes, and the scale benchmark's raw-Git floors (issue #42). Both exist to

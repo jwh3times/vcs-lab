@@ -117,7 +117,7 @@ function gitCommandName(args) {
 }
 
 export function beginGitMetrics(label = "git") {
-  const collector = { label, commands: [], fallbacks: [], directReads: 0 };
+  const collector = { label, commands: [], fallbacks: [], directReads: 0, nativeReads: {} };
   activeMetricCollectors.add(collector);
   return collector;
 }
@@ -136,6 +136,12 @@ function recordGitMetric(item) {
 export function recordEngineFallback(record) {
   for (const collector of activeMetricCollectors) {
     collector.fallbacks.push(record);
+  }
+}
+
+export function recordNativeRead(operation) {
+  for (const collector of activeMetricCollectors) {
+    collector.nativeReads[operation] = (collector.nativeReads[operation] ?? 0) + 1;
   }
 }
 
@@ -263,6 +269,7 @@ export function endGitMetrics(collector) {
     failed: collector.commands.filter((item) => !item.ok).length,
     engine: readEngine(),
     fallbacks: aggregateFallbacks(collector.fallbacks),
+    nativeReads: { ...collector.nativeReads },
     directReads: collector.directReads,
     byCommand: [...byCommand.values()]
       .map((item) => ({

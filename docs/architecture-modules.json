@@ -20,8 +20,12 @@
     "dependencies": "None"
   },
   "src/engine.js": {
-    "responsibility": "The read-side engine seam: the catalog of 40 read operations, the read-engine selector and native-engine stub, per-operation fallback, composites, and the differential comparison",
-    "dependencies": "`src/git.js`"
+    "responsibility": "The read-side engine seam: the catalog of 40 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison",
+    "dependencies": "`src/git.js`, `src/native-engine.js`"
+  },
+  "src/native-engine.js": {
+    "responsibility": "Optional in-process Node-API binding loader and conversion for the five bounded resolution-catalog read operations",
+    "dependencies": "Optional `native/prebuilds` binding, Node module and path utilities"
   },
   "src/git.js": {
     "responsibility": "The Git engine: safe synchronous Git adapter, the Git implementation of every read operation, repository context, object and merge-tree sessions, engine selectors, the read-bypass rule, metrics",
