@@ -995,7 +995,9 @@ recorded in an ADR when it changes a durable decision.
 1. Should a future lineage version support deliberate history-filtered imports,
    and what proof can replace the shared-root rule without enabling unrelated
    metadata injection?
-   ([#43](https://github.com/jwh3times/vcs-lab/issues/43))
+   ([#43](https://github.com/jwh3times/vcs-lab/issues/43)). A declared,
+   locally accepted lineage bridge is proposed in
+   [ADR-0029](adr/0029-require-a-declared-lineage-bridge-for-imports-without-a-shared-root.md) (Proposed).
 2. Which causal claims are safe to merge automatically when two metadata
    sources disagree?
    ([#44](https://github.com/jwh3times/vcs-lab/issues/44))

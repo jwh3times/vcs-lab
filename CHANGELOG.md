@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Propose ADR-0029 for issue #43: a history-filtered repository may establish
+  lineage with its pre-image only through a declared lineage bridge that names
+  both lineage identities and carries the complete commit map, honored only
+  where it has been explicitly accepted; the shared-root rule stays fail-closed
+  and nothing inferred from content (trees, Change-Id trailers, object overlap,
+  replacement refs) ever establishes lineage. Disposable-repository evidence
+  shows a rewrite strands every fact inside its own repository, that a local
+  `git replace` graft already satisfies the shared-root rule silently, and
+  that import accepts a fork while proof verification reports it as a
+  different repository. No behavior changes; the ADR awaits the owner's
+  decision.
+
 - Propose target-checkpoint forecast semantics (issue #26, ADR-0028, Proposed):
   a target overlay is one immutable checkpoint pinned by commit identity,
   selected only explicitly, carried through reconciliation and rebase as
