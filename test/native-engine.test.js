@@ -8,6 +8,8 @@ import test from "node:test";
 import * as engine from "../src/engine.js";
 import * as git from "../src/git.js";
 import { loadNativeEngine } from "../src/native-engine.js";
+import { createHash } from "node:crypto";
+import { deflateSync } from "node:zlib";
 
 Object.assign(process.env, testEnv());
 // The supported profile deliberately excludes command-scope configuration.
@@ -89,8 +91,11 @@ test("unsupported expressions and repository profiles fall back as complete oper
   const sha256 = fixture(t, ["--object-format=sha256"]);
   compare("repoContext", [sha256.root], false);
   compare("listNoteEntries", ["vcs-lab", sha256.root], false);
-  const reftable = fixture(t, ["--ref-format=reftable"]);
-  compare("listRefs", ["refs/heads", reftable.root], false);
+  const version = spawnSync("git", ["--version"], { encoding: "utf8" }).stdout.match(/(\d+)\.(\d+)/);
+  if (Number(version[1]) > 2 || Number(version[2]) >= 45) {
+    const reftable = fixture(t, ["--ref-format=reftable"]);
+    compare("listRefs", ["refs/heads", reftable.root], false);
+  } else assert.notEqual(process.env.VLAB_REQUIRE_NATIVE, "1", "qualification requires a reftable-capable Git");
 });
 
 function rawObject(root, type, data) {
@@ -118,6 +123,7 @@ test("native notes reject duplicate, malformed, and oversized trees without part
 
 test("missing and broken optional bindings preserve Git functionality", (t) => {
   assert.equal(loadNativeEngine(() => { throw new Error("invalid binary"); }).reason, "binding-load-error");
+  assert.equal(loadNativeEngine(() => ({})).reason, "binding-incompatible");
   const { root } = fixture(t);
   const moduleUrl = new URL("../src/engine.js", import.meta.url).href;
   const script = `import { describeReadEngines, repoContext } from ${JSON.stringify(moduleUrl)};
@@ -130,4 +136,48 @@ test("missing and broken optional bindings preserve Git functionality", (t) => {
   assert.equal(parsed.engine.native.available, false);
   assert.equal(parsed.engine.native.reason, "binding-missing");
   assert.equal(parsed.context.root, root);
+});
+
+test("unordered trees and aliased worktree paths delegate to Git", { skip: !available }, (t) => {
+  const { root } = fixture(t);
+  const blob = rawObject(root, "blob", Buffer.from("retained\n"));
+  const entry = (name) => Buffer.concat([Buffer.from(`100644 ${name}\0`), Buffer.from(blob, "hex")]);
+  const tree = rawObject(root, "tree", Buffer.concat([entry("z"), entry("result")]));
+  compare("inspectGitObjects", [[`${tree}:result`], root], false);
+  const alias = `${root}-alias`;
+  fs.symlinkSync(root, alias, process.platform === "win32" ? "junction" : "dir");
+  t.after(() => fs.unlinkSync(alias));
+  compare("repoContext", [alias], false);
+  if (process.platform === "win32") {
+    assert.throws(() => engine.nativeEngine().operations.repoContext("\\\\server\\share\\repo"), /unsupported aliased/);
+  }
+});
+
+test("a small packed delta cannot bypass the native allocation limit with a large base", { skip: !available }, (t) => {
+  const { root } = fixture(t);
+  const base = Buffer.alloc(64 * 1024 * 1024 + 1, 90);
+  const baseId = createHash("sha1").update(`blob ${base.length}\0`).update(base).digest();
+  const integer = (value) => {
+    const bytes = [];
+    do { const byte = value & 127; value = Math.floor(value / 128); bytes.push(byte | (value ? 128 : 0)); } while (value);
+    return Buffer.from(bytes);
+  };
+  const header = (type, size) => {
+    const first = (type << 4) | (size & 15);
+    size = Math.floor(size / 16);
+    return Buffer.concat([Buffer.from([first | (size ? 128 : 0)]), size ? integer(size) : Buffer.alloc(0)]);
+  };
+  const delta = Buffer.concat([integer(base.length), integer(1), Buffer.from([1, 90])]);
+  const body = Buffer.concat([Buffer.from("5041434b0000000200000002", "hex"),
+    header(3, base.length), deflateSync(base), header(7, delta.length), baseId, deflateSync(delta)]);
+  const pack = Buffer.concat([body, createHash("sha1").update(body).digest()]);
+  const indexed = spawnSync("git", ["index-pack", "--stdin"], { cwd: root, input: pack, env: testEnv() });
+  assert.equal(indexed.status, 0, indexed.stderr.toString());
+  const resultId = createHash("sha1").update("blob 1\0Z").digest("hex");
+  compare("readGitObjects", [[resultId], root], false);
+});
+
+test("absent empty-tree objects retain Git existence semantics", { skip: !available }, (t) => {
+  const { root } = fixture(t);
+  compare("readGitObjects", [["4b825dc642cb6eb9a060e54bf8d69288fbee4904"], root]);
 });

@@ -32,14 +32,18 @@ including linked worktrees and loose or packed storage. It accepts full object
 IDs, direct full refs, commit/tree peeling, and the retained `:result` path.
 Other revision expressions use Git. Bare repositories, SHA-256, reftable,
 replacement refs, grafts, and command-scope Git configuration also use Git.
+Repository identity through aliased paths or Windows UNC paths uses Git.
 
 Each operation opens current repository state. No resident worker or persistent
 cache is introduced. Object content batches have a 64 MiB native acquisition
 budget; note traversal has a 16 MiB/1,024-tree budget. Invalid inputs, duplicates,
+unordered trees,
 unsupported cases, and exhausted budgets fall back for the entire operation.
 They never return a partial catalog. Git remains authoritative for the fallback
 result or error. `nativeReads` metrics count successful operations; `fallbacks`
 report operations delegated to Git.
+An in-memory gix allocation limit also bounds packed delta bases and intermediate
+buffers, so a small final object cannot bypass the content limit with a large base.
 
 The core forbids unsafe Rust. Binding entry points catch unwinding panics and
 convert errors before the engine seam falls back. This does not turn an abort or

@@ -5,6 +5,11 @@ fn convert<T>(result: vlab_core::Result<T>) -> Result<T> {
   result.map_err(Error::from_reason)
 }
 
+#[napi(catch_unwind)]
+pub fn profile_version() -> u32 {
+  1
+}
+
 #[napi(object)]
 pub struct Context {
   pub root: String,

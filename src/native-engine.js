@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import path from "node:path";
+import { realpathSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 
@@ -12,10 +13,30 @@ export function loadNativeEngine(load = require) {
   let binding;
   try {
     binding = load(`../native/prebuilds/${process.platform}-${process.arch}/vlab-core.node`);
+    if (binding.profileVersion?.() !== 1 || ["repoContext", "listRefs", "readObjects", "listNoteEntries"]
+      .some((operation) => typeof binding[operation] !== "function")) {
+      return unavailable("binding-incompatible");
+    }
   } catch (error) {
     return unavailable(error.code === "MODULE_NOT_FOUND" ? "binding-missing" : "binding-load-error");
   }
   const cwd = (value = process.cwd()) => path.resolve(value);
+  const context = (directory) => {
+    const resolved = cwd(directory);
+    if (resolved.startsWith("\\\\") || realpathSync.native(resolved) !== resolved) {
+      throw new Error("unsupported aliased repository path");
+    }
+    const result = binding.repoContext(resolved);
+    for (const key of ["gitDir", "commonDir"]) {
+      if (!path.isAbsolute(result[key])) throw new Error("unsupported relative Git directory");
+      const normalized = path.resolve(result[key]);
+      if (normalized.startsWith("\\\\") || realpathSync.native(normalized) !== normalized) {
+        throw new Error("unsupported aliased Git directory");
+      }
+      result[key] = normalized;
+    }
+    return result;
+  };
   const objects = (expressions, directory, contents) => {
     if (!Array.isArray(expressions) || expressions.length === 0) return [];
     return binding.readObjects(expressions, cwd(directory), contents).map((record) => ({
@@ -32,7 +53,7 @@ export function loadNativeEngine(load = require) {
     reason: null,
     profile: "files-sha1-resolution-v1",
     operations: Object.freeze({
-      repoContext: (directory) => binding.repoContext(cwd(directory)),
+      repoContext: context,
       listRefs: (pattern, directory) => binding.listRefs(pattern, cwd(directory))
         .map(({ name, oid }) => ({ ref: name, oid })),
       inspectGitObjects: (expressions, directory) => objects(expressions, directory, false),

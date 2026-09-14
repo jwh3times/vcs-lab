@@ -21,21 +21,29 @@ fn open(cwd: &str) -> Result<Repository> {
     "GIT_CONFIG_COUNT",
     "GIT_CONFIG_PARAMETERS",
     "GIT_REPLACE_REF_BASE",
+    "GIT_ALLOC_LIMIT",
   ] {
     if std::env::var_os(key).is_some() {
       return Err(format!("unsupported environment: {key}"));
     }
   }
-  let repo = gix::discover(cwd).map_err(err)?;
+  let repo = gix::discover_opts(
+    cwd,
+    Default::default(),
+    gix::open::Options::default().config_overrides(["gitoxide.objects.allocLimit=67108864"]),
+  )
+  .map_err(err)?;
   if repo.workdir().is_none() || repo.object_hash() != gix::hash::Kind::Sha1 {
     return Err("unsupported repository profile".into());
   }
   let config = repo.config_snapshot();
   if config.string("extensions.refStorage").is_some()
     || config.string("extensions.partialClone").is_some()
-    || config.sections_by_name("remote").is_some_and(|mut sections| {
-      sections.any(|section| section.value_implicit("promisor").is_some())
-    })
+    || config
+      .sections_by_name("remote")
+      .is_some_and(|mut sections| {
+        sections.any(|section| section.value_implicit("promisor").is_some())
+      })
     || repo.common_dir().join("info/grafts").exists()
     || repo
       .references()
@@ -58,14 +66,21 @@ pub struct Context {
 fn absolute(path: &std::path::Path) -> Result<String> {
   let p = std::fs::canonicalize(path).map_err(err)?;
   let s = p.to_str().ok_or("non-UTF-8 path")?;
+  if s.starts_with("\\\\?\\UNC\\") {
+    return Err("unsupported UNC repository".into());
+  }
   Ok(s.strip_prefix("\\\\?\\").unwrap_or(s).to_owned())
 }
 pub fn context(cwd: &str) -> Result<Context> {
   let repo = open(cwd)?;
   Ok(Context {
     root: absolute(repo.workdir().ok_or("bare repository")?)?,
-    git_dir: absolute(repo.git_dir())?,
-    common_dir: absolute(repo.common_dir())?,
+    git_dir: repo.git_dir().to_str().ok_or("non-UTF-8 path")?.to_owned(),
+    common_dir: repo
+      .common_dir()
+      .to_str()
+      .ok_or("non-UTF-8 path")?
+      .to_owned(),
   })
 }
 
@@ -127,6 +142,7 @@ fn object<'a>(repo: &'a Repository, id: ObjectId, remaining: &mut u64) -> Result
 pub fn tree_entries(data: &[u8]) -> Result<Vec<(u32, Vec<u8>, ObjectId)>> {
   let mut rest = data;
   let mut out = Vec::new();
+  let mut previous = None;
   while !rest.is_empty() {
     let space = rest
       .iter()
@@ -149,6 +165,14 @@ pub fn tree_entries(data: &[u8]) -> Result<Vec<(u32, Vec<u8>, ObjectId)>> {
     if name.contains(&b'/') {
       return Err("invalid tree name".into());
     }
+    let mut key = name.clone();
+    if mode & 0o170000 == 0o040000 {
+      key.push(b'/');
+    }
+    if previous.as_ref().is_some_and(|last: &Vec<u8>| last >= &key) {
+      return Err("unordered tree entries".into());
+    }
+    previous = Some(key);
     let id = ObjectId::from_bytes_or_panic(&rest[nul + 1..nul + 21]);
     out.push((mode, name, id));
     rest = &rest[nul + 21..];
