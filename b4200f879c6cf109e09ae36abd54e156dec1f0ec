@@ -22,6 +22,25 @@
       ],
       "resultTree": "4bdad1c6ee3cc473ee86fd0f41edd709c9118128",
       "createdAt": "2026-09-14T06:23:28.614Z"
+    },
+    {
+      "schema": "vcs-lab.provenance/v1",
+      "type": "provenance",
+      "id": "prov_0mu0ux0uu77078e87a049",
+      "commit": "b4200f879c6cf109e09ae36abd54e156dec1f0ec",
+      "changeId": null,
+      "actors": [
+        {
+          "role": "generated",
+          "actor": "codex"
+        }
+      ],
+      "origin": "carried",
+      "carriedFrom": [
+        "10b0f1ac2ca065fcce8ae53dacca5981358f18ed",
+        "7d41b37393f00b26ed151b577ff15b5271fa579c"
+      ],
+      "createdAt": "2026-09-14T06:23:29.430Z"
     }
   ]
 }
