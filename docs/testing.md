@@ -249,7 +249,13 @@ prune previews stay available. The repository-wide guard also covers unregistere
 missing and live worktrees. Malformed, null, and unknown-version journals refuse
 by presence, while a caller's journal does not block archiving a different target.
 
-The same file pins the object session's response-buffer bound. Overflowing
+`test/notes-session.test.js` compares notes listings directly with Git for
+SHA-1 and SHA-256, mixed flat and deepest legal fanout trees, executable notes,
+uppercase hexadecimal paths, opaque entries, moved refs, and duplicate
+attachments. It checks complete fallback on session failures and traversal
+budgets, and proves that a listing plus its note blobs uses one Git process.
+
+`test/integration.test.js` also pins the object session's response-buffer bound. Overflowing
 the real 64 MiB content buffer needs a blob of roughly 48 MiB, far too large to
 build on every suite run, so `VLAB_TEST_SESSION_BUFFER_BYTES` shrinks the
 buffer to meet a small fixture. What is asserted is not the threshold but the

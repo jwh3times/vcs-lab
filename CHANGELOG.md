@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Read bounded Git notes trees through the active object session (issue #73),
+  removing the separate listing process while preserving Git's SHA-1/SHA-256
+  fanout and ordering rules. Duplicate attachments, oversized traversals, and
+  unavailable objects delegate the complete listing to Git.
+
 - Correct fenced-code entity boundaries with parser v2, sparse manifest v4,
   semantic plan/merge v2, and spec benchmark v3 (issue #51, ADR-0026). Preserve
   verified real entity IDs during migration, block affected historical merge
