@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add repeatable real-repository Git/native read comparisons for issue #42,
+  retaining whole-command timings, equality checks, and fallback evidence.
+  Refresh the Gate B table to distinguish actual Windows pilot use from the
+  outstanding user-value and POSIX evidence.
+
 - Add the optional Rust/gitoxide resolution-catalog read increment (issue #83).
   Keep Git as the default, preserve complete-operation fallback, and expose
   actual native execution counts. Native qualification uses the unchanged Git
