@@ -84,7 +84,8 @@ and rebase timing snapshots include and exclude.
 
 | Schema | Document | Store |
 | --- | --- | --- |
-| `vcs-lab.spec-manifest/v3` | [spec-manifest.v3.schema.json](spec-manifest.v3.schema.json) | `.vcs-lab/specs/**` |
+| `vcs-lab.spec-manifest/v4` | [spec-manifest.v4.schema.json](spec-manifest.v4.schema.json) | `.vcs-lab/specs/**` |
+| `vcs-lab.spec-manifest/v3` | [spec-manifest.v3.schema.json](spec-manifest.v3.schema.json) | Superseded; historical v1 parser view, migrated on indexing |
 | `vcs-lab.spec-manifest/v2` | [spec-manifest.v2.schema.json](spec-manifest.v2.schema.json) | Superseded; read and migrated forward |
 | `vcs-lab.spec-manifest/v1` | [spec-manifest.v1.schema.json](spec-manifest.v1.schema.json) | Superseded; read and migrated forward |
 
@@ -115,7 +116,9 @@ vocabulary is published in [errors.md](errors.md).
 | `vcs-lab.checkpoint/v1` | [checkpoint.v1.schema.json](checkpoint.v1.schema.json) |
 | `vcs-lab.workspace-prune/v1` | [workspace-prune.v1.schema.json](workspace-prune.v1.schema.json) |
 | `vcs-lab.spec-merge-plan/v1` | [spec-merge-plan.v1.schema.json](spec-merge-plan.v1.schema.json) |
+| `vcs-lab.spec-merge-plan/v2` | [spec-merge-plan.v2.schema.json](spec-merge-plan.v2.schema.json) |
 | `vcs-lab.spec-benchmark/v2` | [spec-benchmark.v2.schema.json](spec-benchmark.v2.schema.json) |
+| `vcs-lab.spec-benchmark/v3` | [spec-benchmark.v3.schema.json](spec-benchmark.v3.schema.json) |
 | `vcs-lab.repository-scale-benchmark/v1` | [repository-scale-benchmark.v1.schema.json](repository-scale-benchmark.v1.schema.json) |
 | `vcs-lab.metadata-status/v1` | [metadata-status.v1.schema.json](metadata-status.v1.schema.json) |
 | `vcs-lab.metadata-validation/v1` | [metadata-validation.v1.schema.json](metadata-validation.v1.schema.json) |
@@ -125,6 +128,9 @@ vocabulary is published in [errors.md](errors.md).
 | `vcs-lab.metadata-import/v1` | [metadata-import.v1.schema.json](metadata-import.v1.schema.json) |
 | `vcs-lab.engine-differential/v1` | [engine-differential.v1.schema.json](engine-differential.v1.schema.json) |
 | `vcs-lab.error/v1` | [error.v1.schema.json](error.v1.schema.json) |
+
+The catalog retains historical spec plan v1 and spec benchmark v2 documents.
+Current commands emit plan v2 and benchmark v3; see the command table below.
 
 ### Superseded identifiers without documents
 
@@ -178,11 +184,11 @@ rendering at all.
 | `vlab workspace prune` | `vcs-lab.workspace-prune/v1` |
 | `vlab workspace forecast` | `vcs-lab.forecast/v2` (with `workspaceComparison` populated) |
 | `vlab spec index` | Projection `{manifestPath, manifest, changes, entityCount, cacheHit, cacheMode, contentRead, written, ...}`; `--all` wraps per-file results in a summary projection |
-| `vlab spec show` | Projection `{manifestPath, manifest}` with `manifest` the materialized `vcs-lab.spec-manifest/v3` view (adds `sourceBytes`, `sourceLines`, `blocks`) |
-| `vlab spec merge-plan` | `vcs-lab.spec-merge-plan/v1` |
+| `vlab spec show` | Projection `{manifestPath, manifest}` with a materialized manifest view (adds `sourceBytes`, `sourceLines`, `blocks`); stored v1/v2/v3/v4 schema and parser semantics are retained |
+| `vlab spec merge-plan` | `vcs-lab.spec-merge-plan/v2` |
 | `vlab spec status` | Projection `{active, operationId, plans}` |
 | `vlab spec resolve` | Projection `{operationId, applied}` |
-| `vlab spec benchmark` | `vcs-lab.spec-benchmark/v2` |
+| `vlab spec benchmark` | `vcs-lab.spec-benchmark/v3` |
 | `vlab doctor` | Projection `{ok, version, git, node, repository, notesRef, engine, forecastEngine, differential?, benchmark?, objectSession?}`; `version` is the vcs-lab build identity and `differential` is a `vcs-lab.engine-differential/v1` |
 
 `vlab merge`, `vlab compact-merge`, and `vlab hard-squash` print their

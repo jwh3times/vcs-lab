@@ -21,6 +21,7 @@ import { readReconciliationState } from "./reconcile-state.js";
 import { readRebaseState } from "./rebase-state.js";
 import { buildRebasePlan } from "./rebase-plan.js";
 import { readJson, writeJson } from "./store.js";
+import { assertCurrentSpecDecisions } from "./specs.js";
 
 function rebaseForecastPath(id, cwd) {
   if (!/^rebase_forecast_[a-z0-9]+$/.test(String(id ?? ""))) {
@@ -52,6 +53,7 @@ export function rebaseForecastForPlan(id, plan, cwd = process.cwd()) {
     family: "vcs-lab.rebase-forecast",
     recovery: "Generate a new rebase forecast with: vlab rebase-forecast",
   });
+  assertCurrentSpecDecisions(forecast);
   if (
     forecast.id !== id ||
     forecast.status !== "complete" ||

@@ -114,6 +114,7 @@
       "type": "object",
       "required": ["sourceCommit", "path", "signature", "resultMarkdownHash", "resultManifestHash"],
       "properties": {
+        "algorithm": { "type": "string", "description": "Semantic merge algorithm approved by this decision. Absent in historical approvals, which remain inspectable but require a new forecast before application." },
         "sourceCommit": { "$ref": "#/$defs/oid" },
         "path": { "type": "string" },
         "signature": { "type": "string" },

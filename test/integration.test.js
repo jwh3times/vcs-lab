@@ -1763,14 +1763,14 @@ test("annotated Markdown keeps stable block IDs across edits and moves", (t) => 
       assert.equal(block.id, ids.get(block.semanticKey));
     }
   }
-  assert.equal(second.manifest.schema, "vcs-lab.spec-manifest/v3");
+  assert.equal(second.manifest.schema, "vcs-lab.spec-manifest/v4");
   assert.equal(second.cacheHit, false);
   assert.ok(second.changes.changed.length >= 1);
   assert.ok(second.changes.moved.length >= 1);
 
   const manifestBefore = fs.readFileSync(second.manifestPath, "utf8");
   const stored = JSON.parse(manifestBefore);
-  assert.equal(stored.schema, "vcs-lab.spec-manifest/v3");
+  assert.equal(stored.schema, "vcs-lab.spec-manifest/v4");
   assert.equal(Object.hasOwn(stored, "blocks"), false);
   assert.equal(stored.entityCount, second.manifest.blocks.length);
   const third = JSON.parse(vlab(repo, "spec", "index", "docs/spec.md", "--json"));
@@ -1851,7 +1851,7 @@ test("spec index --force rebuilds a manifest the caches would have kept", (t) =>
   assert.equal(git(repo, "status", "--porcelain=v1"), "");
 });
 
-test("v2 manifests migrate to sparse v3 without changing logical IDs", (t) => {
+test("v2 manifests migrate to sparse v4 without changing logical IDs", (t) => {
   const { repo } = makeRepo(t);
   write(repo, "docs/legacy.md", "# Legacy\n\nREQ-LEGACY-1: Preserve this identity.\n");
   const indexed = JSON.parse(
@@ -1869,7 +1869,7 @@ test("v2 manifests migrate to sparse v3 without changing logical IDs", (t) => {
     sourceBytes: indexed.manifest.sourceBytes,
     sourceLines: indexed.manifest.sourceLines,
     representation: indexed.manifest.representation,
-    parser: indexed.manifest.parser,
+    parser: "stable-markdown-blocks/v1",
     blocks: legacyBlocks,
   };
   fs.writeFileSync(indexed.manifestPath, `${JSON.stringify(legacy, null, 2)}\n`);
@@ -1883,7 +1883,7 @@ test("v2 manifests migrate to sparse v3 without changing logical IDs", (t) => {
     legacyBlocks.map((block) => block.id),
   );
   const stored = JSON.parse(fs.readFileSync(indexed.manifestPath, "utf8"));
-  assert.equal(stored.schema, "vcs-lab.spec-manifest/v3");
+  assert.equal(stored.schema, "vcs-lab.spec-manifest/v4");
   assert.equal(Object.hasOwn(stored, "blocks"), false);
   assert.equal(
     stored.idOverrides[legacyBlocks[0].semanticKey],
@@ -2235,8 +2235,8 @@ test("batch spec indexing skips unchanged manifests and measures generated corpo
   assert.equal(benchmark.unchanged.cacheHits, 2);
   assert.equal(benchmark.unchanged.manifestsWritten, 0);
   assert.equal(benchmark.oneBlockChanged.manifestsWritten, 1);
-  assert.equal(benchmark.schema, "vcs-lab.spec-benchmark/v2");
-  assert.equal(benchmark.manifestSchema, "vcs-lab.spec-manifest/v3");
+  assert.equal(benchmark.schema, "vcs-lab.spec-benchmark/v3");
+  assert.equal(benchmark.manifestSchema, "vcs-lab.spec-manifest/v4");
   assert.equal(benchmark.unchanged.contentReads, 0);
   assert.equal(benchmark.unchanged.blobCacheHits, 2);
   assert.ok(benchmark.manifestBytes < benchmark.legacyV2EquivalentBytes);
@@ -2982,7 +2982,7 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     filesPerArea: 3,
     treeFiles: 6,
   });
-  assert.equal(scale.coverage.documentationVolume.companionSchema, "vcs-lab.spec-benchmark/v2");
+  assert.equal(scale.coverage.documentationVolume.companionSchema, "vcs-lab.spec-benchmark/v3");
   assert.equal(scale.setup.expectedAbsentProbeFailures, 21);
   assert.equal(scale.setup.unexpectedGitFailures, 0);
   assert.equal(scale.measurements.history.result.commits, 4);

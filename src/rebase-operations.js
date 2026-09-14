@@ -45,6 +45,7 @@ import {
 } from "./resolutions.js";
 import {
   captureSpecMergeOutcomes,
+  assertCurrentSpecDecisions,
   compactSpecMerge,
   materializeSpecMerge,
   specMergePlansForOperation,
@@ -818,6 +819,7 @@ function forkMergeMessage(operation, cwd) {
 function continueRebaseInSession(options, cwd) {
   const phaseStarted = performance.now();
   const operation = requirePendingRebase(cwd);
+  assertCurrentSpecDecisions(operation);
   requireOperationBranch(operation, cwd);
   if (operation.state !== "conflicted" || !operation.current) {
     throw new CliError(

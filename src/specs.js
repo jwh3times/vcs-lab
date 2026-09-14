@@ -13,9 +13,9 @@ import {
 import { CliError } from "./errors.js";
 import { assertWithinBound } from "./schemas.js";
 
-export const SPEC_PARSER = "stable-markdown-blocks/v1";
-export const SPEC_MERGE_ALGORITHM = "stable-markdown-three-way/v1";
-export const SPEC_MANIFEST_SCHEMA = "vcs-lab.spec-manifest/v3";
+export const SPEC_PARSER = "stable-markdown-blocks/v2";
+export const SPEC_MERGE_ALGORITHM = "stable-markdown-three-way/v2";
+export const SPEC_MANIFEST_SCHEMA = "vcs-lab.spec-manifest/v4";
 export const SPEC_ID_ALGORITHM = "artifact-semantic-key-sha256/v1";
 
 export function normalizeMarkdown(text) {
@@ -34,11 +34,32 @@ function deterministicEntityId(artifactId, semanticKey) {
   return `ent_${sha256(`${artifactId}\0${semanticKey}`).slice(0, 24)}`;
 }
 
-function parseBlocks(text) {
+function literalLines(lines) {
+  let fence = null;
+  return lines.map((line) => {
+    const delimiter = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/s);
+    if (fence) {
+      if (delimiter && delimiter[1][0] === fence[0] &&
+          delimiter[1].length >= fence.length && /^[ \t]*$/.test(delimiter[2])) {
+        fence = null;
+      }
+      return true;
+    }
+    if (delimiter && (delimiter[1][0] === "~" || !delimiter[2].includes("`"))) {
+      fence = delimiter[1];
+      return true;
+    }
+    return false;
+  });
+}
+
+function parseBlocks(text, parser = SPEC_PARSER) {
   const lines = splitLines(text);
+  const literal = parser === SPEC_PARSER ? literalLines(lines) : [];
   const headings = [];
   const occurrence = new Map();
   for (let index = 0; index < lines.length; index += 1) {
+    if (literal[index]) continue;
     const match = lines[index].match(/^(#{1,6})\s+(.+?)\s*$/);
     if (!match) continue;
     const level = match[1].length;
@@ -81,6 +102,7 @@ function parseBlocks(text) {
 
   const reqOccurrence = new Map();
   for (let index = 0; index < lines.length; index += 1) {
+    if (literal[index]) continue;
     const match = lines[index].match(/^\s*(REQ-[A-Za-z0-9._-]+)\s*:\s*(.+?)\s*$/);
     if (!match) continue;
     const requirement = match[1].toUpperCase();
@@ -118,7 +140,7 @@ function manifestOverrideMap(manifest) {
   return overrides;
 }
 
-function materializeManifest(raw, storedManifest) {
+function manifestParser(storedManifest) {
   if (!storedManifest || typeof storedManifest !== "object") {
     throw new CliError("Specification manifest is missing or invalid.",
       { code: "malformed-input" });
@@ -127,6 +149,7 @@ function materializeManifest(raw, storedManifest) {
     ![
       "vcs-lab.spec-manifest/v1",
       "vcs-lab.spec-manifest/v2",
+      "vcs-lab.spec-manifest/v3",
       SPEC_MANIFEST_SCHEMA,
     ].includes(storedManifest.schema)
   ) {
@@ -137,17 +160,24 @@ function materializeManifest(raw, storedManifest) {
     throw new CliError("Specification manifest is missing artifact identity.",
       { code: "malformed-input" });
   }
+  const parser = storedManifest.schema === SPEC_MANIFEST_SCHEMA
+    ? SPEC_PARSER : "stable-markdown-blocks/v1";
+  const sparse = ["vcs-lab.spec-manifest/v3", SPEC_MANIFEST_SCHEMA].includes(storedManifest.schema);
   if (
-    storedManifest.schema === SPEC_MANIFEST_SCHEMA &&
-    (storedManifest.parser !== SPEC_PARSER ||
-      storedManifest.idAlgorithm !== SPEC_ID_ALGORITHM)
+    ((sparse || storedManifest.parser !== undefined) && storedManifest.parser !== parser) ||
+    ((sparse || storedManifest.idAlgorithm !== undefined) && storedManifest.idAlgorithm !== SPEC_ID_ALGORITHM)
   ) {
     throw new CliError("Specification manifest uses an unsupported parser or ID algorithm.",
       { code: "unknown-schema-version" });
   }
+  return parser;
+}
+
+function materializeManifest(raw, storedManifest) {
+  const parser = manifestParser(storedManifest);
   const overrides = manifestOverrideMap(storedManifest);
   const canonical = normalizeMarkdown(raw);
-  const blocks = parseBlocks(canonical).map((block) => ({
+  const blocks = parseBlocks(canonical, parser).map((block) => ({
     id:
       overrides.get(block.semanticKey) ??
       deterministicEntityId(storedManifest.artifactId, block.semanticKey),
@@ -167,6 +197,55 @@ function materializeManifest(raw, storedManifest) {
   };
 }
 
+function migrationEntityId(artifactId, semanticKey, reserved, assigned) {
+  let counter = 0;
+  let id;
+  do {
+    id = `ent_${sha256(`${artifactId}\0fence-migration/v2\0${semanticKey}\0${counter}`).slice(0, 24)}`;
+    counter += 1;
+  } while (reserved.has(id) || assigned.has(id));
+  return id;
+}
+
+function migrateManifest(raw, storedManifest) {
+  const historical = materializeManifest(raw, storedManifest);
+  const reserved = new Set(historical.blocks.map((block) => block.id));
+  if (reserved.size !== historical.blocks.length) {
+    throw new CliError("Specification migration found duplicate entity IDs.", { code: "malformed-input" });
+  }
+  for (const block of storedManifest.blocks ?? []) {
+    const override = storedManifest.idOverrides?.[block.semanticKey];
+    if (override !== undefined && override !== block.id) {
+      throw new CliError("Specification migration found conflicting ID overrides.", { code: "malformed-input" });
+    }
+  }
+  const location = (block) => JSON.stringify([block.kind, block.startLine, block.level, block.title]);
+  const previous = new Map(historical.blocks.map((block) => [location(block), block]));
+  const assigned = new Set();
+  const blocks = parseBlocks(raw).map((block) => {
+    const match = previous.get(location(block));
+    let id = match?.id ?? deterministicEntityId(historical.artifactId, block.semanticKey);
+    if (!match && (reserved.has(id) || assigned.has(id))) {
+      id = migrationEntityId(historical.artifactId, block.semanticKey, reserved, assigned);
+    }
+    if (assigned.has(id)) {
+      throw new CliError("Specification migration found conflicting entity IDs.", { code: "malformed-input" });
+    }
+    assigned.add(id);
+    return { id, ...block };
+  });
+  return {
+    ...historical,
+    schema: SPEC_MANIFEST_SCHEMA,
+    parser: SPEC_PARSER,
+    idOverrides: Object.fromEntries(blocks.filter((block) =>
+      block.id !== deterministicEntityId(historical.artifactId, block.semanticKey),
+    ).map((block) => [block.semanticKey, block.id])),
+    blocks,
+    migrationReservedIds: reserved,
+  };
+}
+
 function buildManifest(source, raw, options = {}) {
   const canonical = normalizeMarkdown(raw);
   const oldManifest = options.oldManifest ?? null;
@@ -178,12 +257,17 @@ function buildManifest(source, raw, options = {}) {
   for (const [semanticKey, id] of options.preferredIds ?? []) {
     priorIds.set(semanticKey, id);
   }
-  const blocks = parseBlocks(canonical).map((block) => ({
-    id:
-      priorIds.get(block.semanticKey) ??
-      deterministicEntityId(artifactId, block.semanticKey),
-    ...block,
-  }));
+  const reserved = oldManifest?.migrationReservedIds instanceof Set
+    ? oldManifest.migrationReservedIds : null;
+  const assigned = new Set(priorIds.values());
+  const blocks = parseBlocks(canonical).map((block) => {
+    let id = priorIds.get(block.semanticKey) ?? deterministicEntityId(artifactId, block.semanticKey);
+    if (!priorIds.has(block.semanticKey) && reserved?.has(id)) {
+      id = migrationEntityId(artifactId, block.semanticKey, reserved, assigned);
+    }
+    assigned.add(id);
+    return { id, ...block };
+  });
   const idOverrides = {};
   for (const block of blocks) {
     if (block.id !== deterministicEntityId(artifactId, block.semanticKey)) {
@@ -228,8 +312,16 @@ export function serializeSpecManifest(manifest) {
 }
 
 function writeSpecManifest(file, manifest) {
+  const text = serializeSpecManifest(manifest);
+  assertWithinBound("specManifestBytes", Buffer.byteLength(text), `Spec manifest '${file}'`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, serializeSpecManifest(manifest));
+  fs.writeFileSync(file, text);
+}
+
+function readStoredManifest(file) {
+  const stat = fs.statSync(file, { throwIfNoEntry: false });
+  if (stat) assertWithinBound("specManifestBytes", stat.size, `Spec manifest '${file}'`);
+  return readJson(file, null);
 }
 
 function manifestRelativePath(source) {
@@ -301,14 +393,19 @@ function changesBetween(oldManifest, manifest) {
 
 function priorManifestView(storedManifest, currentRaw, cwd) {
   if (!storedManifest) return null;
-  if (Array.isArray(storedManifest.blocks)) return storedManifest;
+  manifestParser(storedManifest);
+  const migrating = storedManifest.schema !== SPEC_MANIFEST_SCHEMA;
+  const matches = (raw) => sha256(raw) === storedManifest.sourceHash ||
+    storedManifest.schema === "vcs-lab.spec-manifest/v1" &&
+    sha256(raw.replace(/\n/g, "\r\n")) === storedManifest.sourceHash;
   let priorRaw = null;
   if (storedManifest.sourceBlob) {
     const object = readGitObjects([storedManifest.sourceBlob], cwd)[0];
     if (object.exists && object.type === "blob") {
       priorRaw = normalizeMarkdown(object.content.toString("utf8"));
     }
-  } else {
+  }
+  if (priorRaw === null || !matches(priorRaw)) {
     const candidates = readGitObjects(
       [`:${storedManifest.source}`, `HEAD:${storedManifest.source}`],
       cwd,
@@ -317,18 +414,21 @@ function priorManifestView(storedManifest, currentRaw, cwd) {
       (object) =>
         object.exists &&
         object.type === "blob" &&
-        sha256(normalizeMarkdown(object.content.toString("utf8"))) ===
-          storedManifest.sourceHash,
+        matches(normalizeMarkdown(object.content.toString("utf8"))),
     );
     if (matching) priorRaw = normalizeMarkdown(matching.content.toString("utf8"));
   }
-  if (priorRaw === null && sha256(currentRaw) === storedManifest.sourceHash) {
+  if ((priorRaw === null || !matches(priorRaw)) && matches(currentRaw)) {
     priorRaw = currentRaw;
   }
-  if (priorRaw === null || sha256(priorRaw) !== storedManifest.sourceHash) {
+  if (priorRaw === null || !matches(priorRaw)) {
+    if (migrating) {
+      throw new CliError("Cannot migrate specification without its verified prior source. Restore the source object from Git history or another clone and retry indexing.",
+        { code: "precondition-not-met" });
+    }
     return { ...storedManifest, blocks: [] };
   }
-  return materializeManifest(priorRaw, storedManifest);
+  return migrating ? migrateManifest(priorRaw, storedManifest) : materializeManifest(priorRaw, storedManifest);
 }
 
 function hashSpecBlob(relative, raw, context, options = {}) {
@@ -356,7 +456,8 @@ function indexSpecWithContext(file, context, cwd, options = {}) {
     { code: "not-found" });
   const relative = relativeSpecPath(file, context, cwd);
   const manifestPath = manifestPathFromRelative(relative, context);
-  const storedManifest = readJson(manifestPath, null);
+  const storedManifest = readStoredManifest(manifestPath);
+  if (storedManifest) manifestParser(storedManifest);
 
   if (
     !options.force &&
@@ -506,8 +607,9 @@ export function indexAllSpecs(cwd = process.cwd(), options = {}) {
       .map((file) => [file, inventory.blobs.get(file)]),
   );
   const rebuild = files.filter((file) => {
+    const stored = readStoredManifest(manifestPathFromRelative(file, context));
+    if (stored) manifestParser(stored);
     if (options.force) return true;
-    const stored = readJson(manifestPathFromRelative(file, context), null);
     return !(
       stored?.schema === SPEC_MANIFEST_SCHEMA &&
       stored?.parser === SPEC_PARSER &&
@@ -889,15 +991,22 @@ export function planSpecMerge(
   let base;
   let ours;
   let theirs;
+  let migrationStages;
   try {
     [base, ours, theirs] = revisionStages(
       relative,
       [baseRevision, oursRevision, theirsRevision],
       cwd,
     );
+    migrationStages = [base, ours, theirs].flatMap((stage, index) => {
+      if (!stage.exists || stage.manifest.schema === SPEC_MANIFEST_SCHEMA) return [];
+      const corrected = migrateManifest(stage.raw, stage.manifest);
+      return JSON.stringify(corrected.blocks) === JSON.stringify(stage.manifest.blocks)
+        ? [] : [["base", "ours", "theirs"][index]];
+    });
   } catch (error) {
     return {
-      schema: "vcs-lab.spec-merge-plan/v1",
+      schema: "vcs-lab.spec-merge-plan/v2",
       algorithm: SPEC_MERGE_ALGORITHM,
       status: "blocked",
       file: relative,
@@ -920,6 +1029,30 @@ export function planSpecMerge(
       result: null,
     };
   }
+  if (migrationStages.length) {
+    return {
+      schema: "vcs-lab.spec-merge-plan/v2",
+      algorithm: SPEC_MERGE_ALGORITHM,
+      status: "blocked",
+      file: relative,
+      manifestFile,
+      artifactId: null,
+      signature: null,
+      revisions: { base: baseRevision, ours: oursRevision, theirs: theirsRevision },
+      base: stageFingerprint(base),
+      ours: stageFingerprint(ours),
+      theirs: stageFingerprint(theirs),
+      decisions: [],
+      counts: { "parser-migration-required": 1 },
+      ordering: { decision: "not-evaluated", order: [] },
+      conflicts: [{
+        type: "parser-migration-required",
+        stages: migrationStages,
+        message: "Index and commit a shared baseline before branching. For existing divergent history, review an ordinary Git merge and re-index its result.",
+      }],
+      result: null,
+    };
+  }
   const artifacts = new Set(
     [base, ours, theirs]
       .map((stage) => stage.manifest?.artifactId)
@@ -927,7 +1060,7 @@ export function planSpecMerge(
   );
   if (artifacts.size !== 1) {
     return {
-      schema: "vcs-lab.spec-merge-plan/v1",
+      schema: "vcs-lab.spec-merge-plan/v2",
       algorithm: SPEC_MERGE_ALGORITHM,
       status: "blocked",
       file: relative,
@@ -1030,7 +1163,7 @@ export function planSpecMerge(
   }
 
   return {
-    schema: "vcs-lab.spec-merge-plan/v1",
+    schema: "vcs-lab.spec-merge-plan/v2",
     algorithm: SPEC_MERGE_ALGORITHM,
     status: conflicts.length ? "blocked" : "clean",
     file: relative,
@@ -1050,6 +1183,7 @@ export function planSpecMerge(
 }
 
 export function materializeSpecMerge(plan, cwd = process.cwd()) {
+  assertCurrentSpecMerges([plan]);
   if (plan.status !== "clean" || !plan.result) {
     throw new CliError(`Spec merge for '${plan.file}' is not clean.`,
       { code: "manual-review-required" });
@@ -1085,6 +1219,7 @@ export function compactSpecMerge(plan, selectionMethod = null) {
 }
 
 export function captureSpecMergeOutcomes(merges, cwd = process.cwd()) {
+  assertCurrentSpecMerges(merges);
   const objects = readGitObjects(
     merges.flatMap((merge) => [`:${merge.path}`, `:${merge.manifestPath}`]),
     cwd,
@@ -1172,6 +1307,7 @@ export function applyPendingSpecMerges(options = {}) {
     throw new CliError("No VCS Lab conflict is pending in this worktree.",
       { code: "nothing-pending" });
   }
+  assertCurrentSpecDecisions(operation);
   let plans = specMergePlansForOperation(operation, cwd);
   if (options.path) plans = plans.filter((plan) => plan.file === options.path);
   if (plans.length === 0) {
@@ -1207,6 +1343,24 @@ export function applyPendingSpecMerges(options = {}) {
   ];
   writePendingOperation(operation, cwd);
   return { operationId: operation.id, applied };
+}
+
+function assertCurrentSpecMerges(merges) {
+  if (merges.some((merge) => merge.algorithm !== SPEC_MERGE_ALGORITHM)) {
+    throw new CliError("Stored semantic decisions use an unsupported merge algorithm. Regenerate the forecast, or abort the pending operation and retry.",
+      { code: "precondition-not-met" });
+  }
+}
+
+export function assertCurrentSpecDecisions(record) {
+  if (!record) return;
+  assertCurrentSpecMerges([
+    ...(record.approvedSpecMerges ?? []),
+    ...(record.current?.semanticMerges ?? []),
+    ...(record.steps ?? []).flatMap((step) => step.semanticMerges ?? []),
+    ...(record.applied ?? []).flatMap((step) => step.semanticMerges ?? []),
+  ]);
+  if (record.forecastApproval) assertCurrentSpecDecisions(record.forecastApproval);
 }
 
 function corpusDocument(documentIndex, blocks) {
@@ -1327,7 +1481,7 @@ export function benchmarkSpecIndex(options = {}) {
       0,
     );
     return {
-      schema: "vcs-lab.spec-benchmark/v2",
+      schema: "vcs-lab.spec-benchmark/v3",
       manifestSchema: SPEC_MANIFEST_SCHEMA,
       documents,
       blocksPerDocument,

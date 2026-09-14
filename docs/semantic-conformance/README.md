@@ -32,7 +32,7 @@ Each case contains:
 | Stage optional inputs | `artifactId`, `idOverrides`, and `metadata` construct identity and compatibility/refusal cases |
 | `expected` | Exact observable plan: status, decision counts, ordering decision, sorted conflict types, and result |
 | Result | Null for a blocked plan; otherwise deletion flag, literal rendered text, and ordered result entity keys |
-| `knownFailure` | Issue, reason, and separate desired observation for an explicitly tracked defect |
+| `knownFailure` | Historical v1 defect, prior plan, and desired observation exercised by the v2 profile |
 
 Expected text and classifications are authored examples. They are not generated
 from a run or recomputed with the parser/merge implementation. Comparing complete
@@ -51,34 +51,32 @@ HEAD/worktree state. Indexing must preserve the original document bytes and
 write sparse manifests. Production parser and merge internals are not imported.
 
 The legacy-v2 case supplies a deliberately exceptional ID and checks that merge
-preserves it in a v3 result. Broader migration, resource-bound, forecast,
+preserves it in a v4 result. Broader migration, resource-bound, forecast,
 application, and recovery coverage remains in the integration and hostile-input
 suites. This fixture suite does not replace those workflow tests.
 
-## Known fenced-code defect
+## Versioned fenced-code behavior
 
-Cases marked `knownFailure` are **defect characterizations, not successful
-conformance**. They pin the exact observed v1 behavior and separately record the
-desired entity boundaries and plan. They execute normally: no skip, TODO,
-catch-all expected exception, or broad expected-failure wrapper can conceal a
-new failure. Their test names identify the defect. A changed observation fails
-even if it is an improvement, requiring an explicit fixture and version review;
-a desired observation identical to the pinned one is rejected as a stale defect.
+The `markdown-v2` profile exercises corrected parsing and all shared rules.
+The `markdown-v1` profile constructs historical v3 metadata explicitly and
+verifies that reads keep their old entity boundaries. Both use the current v2
+planner: compatible old inputs merge; affected old inputs block with
+`parser-migration-required` rather than reproduce the old false-clean result.
 
-[#51](https://github.com/jwh3times/vcs-lab/issues/51) owns the correction. Current
-v1 parsing can treat headings and requirement declarations in fenced examples as
-entities, insert a blank line inside the example, and falsely combine divergent
-edits within one real section. The fixtures cover backticks and tildes, longer
-fences, three-space indentation, shorter and mismatched closers, unclosed fences,
-and same-section divergence. A four-space opening is recorded separately as an
-indentation-boundary characterization, not as a valid fenced block. A clean
-example checks preservation of interior spaces and indented code comments.
+Historical entries retain `knownFailure` to identify the original #51 case.
+Its `historicalPlan` documents the prior observation; it is not a runnable
+legacy merge implementation. Its `desired` observation is exercised by the
+corresponding v2 case. The v1 entity expectations and current migration blocker
+are tested directly, with no skipped or expected-failure tests. Catalog checks
+reject stale historical markers whose expected and desired observations agree.
 
-The desired fence observations are regression targets for #51, not an accepted
-new parser version or a complete syntax standard. #51 must settle the exact
-supported syntax, parser/version migration, and reuse treatment before those
-targets become the supported profile. A green run here does not clear that gate
-or qualify the current Markdown parser for every literal construct.
+Fixtures cover backticks and tildes, longer fences, three-space indentation,
+shorter and mismatched closers, unclosed fences, same-section divergence, and
+interior whitespace. Four-space indentation remains outside the supported
+fence grammar. [ADR-0026](../adr/0026-version-fence-aware-markdown-boundaries.md)
+is the syntax and compatibility authority. Additional real-CLI migration,
+information-string, closing-suffix, cache, identity, forecast, and recovery
+coverage lives in [spec-fences.test.js](../../test/spec-fences.test.js).
 
 ## Extending the suite
 

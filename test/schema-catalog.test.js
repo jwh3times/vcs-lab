@@ -16,6 +16,12 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 // written; the catalog lists it as superseded without a document.
 const SUPERSEDED_WITHOUT_DOCUMENT = new Set(["vcs-lab.forecast/v1"]);
 
+// Frozen output contracts remain available after their writers advance.
+const HISTORICAL_OUTPUT_DOCUMENTS = new Map([
+  ["vcs-lab.spec-merge-plan/v1", "vcs-lab.spec-merge-plan/v2"],
+  ["vcs-lab.spec-benchmark/v2", "vcs-lab.spec-benchmark/v3"],
+]);
+
 // Profile identifiers name contracts documented elsewhere -- the serialization
 // profile in docs/canonical-json/, the identifier protocol in docs/identity/ --
 // rather than record families, so they carry no schema document.
@@ -196,7 +202,14 @@ test("every schema identifier used in src has exactly one catalog document", () 
     assert.ok(!documents.has(id), `profile identifier '${id}' unexpectedly has a schema document`);
   }
   for (const id of documents.keys()) {
-    assert.ok(used.has(id), `document '${id}' names a schema no src/ module uses`);
+    assert.ok(used.has(id) || HISTORICAL_OUTPUT_DOCUMENTS.has(id),
+      `document '${id}' names a schema no src/ module uses`);
+  }
+  for (const [id, successor] of HISTORICAL_OUTPUT_DOCUMENTS) {
+    assert.ok(documents.has(id), `historical output '${id}' must keep its document`);
+    assert.equal(documents.get(id).document["x-vcs-lab-scope"], "cli-output");
+    assert.ok(documents.has(successor) && used.has(successor),
+      `historical output '${id}' must name a documented successor still used by src/`);
   }
   for (const id of SUPERSEDED_WITHOUT_DOCUMENT) {
     assert.ok(used.has(id), `superseded schema '${id}' is no longer referenced; drop it from the allowlist`);
@@ -438,8 +451,8 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
     ["vcs-lab.merge-plan/v1", "merge-plan"],
     ["vcs-lab.forecast/v2", "forecast"],
     ["vcs-lab.reconciliation-operation/v4", "reconciliation-journal"],
-    ["vcs-lab.spec-merge-plan/v1", "spec-merge-plan"],
-    ["vcs-lab.spec-manifest/v3", "spec-manifest"],
+    ["vcs-lab.spec-merge-plan/v2", "spec-merge-plan"],
+    ["vcs-lab.spec-manifest/v4", "spec-manifest"],
     ["vcs-lab.rebase-operation/v1", "rebase-journal"],
     ["vcs-lab.rebase-plan/v1", "rebase-plan"],
     ["vcs-lab.rebase-forecast/v1", "rebase-forecast"],
@@ -454,7 +467,7 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
     ["vcs-lab.metadata-import-preview/v1", "metadata-import-preview"],
     ["vcs-lab.metadata-import/v1", "metadata-import"],
     ["vcs-lab.repository-scale-benchmark/v1", "scale-benchmark"],
-    ["vcs-lab.spec-benchmark/v2", "spec-benchmark"],
+    ["vcs-lab.spec-benchmark/v3", "spec-benchmark"],
   ];
   for (const [schemaId, outputName] of cases) {
     const value = state.outputs.get(outputName);

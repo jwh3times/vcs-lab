@@ -302,7 +302,7 @@ test("a forecast version this build cannot read is refused with a version-aware 
   const id = "forecast_future1";
   fs.writeFileSync(
     path.join(forecasts, `${id}.json`),
-    `${JSON.stringify({ schema: "vcs-lab.forecast/v9", id }, null, 2)}\n`,
+    `${JSON.stringify({ schema: "vcs-lab.forecast/v9", id, steps: 42 }, null, 2)}\n`,
   );
   assert.throws(
     () => forecastForPlan(id, {}, repo),

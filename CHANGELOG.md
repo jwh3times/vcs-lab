@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Correct fenced-code entity boundaries with parser v2, sparse manifest v4,
+  semantic plan/merge v2, and spec benchmark v3 (issue #51, ADR-0026). Preserve
+  verified real entity IDs during migration, block affected historical merge
+  inputs, and refuse old semantic approvals before mutation while retaining
+  abort recovery. Historical reads keep their original parser semantics.
+
 - Complete the requirement-level merge evaluation (issue #32): retain the
   current section contract and document the byte-ownership, context, identity,
   and migration requirements for a future proposal. No new parser is selected.

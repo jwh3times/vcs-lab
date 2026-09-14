@@ -391,6 +391,12 @@ function formatSpecBatch(result) {
   ].join("\n");
 }
 
+function formatSpecConflict(conflict) {
+  const label = `${conflict.type}${conflict.title ? `: ${conflict.title}` : ""}`;
+  if (conflict.type !== "parser-migration-required") return label;
+  return `${label}: legacy ${conflict.stages.join(", ")}\n  ${conflict.message}`;
+}
+
 function formatSpecMergePlan(plan) {
   const lines = [
     "Semantic specification merge",
@@ -406,7 +412,7 @@ function formatSpecMergePlan(plan) {
   if (decisions) lines.push(`blocks       ${decisions}`);
   for (const conflict of plan.conflicts) {
     lines.push(
-      `! ${conflict.type}${conflict.title ? `: ${conflict.title}` : ""}`,
+      `! ${formatSpecConflict(conflict)}`,
     );
   }
   if (plan.status === "clean") {
@@ -432,7 +438,7 @@ function formatSpecMergeStatus(status) {
       `ordering     ${plan.ordering}`,
     );
     for (const conflict of plan.conflicts) {
-      lines.push(`  ! ${conflict.type}${conflict.title ? `: ${conflict.title}` : ""}`);
+      lines.push(`  ! ${formatSpecConflict(conflict)}`);
     }
   }
   if (status.plans.some((plan) => plan.status === "clean")) {

@@ -39,6 +39,7 @@ import {
 import { CliError } from "./errors.js";
 import { assertReadableSchema } from "./schemas.js";
 import {
+  assertCurrentSpecDecisions,
   compactSpecMerge,
   materializeSpecMerge,
   planSpecMerge,
@@ -518,6 +519,7 @@ function simulatePlan(plan, cwd, options = {}) {
           if (paths.includes(resolvedPath)) semanticallyResolved.add(resolvedPath);
         }
         approvedSpecMerges.push({
+          algorithm: outcome.algorithm,
           sourceCommit: change.commit,
           path: outcome.path,
           signature: outcome.signature,
@@ -753,6 +755,7 @@ export function forecastForPlan(id, plan, cwd = process.cwd()) {
     family: "vcs-lab.forecast",
     recovery: "Generate a new forecast with: vlab forecast",
   });
+  assertCurrentSpecDecisions(forecast);
   if (forecast.id !== id) {
     throw new CliError(`Forecast '${id}' has invalid metadata.`,
       { code: "malformed-input" });

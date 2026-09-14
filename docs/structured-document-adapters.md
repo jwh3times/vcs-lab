@@ -51,7 +51,7 @@ has no Markdown or manifest result, and application removes both paths.
 
 ### Entities
 
-`stable-markdown-blocks/v1` indexes:
+`stable-markdown-blocks/v2` indexes outside supported fences:
 
 - a preamble before the first heading when nonempty, or a preamble for a
   document with no headings;
@@ -66,12 +66,12 @@ are indexed for identity and queries; two different requirements inside one
 section cannot currently merge independently. A child heading begins another
 section rather than forming a recursively merged tree.
 
-The v1 parser has no fenced-code state. Heading-like comments and `REQ-...:`
-lines inside examples can therefore create false entities. This known defect
-is tracked in [#51](https://github.com/jwh3times/vcs-lab/issues/51); its corrected
-boundaries and migration need a separate version decision. Adapters must state
-this kind of syntax limitation explicitly, and new formats must demonstrate
-their treatment of literal/example content.
+Backtick and tilde fences suppress both heading and requirement recognition.
+[ADR-0026](adr/0026-version-fence-aware-markdown-boundaries.md) defines the exact
+opening, closing, indentation, and unclosed-fence grammar. Indented code, HTML,
+inline code, and container-aware parsing remain outside this correction. V1
+historical views retain their original literal-boundary limitation; automatic
+planning blocks affected legacy stages rather than reusing the false units.
 
 ### Identity
 
@@ -138,15 +138,18 @@ Automatic semantic choices are pinned by forecasts and checked on application.
 
 | Component | Current identifier or policy |
 | --- | --- |
-| Parser | `stable-markdown-blocks/v1` |
+| Parser | `stable-markdown-blocks/v2` |
 | Entity IDs | `artifact-semantic-key-sha256/v1` |
-| Merge and its rendering rules | `stable-markdown-three-way/v1` |
-| Persisted manifest | Read v1, v2, v3; write `vcs-lab.spec-manifest/v3` |
+| Merge and its rendering rules | `stable-markdown-three-way/v2` |
+| Persisted manifest | Read v1, v2, v3, v4; write `vcs-lab.spec-manifest/v4` |
 
-Legacy expanded manifests are materialized against source and rewritten as
-sparse v3 on indexing, retaining exceptional IDs as overrides. A v3 manifest
-with unsupported parser or ID algorithm is refused. No corrected fence parser
-or requirement-level merge migration is implemented.
+Legacy manifests retain their old parser on read. Explicit indexing verifies
+the prior source and migrates to sparse v4, preserving surviving real declaration
+IDs through overrides when occurrence keys shift. Missing source, conflicting
+IDs, and unsupported versions refuse migration. A changed legacy merge input
+blocks with `parser-migration-required`, including an affected base when both
+tips have migrated. [ADR-0026](adr/0026-version-fence-aware-markdown-boundaries.md)
+defines recovery and forecast/pending-operation compatibility.
 
 Semantic plan signatures include the merge algorithm, artifact ID, and ordered
 base/target/source fingerprints (existence, source hash, manifest hash). Reuse
@@ -158,7 +161,7 @@ and must not silently relabel old indexes, forecasts, or resolutions.
 
 ### Sparse storage
 
-The [v3 manifest](schemas/spec-manifest.v3.schema.json) persists artifact/source
+The [v4 manifest](schemas/spec-manifest.v4.schema.json) persists artifact/source
 identity, normalized source hash, optional source blob, entity count,
 representation, parser and ID algorithms, and exceptional `idOverrides`.
 Positions, titles, content hashes, semantic keys, and the expanded block list
@@ -186,8 +189,8 @@ same-section conflicts, moves, delete-versus-edit, and stale metadata.
 
 The [shared semantic fixture suite](semantic-conformance/README.md) checks
 ordered inputs, entity boundaries, exact decisions and rendered bytes,
-repeatability, and read-only planning. It includes explicit characterizations of
-the unresolved #51 fence defect; passing them does not claim fence correctness.
+repeatability, and read-only planning. It includes corrected v2 fence cases and historical v1 boundary observations
+with migration blockers.
 It is distinct from the [human/JSON conformance suite](conformance/README.md).
 A second format requires the shared suite and corresponding adapter evidence,
 including resolution of applicable known defects, before acceptance.
@@ -251,7 +254,7 @@ third adds metadata and correspondence work. None is selected by this evaluation
 
 Changed merge granularity requires new parser/merge semantics under the
 [compatibility contract](schemas/compatibility.md) and an ADR before code.
-The current v3 manifest's published schema fixes the v1 parser and ID algorithm;
+The current v4 manifest's published schema fixes the v2 parser and v1 ID algorithm;
 a new parser value must not be slipped into that frozen contract. Any manifest
 version change must define old/new readers and writers and explicit reindexing.
 
@@ -268,9 +271,9 @@ identities from source, persist only necessary exceptional mappings, and measure
 sidecar size and churn on representative documents. No storage or conflict-rate
 improvement has been measured by this evaluation.
 
-Before selecting an implementation, resolve the literal-boundary and migration
-contract tracked by [#51](https://github.com/jwh3times/vcs-lab/issues/51), then
-demonstrate a concrete requirement-body syntax and the scenarios above against
+Before selecting a requirement-level implementation, preserve the literal-boundary
+and migration contract in [ADR-0026](adr/0026-version-fence-aware-markdown-boundaries.md)
+and demonstrate a concrete requirement-body syntax and the scenarios above against
 the shared fixtures. Fence correctness and finer merge granularity are separate
 changes and must not silently redefine one another's versions. Representative
 examples should establish that remaining same-section conflicts justify the
@@ -278,5 +281,4 @@ additional identity and migration machinery.
 
 Requirement-level merging remains an unselected candidate; #32 is the record
 for a concrete proposal against these constraints. The existing section
-behavior and #51's correction remain the current supported scope and tracked
-defect respectively.
+behavior and the versioned fence correction remain the supported scope.

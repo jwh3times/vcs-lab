@@ -570,6 +570,19 @@ are derived from Markdown rather than duplicated. The sidecar retains
 artifact/source identity, entity count, an optional Git blob identity, and only
 exceptional legacy ID overrides.
 
+The v4 writer excludes headings and `REQ-*:` declarations inside supported
+backtick and tilde fences. Historical v1/v2/v3 manifests retain their old view
+until `vlab spec index` migrates them, preserving verified real entity IDs.
+Indexing refuses migration if the original source cannot be recovered. The
+[fence and migration contract](docs/adr/0026-version-fence-aware-markdown-boundaries.md)
+specifies the supported syntax and recovery.
+
+Migrate and commit the common baseline before starting new branches. If an
+existing merge's legacy base has affected boundaries, migrating only the tips
+is insufficient: review an ordinary Git merge and reindex its result. Old
+semantic forecasts must be regenerated; pending operations with old semantic
+decisions must be aborted and restarted.
+
 An unchanged source hash is an incremental-index cache hit and does not rewrite
 the sidecar. Repository-wide indexing additionally compares tracked Git blob
 IDs first; unchanged documents are neither opened nor hashed. Index every
@@ -928,10 +941,10 @@ vlab spec benchmark --documents 25 --blocks 40
 
 The benchmark creates and removes a disposable repository. It reports cold,
 unchanged, and one-block-change indexing; Git-blob cache hits and actual content
-reads; semantic entity counts; sparse v3 bytes versus an equivalent expanded v2
+reads; semantic entity counts; sparse v4 bytes versus an equivalent expanded v2
 representation; and a deflate-based approximation of Git object compression.
-For the default 25-document, 2,025-entity corpus, the sparse v3 manifests
-occupy 11,240 bytes against 655,545 equivalent expanded v2 bytes.
+For reference, the historical v3 measurement on the default 25-document,
+2,025-entity corpus occupies 11,240 bytes against 655,545 equivalent expanded v2 bytes.
 
 ## What this prototype intentionally does not solve
 
