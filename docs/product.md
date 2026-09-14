@@ -683,9 +683,15 @@ A release is eligible when:
 8. New automated decisions identify their proof/confidence and approval model.
 9. Documentation links resolve, and every issue the release closed is closed
    with the commit or tag that delivered it.
-10. `npm run test:benchmark -- --host <label>` passes on each identified
-    qualification machine in `benchmarks/baseline.json`. Skipped latency and
-    deterministic-only passes do not qualify host latency.
+10. `npm run test:benchmark -- --host lab-windows-a` passes on the matching
+    identified Windows qualification machine in `benchmarks/baseline.json`.
+    Current release latency qualification is Windows-only and covers this
+    machine only; Linux latency remains unqualified. Skipped latency,
+    deterministic-only passes, and historical OS entries do not satisfy this
+    gate. Functional Windows/POSIX qualification and the separate multi-host
+    investment gates remain required. See the
+    [testing guide](testing.md#benchmark-regression-check) for the evidence
+    needed to add Linux latency qualification.
 
 Production-readiness requires additional threat modeling, fuzzing, crash/fault
 injection, remote interoperability, performance targets, and a support policy.
@@ -878,7 +884,7 @@ suite fixture cannot establish a preference, an improvement, or a rate.
 | 5. Exact resolution reuse avoids repeated work without unsafe automation | `vcs-lab.resolution/v1`. Exact resolutions suggested and reused across worktrees, heuristic candidates requiring explicit acceptance, Git rerere never resolving inside a vlab operation, and modified or rejected suggestions audited as variants (`test/integration.test.js`) | A reuse rate from real conflicts. The resolution catalog is empty in this repository |
 | 6. Stable specification entities and deterministic merge help real corpora | `vcs-lab.spec-manifest/v4`, `vcs-lab.spec-merge-plan/v2`. Block IDs stable across edits and moves, v2 manifests migrating without changing logical IDs, independent blocks merging deterministically, same-block edits blocking, and stability under checkout-time CRLF conversion (`test/integration.test.js`) | A real corpus. Every measurement comes from generated corpora (`vcs-lab.spec-benchmark/v3`), and the second document format is still contract work ([#31](https://github.com/jwh3times/vcs-lab/issues/31), [#33](https://github.com/jwh3times/vcs-lab/issues/33)) |
 | 7. Metadata portability requirements cannot be met cleanly with Git refs/notes | Evidence points the other way. `vcs-lab.metadata-envelope/v1` round-trips accepted facts between clones idempotently over `refs/notes/vcs-lab` and `refs/vcs-lab/resolutions/*`, carries a retention ref naming an annotated tag, and quarantines invalid claims from coverage (`test/integration.test.js`) | One named portability requirement that refs and notes fail to meet. The live candidate is lineage without a shared root commit ([#43](https://github.com/jwh3times/vcs-lab/issues/43)); until such a case is demonstrated this condition is evidenced against |
-| 8. Measured storage, process, or filesystem overhead is material enough to justify a new subsystem | Measured and negative. ADR-0022 measured the commit-graph and multi-pack index and reverted rather than shipped them; ADR-0024 records that Git's best mode misses no budget on either host. `benchmarks/baseline.json` (schema v3) holds only `legacyHosts.linux` and `legacyHosts.win32`, recorded 2026-09-01, which supply deterministic counts and never latency limits | Identified-host latency: `hosts` is empty, so no machine is qualified ([#22](https://github.com/jwh3times/vcs-lab/issues/22)). Also a ratified representative budget ([#42](https://github.com/jwh3times/vcs-lab/issues/42)) and the synced-OneDrive measurement ([#14](https://github.com/jwh3times/vcs-lab/issues/14), [#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
+| 8. Measured storage, process, or filesystem overhead is material enough to justify a new subsystem | Measured and negative. ADR-0022 measured the commit-graph and multi-pack index and reverted rather than shipped them; ADR-0024 records that Git's best mode misses no budget on either host. `benchmarks/baseline.json` (schema v3) includes the identified Windows baseline `hosts.lab-windows-a`, established in [#22](https://github.com/jwh3times/vcs-lab/issues/22). The preserved `legacyHosts.linux` and `legacyHosts.win32` entries supply historical deterministic comparisons and never latency limits | Identified Linux latency evidence; current release latency qualification is Windows-only under [#68](https://github.com/jwh3times/vcs-lab/issues/68), which does not clear this investment gate. Also a ratified representative budget ([#42](https://github.com/jwh3times/vcs-lab/issues/42)) and the synced-OneDrive measurement ([#14](https://github.com/jwh3times/vcs-lab/issues/14), [#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
 | 9. Real agent-workload evidence from at least two hosts and one real repository | None. The branch-and-land pilot that produces it began under [#19](https://github.com/jwh3times/vcs-lab/issues/19); before it this repository only ever declared provenance and never carried it (ADR-0023's amendment) | Carried provenance, landing receipts, and the §13.3 metrics from actual agent sessions on one Windows or OneDrive host and one POSIX host, over one real repository |
 
 ### Native-core phase sequence

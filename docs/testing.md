@@ -456,9 +456,18 @@ npm run test:benchmark -- --host lab-linux-a
 
 Establish identified baselines on the actual qualification machines before using
 latency evidence for release gates; historical entries alone are insufficient.
-The Windows re-record remains tracked in
-[issue #22](https://github.com/jwh3times/vcs-lab/issues/22), and multi-host evidence
-in [issue #42](https://github.com/jwh3times/vcs-lab/issues/42).
+The identified Windows baseline is `hosts.lab-windows-a`, established in
+[issue #22](https://github.com/jwh3times/vcs-lab/issues/22). Its latency limits
+apply only to matching hardware and benchmark settings. The `lab-linux-a`
+commands above illustrate recording a new machine; no identified Linux entry
+currently exists. Current releases qualify latency on Windows only, using
+`lab-windows-a`, as selected for
+[issue #68](https://github.com/jwh3times/vcs-lab/issues/68). Adding Linux latency
+qualification requires a reviewed baseline recorded on a real, quiet, identified
+Linux machine and a passing matching-host check. Shared hosted runners and Linux
+containers on the Windows host cannot supply that qualification. Real-repository,
+multi-host evidence and budget ratification remain in
+[issue #42](https://github.com/jwh3times/vcs-lab/issues/42).
 
 ## Static checks
 
@@ -496,10 +505,18 @@ A release candidate is eligible only when:
 8. version constants, package metadata, changelog, and release tag agree; and
 9. the packed artifact passes an install and smoke test outside the source
    checkout; and
-10. `npm run test:benchmark -- --host <label>` passes on each identified
-    qualification machine in `benchmarks/baseline.json`. Unknown hosts report
-    skipped latency; deterministic-only passes and historical OS entries do not
-    satisfy host latency qualification.
+10. `npm run test:benchmark -- --host lab-windows-a` passes on the matching
+    identified Windows qualification machine in `benchmarks/baseline.json`.
+    Current release latency qualification covers this machine only. Skipped
+    latency, deterministic-only passes, and historical OS entries do not
+    satisfy this gate.
+
+The Windows-only latency scope selected for
+[issue #68](https://github.com/jwh3times/vcs-lab/issues/68) makes no Linux latency
+claim. Item 3 continues to require functional qualification on both Windows and
+POSIX. This scope does not satisfy the separate multi-host workload evidence and
+budget ratification requirements in
+[issue #42](https://github.com/jwh3times/vcs-lab/issues/42).
 
 Item 2 is enforced by `test/repository-hygiene.test.js`, so item 3 already
 covers it; it is named separately because it is a property of the checkout

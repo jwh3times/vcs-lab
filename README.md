@@ -931,8 +931,13 @@ qualification baselines.
 See the [benchmark testing guide](docs/testing.md#benchmark-regression-check)
 for label syntax, provenance matching, and migration rules, or the
 [wiki walkthrough](https://github.com/jwh3times/vcs-lab/wiki/Benchmark-host-baselines).
-The actual Windows re-record and multi-host evidence remain tracked in
-[issue #22](https://github.com/jwh3times/vcs-lab/issues/22) and
+The identified Windows baseline is `hosts.lab-windows-a`, established in
+[issue #22](https://github.com/jwh3times/vcs-lab/issues/22). Use that label only
+on its matching machine. Current releases qualify latency on this Windows
+machine only, as selected for
+[issue #68](https://github.com/jwh3times/vcs-lab/issues/68). Linux latency remains
+unqualified; functional support and Windows/POSIX release testing continue.
+Real-repository, multi-host evidence and budget ratification remain in
 [issue #42](https://github.com/jwh3times/vcs-lab/issues/42).
 
 Measure indexing and raw/estimated-compressed metadata size without changing the
