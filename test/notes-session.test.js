@@ -11,7 +11,7 @@ import { testEnv } from "../test-support/git-environment.js";
 function fixture(t, format = "sha1") {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-notes-session-"));
   t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
-  const env = testEnv({ VLAB_GIT_SESSION: "1" });
+  const env = testEnv({ VLAB_GIT_SESSION: "1", VLAB_ENGINE: "git" });
   const previous = new Map(Object.keys(env).map(key => [key, process.env[key]]));
   Object.assign(process.env, env);
   t.after(() => {

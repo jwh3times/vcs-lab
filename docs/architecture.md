@@ -123,7 +123,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `bin/vlab.js` | Minimal executable entry point and error/exit boundary | `src/cli.js` |
 | `src/canonical-json.js` | The frozen `vcs-lab.canonical-json/v1` profile: RFC 8785 restricted to UTF-16-code-unit-sorted members and safe integers, refusing what it cannot serialize byte-identically | None |
 | `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
-| `src/engine.js` | The read-side engine seam: the catalog of 40 read operations, the read-engine selector and native-engine stub, per-operation fallback, composites, and the differential comparison | `src/git.js` |
+| `src/engine.js` | The read-side engine seam: the catalog of 40 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison | `src/git.js`, `src/native-engine.js` |
 | `src/errors.js` | Expected CLI error type carrying a classification code from the closed `ERROR_CODES` vocabulary of the `vcs-lab.error/v1` failure envelope (ADR-0021) | None |
 | `src/faults.js` | Test-only deterministic fault injection: `VLAB_TEST_FAULT` turns one named point on a mutating path into a hard `process.exit`; `VLAB_TEST_GATE` holds a process at a named point until a test releases it | None |
 | `src/forecasts.js` | Plan fingerprint, merge-tree and temporary-worktree simulation engines with recorded fallback, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
@@ -138,6 +138,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/metadata-envelope.js` | Canonical envelope manifest, integrity hash, payload bounds, and parser | Metadata, schemas |
 | `src/metadata-transfer.js` | Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import | Metadata, envelope, Git |
 | `src/metadata.js` | Deterministic inventory, scope classification, integrity diagnostics, lineage, and accepted-record filtering | Git, schemas, specs |
+| `src/native-engine.js` | Optional in-process Node-API binding loader and conversion for the five bounded resolution-catalog read operations | Optional `native/prebuilds` binding, Node module and path utilities |
 | `src/notes.js` | Append/list/read causal records in `refs/notes/vcs-lab`, including one batched read for many targets; every writer of the ref is serialized on the notes lock in the shared runtime directory | `src/git.js`, `src/store.js` |
 | `src/operations.js` | Commit/cherry-pick and reconciliation start/queue/continue/abort/finalize | Plan, forecast, notes, resolution/spec modules |
 | `src/pending-operation.js` | Safe reconciliation/rebase journal routing for shared conflict tools | Reconciliation and rebase state |
@@ -1062,19 +1063,18 @@ cataloged operations only. Mutations do not pass through the seam; they stay
 explicit `runGit` calls.
 
 `VLAB_ENGINE` or `--engine <git|native>` selects the read engine. `git` is
-the default everywhere and the oracle. `native` is the phase 1 Rust core of
-ADR-0015; until its binding exists the seam reports it as unavailable
-(`binding-missing`) and every operation passes through to Git. When the
+the default everywhere and the oracle. `native` loads the optional Rust binding
+for the five resolution-catalog operations in ADR-0027. A missing prebuild reports
+`binding-missing` and every operation passes through to Git. When the
 selected engine lacks an operation or throws, the seam answers with Git and
 records the fallback; `endGitMetrics` reports `engine`, the `fallbacks`
-aggregated per operation and reason, and `directReads`.
+aggregated per operation and reason, `nativeReads` counts, and `directReads`.
 
 The bounded first native read increment is accepted in
 [ADR-0027](adr/0027-bound-native-read-engine-entry-by-the-resolution-catalog-budget.md)
-under the owner decision in #18, with dependency review required before code.
-The current unavailable binding
-means native-mode suite results qualify the seam/fallback, not a second backend
-or native performance.
+under the owner decision in #18, with dependency review recorded on #83 before
+code. [Native qualification](native-engine.md) requires available-binding tests
+to assert actual execution; fallback-only results do not qualify native performance.
 
 A read-only Git command that reaches `runGit` without the seam's private mark
 is a direct read: counted in `directReads`, traced, and refused in native

@@ -146,11 +146,12 @@ VLAB_FORECAST_ENGINE=merge-tree npm test
 VLAB_FORECAST_ENGINE=worktree npm test
 ```
 
-Run it with the native read engine selected. No native binding exists yet,
-so every read operation passes through to Git and is recorded as a fallback;
-what the run proves is that every read the suite exercises goes through the
-engine seam (`src/engine.js`), because a read that bypasses the seam is
-refused in this mode (ADR-0019):
+Run it with the native read engine selected. Build the optional binding with
+`npm run build:native` first to exercise its five supported operations. CI builds
+it on both platforms and sets `VLAB_REQUIRE_NATIVE=1` so missing binaries cannot
+silently qualify fallback. A source checkout without a prebuild remains usable
+through Git. Every read must go through the engine seam (`src/engine.js`), because
+a read that bypasses the seam is refused in this mode (ADR-0019):
 
 ```powershell
 $env:VLAB_ENGINE = "native"
@@ -161,6 +162,11 @@ Remove-Item Env:VLAB_ENGINE -ErrorAction SilentlyContinue
 ```bash
 VLAB_ENGINE=native npm test
 ```
+
+See [native build and qualification](native-engine.md) for the toolchain,
+supported profile, parser fuzz target, optional packaging, and ADR-0027's separate
+latency gate. Git transport tests explicitly select Git; native oracle tests
+assert executed operations and zero Git processes for supported inputs.
 
 The suite includes `test/schema-catalog.test.js`, which keeps the published
 JSON Schema catalog in `docs/schemas/` in agreement with the executable

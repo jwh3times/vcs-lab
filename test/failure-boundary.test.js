@@ -612,6 +612,7 @@ test("a session response too large for its buffer falls back without changing th
 
   const plan = (env) => {
     const result = vlabResult(repo, ["merge-plan", "feature", "--json"], {
+      VLAB_ENGINE: "git",
       VLAB_GIT_SESSION: "1",
       VLAB_TRACE: "1",
       ...env,
@@ -658,6 +659,7 @@ test("a session response too large for its buffer falls back without changing th
   // And identical to the answer with no session at all, so neither transport
   // is quietly authoritative.
   const withoutSession = vlabResult(repo, ["merge-plan", "feature", "--json"], {
+    VLAB_ENGINE: "git",
     VLAB_GIT_SESSION: "0",
   });
   assert.equal(withoutSession.status, 0);
@@ -683,6 +685,7 @@ test("the session buffer override is inert unless it names a positive integer", 
       VLAB_GIT_SESSION: "1",
       VLAB_TRACE: "1",
       VLAB_TEST_SESSION_BUFFER_BYTES: value,
+      VLAB_ENGINE: "git",
     });
     assert.equal(result.status, 0, `${JSON.stringify(value)}: the command still succeeds`);
     assert.doesNotMatch(

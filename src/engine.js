@@ -12,6 +12,7 @@
 import * as git from "./git.js";
 import { CliError } from "./errors.js";
 import { sha256 } from "./ids.js";
+import { loadNativeEngine } from "./native-engine.js";
 
 export { READ_ENGINES, defaultReadEngine, readEngine, withReadEngine } from "./git.js";
 
@@ -73,21 +74,11 @@ export const READ_OPERATIONS = Object.freeze(Object.keys(GIT_OPERATIONS));
 let nativeEngineCache = null;
 
 /**
- * Load the native engine. Phase 1 of ADR-0015 binds `vlab-core` here and
- * advertises its supported profile; until it exists the engine is
- * unavailable with the reason `binding-missing`, and selecting it passes
- * every operation through to Git.
+ * Cache only the binding descriptor. Each native operation opens current
+ * repository state; no repository cache survives an operation.
  */
-function loadNativeEngine() {
-  return Object.freeze({
-    available: false,
-    reason: "binding-missing",
-    profile: null,
-    operations: Object.freeze({}),
-  });
-}
-
 export function nativeEngine() {
+  if (process.env.VLAB_TEST_NATIVE_BINDING === "missing") return loadNativeEngine();
   if (!nativeEngineCache) nativeEngineCache = loadNativeEngine();
   return nativeEngineCache;
 }
@@ -119,7 +110,9 @@ function dispatch(operation, args) {
       });
     } else {
       try {
-        return implementation(...args);
+        const result = implementation(...args);
+        git.recordNativeRead(operation);
+        return result;
       } catch (error) {
         git.recordEngineFallback({
           operation,

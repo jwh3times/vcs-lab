@@ -1,6 +1,6 @@
 # vcs-lab
 
-`vcs-lab` is a local, dependency-free prototype for experimenting with the source-control ideas discussed in this project:
+`vcs-lab` is a local prototype with a dependency-free Git engine for experimenting with the source-control ideas discussed in this project:
 
 - Git remains a real compatibility and storage layer.
 - logical changes keep a stable `Change-Id` across rebase and cherry-pick;
