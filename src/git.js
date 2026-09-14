@@ -1340,8 +1340,78 @@ export function historyGraph(cwd = process.cwd()) {
   );
 }
 
+// These are optimization budgets, not input limits: exceeding either delegates
+// the entire listing to Git. Never return a partial catalog.
+const NOTES_SESSION_MAX_TREES = 1024;
+const NOTES_SESSION_MAX_BYTES = 16 * 1024 * 1024;
+
+function sessionNoteEntries(notesRef, cwd) {
+  if (typeof notesRef !== "string" || !/^[A-Za-z0-9._/-]+$/.test(notesRef)) return null;
+  const ref = notesRef.startsWith("refs/notes/") ? notesRef
+    : notesRef.startsWith("notes/") ? `refs/${notesRef}` : `refs/notes/${notesRef}`;
+  const pending = [{ expression: `${ref}^{tree}`, prefix: "" }];
+  const notes = new Map();
+  let treeCount = 0;
+  let totalBytes = 0;
+  while (pending.length) {
+    const batch = pending.splice(0, 64);
+    treeCount += batch.length;
+    if (treeCount + pending.length > NOTES_SESSION_MAX_TREES) return null;
+    const headers = queryObjectSession(cwd, "info", batch.map(entry => entry.expression));
+    if (!headers) return null;
+    if (treeCount === 1 && !headers[0].exists) return [];
+    for (const header of headers) {
+      if (!header.exists || header.type !== "tree" || !Number.isSafeInteger(header.size) || header.size < 0) return null;
+      totalBytes += header.size;
+      if (totalBytes > NOTES_SESSION_MAX_BYTES) return null;
+    }
+    // Size checks precede content reads. Pin the mutable root to the OID just
+    // inspected, so a concurrent ref update cannot change its size or tree.
+    const objects = queryObjectSession(cwd, "contents", headers.map(header => header.oid));
+    if (!objects) return null;
+    for (let index = 0; index < objects.length; index += 1) {
+      const object = objects[index];
+      // Missing refs, missing subtrees, and malformed objects all use the same
+      // Git oracle as the process path, including its failure behavior.
+      if (!object.exists || object.type !== "tree") return null;
+      const bytes = object.oid.length / 2;
+      const content = object.content;
+      const prefix = batch[index].prefix;
+      for (let offset = 0; offset < content.length;) {
+        const space = content.indexOf(32, offset);
+        const nul = content.indexOf(0, space + 1);
+        if (space < offset || nul < space || nul + 1 + bytes > content.length) return null;
+        const modeText = content.subarray(offset, space).toString("utf8");
+        if (!/^[0-7]{1,6}$/.test(modeText)) return null;
+        const mode = parseInt(modeText, 8) & 0o170000;
+        const name = content.subarray(space + 1, nul).toString("utf8");
+        const oid = content.subarray(nul + 1, nul + 1 + bytes).toString("hex");
+        offset = nul + 1 + bytes;
+        if (!/^[0-9a-f]+$/i.test(name)) continue;
+        const target = (prefix + name).toLowerCase();
+        // Git recognizes regular files at the full hash width, and only
+        // two-hex-digit directories before that width (notes.c/load_subtree).
+        if (target.length === bytes * 2 && mode === 0o100000) {
+          if (/^0+$/.test(oid)) continue;
+          // Git concatenates duplicate attachments while loading the tree.
+          // Delegate rather than reimplementing that object-writing behavior.
+          if (notes.has(target)) return null;
+          notes.set(target, oid);
+        } else if (name.length === 2 && target.length < bytes * 2 && mode === 0o040000) {
+          pending.push({ expression: oid, prefix: target });
+          if (treeCount + pending.length > NOTES_SESSION_MAX_TREES) return null;
+        }
+      }
+    }
+  }
+  return [...notes].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([target, note]) => ({ note, target }));
+}
+
 /** `{ note, target }` for every note in `notesRef`; empty when it is absent. */
 export function listNoteEntries(notesRef, cwd = process.cwd()) {
+  const entries = sessionNoteEntries(notesRef, cwd);
+  if (entries !== null) return entries;
   const result = readGit(["notes", `--ref=${notesRef}`, "list"], {
     cwd,
     allowFailure: true,

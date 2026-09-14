@@ -3076,13 +3076,15 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     scale.measurements.resolutionCatalog.medianProcesses,
   );
   assert.ok(
-    tiny.analysis.processAmplification.resolutionCatalogProcessesPerResolution > 1,
+    tiny.analysis.processAmplification.resolutionCatalogProcessesPerResolution >
+      scale.analysis.processAmplification.resolutionCatalogProcessesPerResolution,
   );
   assert.equal(tiny.analysis.processAmplification.decidable.resolutionCatalog, false);
   assert.deepEqual(
     tiny.analysis.recommendations.map((item) => [item.area, item.priority]),
     [
-      ["resolution-catalog", "increase-fixture-volume"],
+      ...(tiny.measurements.resolutionCatalog.samples[0].git.sessionQueries > 0
+        ? [] : [["resolution-catalog", "increase-fixture-volume"]]),
       ["note-catalog", tiny.measurements.noteCatalog.medianMs > 5000
         ? "measure-index-after-batching" : "retain-batched-scan"],
     ],
@@ -4465,9 +4467,9 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
   // blobs) + cat-file (referenced objects) + cat-file (retained results) = 6
   // processes plus that one context probe, independent of how many retention
   // refs exist. Since issue #42 those four object reads are served by one
-  // object session, so the same six operations cost three processes where
-  // sessions are enabled; without one they still cost six, which is the shape
-  // asserted separately below.
+  // object session. Issue #73 also reads the notes tree there, leaving two
+  // processes where sessions are enabled; without one they still cost six,
+  // which is the shape asserted separately below.
   const empty = tracedGitCommands(repo, "resolve", "list", "--json");
   assert.deepEqual(JSON.parse(empty.stdout), []);
   assert.deepEqual(empty.commands, ["for-each-ref"]);
@@ -4504,7 +4506,7 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
   };
 
   publishMany(4);
-  const small = tracedGitCommands(repo, "resolve", "list", "--json");
+  const small = tracedGitCommands(repo, "resolve", "list", "--json", "--no-git-session");
   assert.equal(JSON.parse(small.stdout).length, 4);
   assert.ok(
     small.commands.length <= processBound,
@@ -4517,7 +4519,7 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
   );
 
   publishMany(12);
-  const large = tracedGitCommands(repo, "resolve", "list", "--json");
+  const large = tracedGitCommands(repo, "resolve", "list", "--json", "--no-git-session");
   const catalog = JSON.parse(large.stdout);
   assert.equal(catalog.length, 16);
   assert.deepEqual(large.commands, small.commands);
@@ -4529,13 +4531,11 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
 
   const session = tracedGitCommands(repo, "resolve", "list", "--json", "--git-session");
   assert.deepEqual(JSON.parse(session.stdout), catalog);
-  assert.ok(session.commands.length <= processBound, session.commands.join(", "));
+  assert.equal(session.processes.length, 2 + repositoryContextCalls, session.processes.join(", "));
 
-  // The catalog costs the same operations either way; what a session changes is
-  // how many of them start a process (issue #42). Without one, every batched
-  // object read is its own process; with one, a single persistent `cat-file`
-  // serves the ref peel, the note blobs, the referenced-object validation, and
-  // the retained-result inspection.
+  // Without a session, every batched object read is its own process; with one,
+  // a single persistent `cat-file` serves the ref peel, the notes tree and
+  // blobs, the referenced-object validation, and the retained-result inspection.
   const withoutSession = tracedGitCommands(repo, "resolve", "list", "--json", "--no-git-session");
   assert.deepEqual(JSON.parse(withoutSession.stdout), catalog);
   assert.equal(
@@ -4552,23 +4552,26 @@ test("batched resolution catalog scans use a bounded number of Git processes as 
     1,
     `expected one persistent object process, traced: ${session.processes.join(", ")}`,
   );
+  assert.equal(session.processes.filter(command => command === "notes").length, 0);
 });
 
-test("the metadata inventory reads objects through one session, and starts none when there are no objects to read", (t) => {
+test("the metadata inventory shares notes discovery and object reads without adding empty-inventory processes", (t) => {
   const { repo } = makeRepo(t);
   write(repo, "shared.txt", "base\n");
   git(repo, "add", ".");
   const base = JSON.parse(vlab(repo, "commit", "-m", "base"));
   vlab(repo, "init");
 
-  // A repository with no vcs-lab metadata reads no objects, and a session
-  // starts its worker on first use rather than on entry -- so asking for one
-  // here must still start no persistent process (issue #42).
+  // Resolving an absent notes ref uses the session instead of `git notes list`.
+  // Discovery must replace that process, not add one to an empty inventory.
   const bare = tracedGitCommands(repo, "metadata", "status", "--json", "--git-session");
+  const bareOrdinary = tracedGitCommands(repo, "metadata", "status", "--json", "--no-git-session");
+  assert.equal(bare.processes.length, bareOrdinary.processes.length);
+  assert.equal(bare.processes.filter(command => command === "notes").length, 0);
   assert.equal(
     bare.processes.filter((command) => command.startsWith("cat-file")).length,
-    0,
-    `an empty inventory must start no object process, traced: ${bare.processes.join(", ")}`,
+    1,
+    `an empty inventory must use one discovery process, traced: ${bare.processes.join(", ")}`,
   );
 
   const baseBlob = writeBlob(repo, "base\n");

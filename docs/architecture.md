@@ -995,6 +995,23 @@ child `close` event—after stdio drains—before acknowledging the caller. Boun
 Windows process-tree termination and worker acknowledgement fallbacks prevent a
 failed close from retaining the CLI or leaving a session worker behind.
 
+Within an active object session, `listNoteEntries` reads the notes ref's tree
+and its two-hex-digit fanout directories through the same process used for
+note blobs. It recognizes regular-file attachments at the repository's full
+SHA-1 or SHA-256 width, preserves Git's target ordering, and ignores opaque
+non-note entries. The mutable root expression is resolved on every listing;
+only trees addressed by immutable OID can use the session cache.
+An absent notes ref returns an empty listing directly; resolving its absence
+replaces the ordinary listing process instead of adding a second process.
+
+The traversal reads at most 64 trees per request and delegates the entire
+listing to `git notes list` if it encounters duplicate attachments, an
+unavailable or malformed object, or exceeds 1,024 trees or 16 MiB of tree
+content. These are optimization budgets, not repository input limits. Git
+remains responsible for its duplicate-note concatenation behavior, which can
+create a combined blob even during listing. No partial catalog is returned.
+Without an active session the ordinary listing command is used directly.
+
 Opt-in lifecycle diagnostics record session/worker creation, request posting,
 shared-memory waits, Git request/response events, fallback, and shutdown.
 `VLAB_GIT_SESSION_DIAGNOSTICS=1` writes one JSON line per event to stderr from
@@ -1036,9 +1053,10 @@ cataloged in `src/engine.js`
 ([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md)):
 repository and host context, object resolution and batched reads, history
 walks and commit metadata, refs and notes, and worktree, index, and status
-queries. `src/git.js` is the Git engine that implements each operation with
-exactly the plumbing the module ran before, one process or one object-session
-query, so the seam changed no process count. Composites such as
+queries. `src/git.js` is the Git engine that implements each operation using
+ordinary Git processes or object-session queries. Introducing the seam
+preserved process counts; the session notes traversal described above removes
+the separate listing process for supported trees. Composites such as
 `currentHead`, `changeIdForCommit`, and `assertClean` are derived from
 cataloged operations only. Mutations do not pass through the seam; they stay
 explicit `runGit` calls.

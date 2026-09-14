@@ -836,7 +836,10 @@ vlab forecast feature --trace-git
 
 `--git-session` forces the persistent path and `--no-git-session` forces the
 ordinary compatibility path. If a session fails, the command continues through
-ordinary Git. `--forecast-engine merge-tree` selects the merge-tree forecast
+ordinary Git. Notes listings share the object session with note-blob reads;
+duplicate attachments and oversized or unreadable trees use the ordinary Git
+listing command. See [session safety rules](docs/architecture.md#142-invocation-scoped-session).
+`--forecast-engine merge-tree` selects the merge-tree forecast
 engine for one invocation and `--forecast-engine worktree` the worktree
 simulator; without either, Windows uses the merge-tree engine and POSIX hosts
 the worktree simulator. `--engine native` (or `VLAB_ENGINE=native`) selects
