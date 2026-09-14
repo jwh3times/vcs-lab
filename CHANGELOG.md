@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Accept the bounded first native read-engine increment for the resolution
+  catalog (issue #18, ADR-0027), with the 110%-of-Git target, dependency review,
+  equality checks, and stop conditions. Wider native phases remain gated.
+
 - Define current release latency qualification as Windows-only on the identified
   `lab-windows-a` machine (issue #68). Preserve Windows/POSIX functional release
   qualification and the separate multi-host workload and budget evidence gates.

@@ -808,9 +808,9 @@ Each links to the issue that carries it; the board is where its status lives.
   fsmonitor enablement (measured and rejected by ADR-0022, which closed
   program phase 0a).
 - A phased native core in Rust behind the existing contracts (ADR-0015),
-  entering under Gate A of the native implementation gate. ADR-0024
-  (Proposed) closes its read-engine phases with a complete outcome until a
-  reopening condition fires.
+  entering under Gate A of the native implementation gate. The owner decision
+  in #18 accepts ADR-0027's bounded first native read increment against the
+  named 110%-of-Git target, subject to dependency review before code.
 - Native content-addressed metadata/store experiments after Gate B is
   satisfied.
 
@@ -829,11 +829,14 @@ existing contracts a second time may begin when all of:
 2. the Windows post-batching benchmark rerun and a Git-best-mode baseline
    exist; and
 3. a named per-command budget on a representative Windows or OneDrive host
-   that the batched Git path misses is recorded in the engine's ADR. Item 3
-   has no candidate: [ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md)
-   (Proposed) records that the Git-best-mode baseline misses no budget on
-   either host, closes the program's read-engine phases with a complete
-   outcome, and names the conditions under which the gate is re-examined.
+   that the batched Git path misses is recorded in the engine's ADR.
+   [ADR-0027](adr/0027-bound-native-read-engine-entry-by-the-resolution-catalog-budget.md)
+   (Accepted) names the post-#73 resolution-catalog miss on `lab-windows-a`.
+   The maintainer accepted its host/workload, comparison rule, bounded scope,
+   and stop conditions in [#18](https://github.com/jwh3times/vcs-lab/issues/18).
+   Dependency review remains required before native code begins. ADR-0024's
+   historical closure proposal is superseded for this first increment only;
+   its absolute-budget conclusion does not settle the later ratio criterion.
 
 Gate A work passes the complete suite in every engine mode with identical
 domain JSON, is reversible, never moves a receipt-publishing path between
@@ -884,7 +887,7 @@ suite fixture cannot establish a preference, an improvement, or a rate.
 | 5. Exact resolution reuse avoids repeated work without unsafe automation | `vcs-lab.resolution/v1`. Exact resolutions suggested and reused across worktrees, heuristic candidates requiring explicit acceptance, Git rerere never resolving inside a vlab operation, and modified or rejected suggestions audited as variants (`test/integration.test.js`) | A reuse rate from real conflicts. The resolution catalog is empty in this repository |
 | 6. Stable specification entities and deterministic merge help real corpora | `vcs-lab.spec-manifest/v4`, `vcs-lab.spec-merge-plan/v2`. Block IDs stable across edits and moves, v2 manifests migrating without changing logical IDs, independent blocks merging deterministically, same-block edits blocking, and stability under checkout-time CRLF conversion (`test/integration.test.js`) | A real corpus. Every measurement comes from generated corpora (`vcs-lab.spec-benchmark/v3`), and the second document format is still contract work ([#31](https://github.com/jwh3times/vcs-lab/issues/31), [#33](https://github.com/jwh3times/vcs-lab/issues/33)) |
 | 7. Metadata portability requirements cannot be met cleanly with Git refs/notes | Evidence points the other way. `vcs-lab.metadata-envelope/v1` round-trips accepted facts between clones idempotently over `refs/notes/vcs-lab` and `refs/vcs-lab/resolutions/*`, carries a retention ref naming an annotated tag, and quarantines invalid claims from coverage (`test/integration.test.js`) | One named portability requirement that refs and notes fail to meet. The live candidate is lineage without a shared root commit ([#43](https://github.com/jwh3times/vcs-lab/issues/43)); until such a case is demonstrated this condition is evidenced against |
-| 8. Measured storage, process, or filesystem overhead is material enough to justify a new subsystem | Measured and negative. ADR-0022 measured the commit-graph and multi-pack index and reverted rather than shipped them; ADR-0024 records that Git's best mode misses no budget on either host. `benchmarks/baseline.json` (schema v3) includes the identified Windows baseline `hosts.lab-windows-a`, established in [#22](https://github.com/jwh3times/vcs-lab/issues/22). The preserved `legacyHosts.linux` and `legacyHosts.win32` entries supply historical deterministic comparisons and never latency limits | Identified Linux latency evidence; current release latency qualification is Windows-only under [#68](https://github.com/jwh3times/vcs-lab/issues/68), which does not clear this investment gate. Also a ratified representative budget ([#42](https://github.com/jwh3times/vcs-lab/issues/42)) and the synced-OneDrive measurement ([#14](https://github.com/jwh3times/vcs-lab/issues/14), [#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
+| 8. Measured storage, process, or filesystem overhead is material enough to justify a new subsystem | Storage evidence remains negative: ADR-0022 measured the commit-graph and multi-pack index and reverted rather than shipped them. The ratio misses evaluated in ADR-0027 (Accepted) support a bounded Gate A engine increment, not evidence for a new canonical store. `benchmarks/baseline.json` (schema v3) includes the identified Windows baseline `hosts.lab-windows-a`, established in [#22](https://github.com/jwh3times/vcs-lab/issues/22). The preserved `legacyHosts.linux` and `legacyHosts.win32` entries supply historical deterministic comparisons and never latency limits | Identified Linux latency evidence; current release latency qualification is Windows-only under [#68](https://github.com/jwh3times/vcs-lab/issues/68), which does not clear this investment gate. Also a ratified representative budget ([#42](https://github.com/jwh3times/vcs-lab/issues/42)) and the synced-OneDrive measurement ([#14](https://github.com/jwh3times/vcs-lab/issues/14), [#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
 | 9. Real agent-workload evidence from at least two hosts and one real repository | None. The branch-and-land pilot that produces it began under [#19](https://github.com/jwh3times/vcs-lab/issues/19); before it this repository only ever declared provenance and never carried it (ADR-0023's amendment) | Carried provenance, landing receipts, and the §13.3 metrics from actual agent sessions on one Windows or OneDrive host and one POSIX host, over one real repository |
 
 ### Native-core phase sequence
@@ -895,22 +898,23 @@ phases enter under the two gates above. No canonical native store, resident
 service, or wire protocol is approved before its phase and gate.
 
 [ADR-0024](adr/0024-close-the-native-read-engine-program-at-phase-0b.md)
-(Proposed, 2026-09-02) closes phases 1 through 4 with a complete outcome,
-because the Git-best-mode baseline of both hosts misses no budget and Gate A
-item 3 therefore has no candidate; it names three reopening conditions (a
-synced-OneDrive measurement that misses, a real workload naming a tighter
-budget that the measured path misses, or a raised per-process floor). Phases 5
-and 6 remain Gate B questions under
+is superseded for the bounded first increment by
+[ADR-0027](adr/0027-bound-native-read-engine-entry-by-the-resolution-catalog-budget.md)
+(Accepted): a bounded first phase-1 read increment with a named ratio budget.
+Implementation proceeds through [#83](https://github.com/jwh3times/vcs-lab/issues/83),
+starting with dependency review; the broader phase-1
+exit criteria below are not satisfied by that first increment. Phases 2–4 do
+not open automatically, and phases 5 and 6 remain Gate B questions under
 [ADR-0023](adr/0023-locate-the-model-substrate-mismatch-in-facts-not-content.md).
 
 | Phase | Gate | Scope | Exit criterion | Reversibility |
 | --- | --- | --- | --- | --- |
 | 0a Git-native wins | none | `git merge-tree` forecast simulation, the post-batching benchmark rerun, and the commit-graph, multi-pack-index, fsmonitor, and sparse-cone measurements | Met 2026-08-30 (ADR-0016 with Windows and Linux evidence, the ADR-0013 rerun, and the Linux benchmark baseline) and completed 2026-08-31 by ADR-0022 and the v2 benchmark profile | Flag only; complete outcome on its own. |
 | 0b Contract freeze and engine seam | none | The read-side engine seam, the schema catalog, the canonical-JSON profile, the per-family compatibility contract, and the human/JSON conformance fixtures | Met 2026-08-31 and released in v0.11.0: the seam of ADR-0019, `docs/schemas/`, `docs/canonical-json/`, ADR-0020's `docs/schemas/compatibility.md`, and `docs/conformance/` | Pure refactor. |
-| 1 Native read engine in Rust | Gate A; closed by ADR-0024 until a reopening condition fires | Repository context, batched object reads, peeling, history walks, merge-base, ancestry, refs, notes reads, and worktree-scoped status through `vlab-core` behind the seam; per-operation backend matrix in its ADR; bounded jj-lib spike | Suite green in native mode on Linux and Windows with identical JSON; zero Git processes for history, registry, note-catalog, resolution-catalog, and per-workspace status in the scale benchmark; the Gate A named budget met; `git fsck` clean; no lingering processes | Engine selector or uninstall the binding; kill switch and two-release sunset. |
-| 2 Native planning and status | Gate A; closed by ADR-0024 | Merge-plan and rebase-plan construction, receipt reachability, Change-ID extraction, the advisory `git-patch-id-heuristic` proof (a stable patch-id proof, if wanted, gets its own ADR), spec blob-identity checks; the FR-ID-06 audit and the FR-PLAN-08 proof bundle and verifier (both delivered in v0.12.0 over the Git engine; this phase re-implements them behind the seam) | Plan fingerprints byte-identical across engines on the suite plus at least 1,000 generated histories; status semantics preserved at zero processes | Per-operation fallback. |
-| 3 Derived catalog | Gate A, closed by ADR-0024, plus the incremental-catalog row below (an already-batched path over a representative budget, per ADR-0013) | Deletable fact segments with per-record digests, rebuildable indexes, `builtFrom` stamps, reindex command, approval facts, advisory leases in a mutable side file; caches outside synced folders; notes and refs remain canonical | 5,000-fact benchmark under budget with zero processes on both hosts; deleting the catalog yields identical output; torn-tail and stale-catalog recovery pass; writer-lock waits under 10 ms at 16 concurrent agents | Delete the directory. |
-| 4 In-memory forecasts and native mutation | Gate A; closed by ADR-0024 | Ref transactions and object writes for checkpoints and retained resolutions; virtual three-way merge applying exact-resolution memory and Markdown section merge, with `git merge-tree` as co-oracle | Predicted-tree equality on the suite plus at least 1,000 generated three-way cases; divergence always surfaces as a blocker; FR-REC-06 apply-time check retained | Flag; droppable after 0a evidence. |
+| 1 Native read engine in Rust | Gate A; first increment accepted under ADR-0027, dependency review before code | Repository context, batched object reads, peeling, history walks, merge-base, ancestry, refs, notes reads, and worktree-scoped status through `vlab-core` behind the seam; per-operation backend matrix in its ADR; bounded jj-lib spike | Suite green in native mode on Linux and Windows with identical JSON; zero Git processes for history, registry, note-catalog, resolution-catalog, and per-workspace status in the scale benchmark; the Gate A named budget met; `git fsck` clean; no lingering processes | Engine selector or uninstall the binding; kill switch and two-release sunset. |
+| 2 Native planning and status | Gate A; remains gated on its own scope decision | Merge-plan and rebase-plan construction, receipt reachability, Change-ID extraction, the advisory `git-patch-id-heuristic` proof (a stable patch-id proof, if wanted, gets its own ADR), spec blob-identity checks; the FR-ID-06 audit and the FR-PLAN-08 proof bundle and verifier (both delivered in v0.12.0 over the Git engine; this phase re-implements them behind the seam) | Plan fingerprints byte-identical across engines on the suite plus at least 1,000 generated histories; status semantics preserved at zero processes | Per-operation fallback. |
+| 3 Derived catalog | Gate A, still gated, plus the incremental-catalog row below (an already-batched path over a representative budget, per ADR-0013) | Deletable fact segments with per-record digests, rebuildable indexes, `builtFrom` stamps, reindex command, approval facts, advisory leases in a mutable side file; caches outside synced folders; notes and refs remain canonical | 5,000-fact benchmark under budget with zero processes on both hosts; deleting the catalog yields identical output; torn-tail and stale-catalog recovery pass; writer-lock waits under 10 ms at 16 concurrent agents | Delete the directory. |
+| 4 In-memory forecasts and native mutation | Gate A; remains gated on its own scope decision | Ref transactions and object writes for checkpoints and retained resolutions; virtual three-way merge applying exact-resolution memory and Markdown section merge, with `git merge-tree` as co-oracle | Predicted-tree equality on the suite plus at least 1,000 generated three-way cases; divergence always surfaces as a blocker; FR-REC-06 apply-time check retained | Flag; droppable after 0a evidence. |
 | 5 Canonical fact log, transport, draft stacks | Gate B | Fact log canonical with notes, refs, and registry regenerated at finalization; notes import; envelope v2 as a strict superset of v1; Git-carried fact transport; private draft stacks via hidden refs (FR-WS-08); optional thin Rust CLI with byte-identical JSON — [issue #40](https://github.com/jwh3times/vcs-lab/issues/40) | All nine Gate B conditions with an evidence table ([issue #41](https://github.com/jwh3times/vcs-lab/issues/41)); v1 envelopes import and re-export byte-identically; the ADR partially superseding ADR-0001 accepted | Project, then delete the log. |
 | 6 Gateway; service only if the row below fires | Gate B | The remote program in its order: portable verification ([#36](https://github.com/jwh3times/vcs-lab/issues/36)), capability negotiation ([#37](https://github.com/jwh3times/vcs-lab/issues/37)), actor trust ([#38](https://github.com/jwh3times/vcs-lab/issues/38)), then landing policy ([#39](https://github.com/jwh3times/vcs-lab/issues/39)) | No local planning, forecasting, or landing depends on the gateway | Optional. |
 
@@ -926,8 +930,8 @@ a catalog or a service.
 | Cross-command cost remains material on representative Windows and POSIX repositories after justified catalogs | Propose a resident-service ADR covering ownership, locking, security, crash recovery, upgrade, shutdown, and fallback. |
 | All nine Gate B conditions are demonstrated in an evidence table naming schemas, hosts, and runs | Begin phase 5 (canonical fact log, transport, draft stacks) behind the existing observable contracts, with Git as oracle and escape hatch. |
 
-No representative budget has been ratified yet, which is one reason Gate A
-item 3 has no candidate; ratifying one is part of
+The bounded Gate A budget in ADR-0027 is accepted; broader representative
+budgets have not been ratified. Ratifying those budgets remains part of
 [issue #42](https://github.com/jwh3times/vcs-lab/issues/42).
 
 Efficiency claims follow ADR-0014's definition: elapsed time per operation and
@@ -953,9 +957,9 @@ acceptance signals.
 | FR-PLAN-08 | Delivered in v0.12.0 | The remote half is [#36](https://github.com/jwh3times/vcs-lab/issues/36) |
 | FR-RES-07 | Planned | [#35](https://github.com/jwh3times/vcs-lab/issues/35) |
 | FR-WS-08 | Deferred | [#40](https://github.com/jwh3times/vcs-lab/issues/40), under Gate B |
-| FR-WS-09 | Batched status implemented; Linux and Windows synthetic evidence recorded | Real-repository evidence is [#42](https://github.com/jwh3times/vcs-lab/issues/42); zero-process status is phase 1, closed by ADR-0024 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
+| FR-WS-09 | Batched status implemented; Linux and Windows synthetic evidence recorded | Real-repository evidence is [#42](https://github.com/jwh3times/vcs-lab/issues/42); wider zero-process status remains gated beyond ADR-0027 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
 | FR-SPEC-13 | Gated; no additional format selected | [#31](https://github.com/jwh3times/vcs-lab/issues/31) and [#33](https://github.com/jwh3times/vcs-lab/issues/33) delivered the suite and contract. [#32](https://github.com/jwh3times/vcs-lab/issues/32) records the requirement-level evaluation and can be reopened for a concrete proposal. [ADR-0026](adr/0026-version-fence-aware-markdown-boundaries.md) corrects fenced boundaries with versioned migration; it does not deliver another format. |
-| FR-PERF-09 | Evidence gate | [#42](https://github.com/jwh3times/vcs-lab/issues/42); phases 1-3 are closed by ADR-0024 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
+| FR-PERF-09 | Evidence gate | [#42](https://github.com/jwh3times/vcs-lab/issues/42); bounded native read scope accepted in ADR-0027 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
 | FR-PROTO-06 | Deferred | [#37](https://github.com/jwh3times/vcs-lab/issues/37) |
 | FR-TRUST-02, FR-TRUST-03 | Deferred | [#38](https://github.com/jwh3times/vcs-lab/issues/38) and [#39](https://github.com/jwh3times/vcs-lab/issues/39) |
 
