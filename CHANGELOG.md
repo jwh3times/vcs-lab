@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Propose target-checkpoint forecast semantics (issue #26, ADR-0028, Proposed):
+  a target overlay is one immutable checkpoint pinned by commit identity,
+  selected only explicitly, carried through reconciliation and rebase as
+  uncommitted context with its own predicted re-materialized tree, refused
+  before mutation when the live target tree no longer matches it, restored by
+  abort, and never committed or named by a receipt. No behavior changes until
+  the owner accepts the contract; #28 stays blocked on that acceptance.
+
 - Add repeatable real-repository Git/native read comparisons for issue #42,
   retaining whole-command timings, equality checks, and fallback evidence.
   Refresh the Gate B table to distinguish actual Windows pilot use from the

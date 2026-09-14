@@ -56,6 +56,7 @@ sequence in §15.
 | [0025](0025-retain-the-object-closure-of-published-causal-facts.md) | Accepted | Retain published facts' required Git objects under a shared root without granting target coverage |
 | [0026](0026-version-fence-aware-markdown-boundaries.md) | Accepted | Version corrected fenced-code boundaries and preserve verified entity correspondence during migration |
 | [0027](0027-bound-native-read-engine-entry-by-the-resolution-catalog-budget.md) | Accepted | Bound native read-engine entry by an explicit resolution-catalog budget and preserved gates |
+| [0028](0028-define-target-checkpoint-forecast-semantics.md) | Proposed | Carry a target checkpoint through forecasts and applications as pinned uncommitted context, never as a causal change |
 
 ## Creating or changing an ADR
 

@@ -1013,7 +1013,9 @@ recorded in an ADR when it changes a durable decision.
    ([#27](https://github.com/jwh3times/vcs-lab/issues/27))
 6. Should the accepted immutable source-checkpoint model expand to a captured
    target overlay, and what approval/application semantics should that require?
-   ([#26](https://github.com/jwh3times/vcs-lab/issues/26))
+   ([#26](https://github.com/jwh3times/vcs-lab/issues/26)). A target overlay
+   carried as pinned uncommitted context is proposed in
+   [ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md) (Proposed).
 7. At what measured thresholds does a long-lived repository service outperform
    invocation-scoped Git plumbing enough to justify lifecycle and security
    costs? (§15 decision rows;
