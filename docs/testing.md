@@ -609,6 +609,54 @@ classes; larger runners are charged even in public repositories.
 
 ## Evidence retention
 
+### Measuring a real repository
+
+Use `scripts/measure-real-repository.mjs` for the read-only part of
+[#42](https://github.com/jwh3times/vcs-lab/issues/42). From a checkout with the
+optional native binding built (`npm run build:native`), run:
+
+```sh
+node scripts/measure-real-repository.mjs --repo <clean-disposable-clone> --host <stable-label> --output <new-file-outside-clone.json>
+```
+
+Clone without local object sharing (`git clone --no-local <source> <clone>`),
+then fetch the source's notes and vlab refs into the clone before measuring:
+`git -C <clone> fetch origin 'refs/notes/*:refs/notes/*' 'refs/vcs-lab/*:refs/vcs-lab/*'`.
+Use public-safe repository content for public evidence. A clone carries history
+and these refs, but not the source's workspace registry, private forecasts, or
+dirty files; actual workspace behavior needs separate pilot observations.
+
+The script compares notes, resolutions, and metadata status through Git and
+native engines, with nine fresh processes per side, alternating order. It
+checks complete domain and CLI JSON equality, retains phase and whole-CLI raw
+samples, process counts, native execution and fallbacks, and checks that HEAD,
+refs, and worktree status stayed unchanged. `git fsck` must also pass. A failed
+run leaves `complete: false` in its output; preserve it when investigating.
+Phase timing includes native initialization. Whole-CLI timing additionally
+includes Node startup, command parsing, and JSON output. With nine samples,
+the reported p95 is the maximum sample; this is not a population estimate.
+
+Only the resolution phase has a raw-Git acquisition floor, shared with
+ADR-0027's harness. This floor does not validate domain records. An empty
+resolution catalog measures its fast path, not populated-catalog performance.
+Do not infer a metadata-validation budget from a cheaper command doing less
+work. No baseline is rewritten and no representative budget is ratified by
+this script. A matching host reference also does not prove the machine was
+quiet; record load conditions and run the ordinary identified benchmark check
+separately before claiming qualification.
+
+The harness preserves its Git environment. Command-scope Git configuration
+can cause the native backend to fall back, including configuration injected
+by an agent launcher. Record that result. A separately identified controlled
+run may omit inspected credential-prompt-only overrides for these local reads;
+never silently discard repository-affecting configuration to obtain native
+execution. Keep real-environment and controlled-profile results separate.
+
+Retain outputs on the issue or as CI artifacts after checking paths and other
+private data. Choose another output filename for another run. This measures
+one host/repository snapshot; wider workload selection, user consequences,
+budgets, and POSIX participation remain explicit decisions on #42 and #19.
+
 Record the tested commit, platform and tool versions, command outcome, and any
 material exception in the pull request or release summary. Store raw logs and
 generated repositories as CI artifacts with an explicit retention period; do
