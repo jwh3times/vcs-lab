@@ -56,7 +56,7 @@ version in `also read` is migrated forward as section 3 describes.
 | `vcs-lab.rebase-forecast` | private | v1 | — | refuse | `<git dir>/vcs-lab/forecasts/<id>.json` |
 | `vcs-lab.workspaces` | shared-local | v1 | — | refuse | `<common dir>/vcs-lab/workspaces.json` |
 | `vcs-lab.workspace` | shared-local | v1 | — | refuse | entries of `<common dir>/vcs-lab/workspaces.json` |
-| `vcs-lab.spec-manifest` | tracked | v3 | v1, v2 | refuse | `.vcs-lab/specs/**` |
+| `vcs-lab.spec-manifest` | tracked | v4 | v1, v2, v3 | refuse | `.vcs-lab/specs/**` |
 | `vcs-lab.metadata-envelope` | envelope | v1 | — | refuse | `manifest.json` of a metadata export directory |
 
 `vcs-lab.application` writes two versions on purpose: `vlab cherry-pick`
@@ -122,17 +122,23 @@ needs a version bump, because it narrows an accepted set.
 
 Only two families read a version they do not write.
 
-**`vcs-lab.spec-manifest` v1 and v2 migrate forward to v3 on write, not on
-read.** `materializeManifest` (`src/specs.js`) accepts v1 and v2 and returns
-their materialized view with the stored schema unchanged, so a read never
-rewrites a committed file. Every cache-hit predicate in `indexSpecWithContext`
-requires v3, so the next `vlab spec index` of that file always rebuilds and
-serializes v3, reporting the old identifier as `migratedFrom`. Logical IDs
-survive: `priorManifestView` reconstructs the older inline block list and seeds
-the new sparse manifest's `idOverrides` from it (FR-SPEC-04). One v1-only
-compatibility shim remains in `revisionStageFromObjects`: a v1 manifest's
-`sourceHash` may also match the CRLF-normalized source, because v1 hashed the
-pre-normalization bytes.
+**`vcs-lab.spec-manifest` v1, v2, and v3 migrate to v4 on indexing,
+not on read.** Historical reads retain parser v1 and the stored schema. The
+new writer uses fence-aware parser v2; every older manifest bypasses unchanged
+source/blob caches. Migration verifies the old source, matches surviving real
+declarations by location, and retains their IDs through sparse overrides when
+occurrence keys shift. Missing prior source or conflicting IDs refuse migration
+before writing metadata. Unknown parser/ID versions refuse even with
+`--force`. The v1 CRLF source-hash compatibility rule is retained.
+
+[ADR-0026](../adr/0026-version-fence-aware-markdown-boundaries.md) specifies the
+fence grammar, correspondence rules, and recovery. A legacy merge input whose
+boundaries change blocks new automatic planning with
+`parser-migration-required`; unaffected legacy inputs may participate without
+rewriting history. Old semantic forecast approvals and pending semantic
+decisions cannot authorize v2 results. Regenerate the forecast, or abort and
+restart the pending operation. Raw exact-resolution records retain their
+existing byte-based approval rules.
 
 **`vcs-lab.forecast` v1 is read but never written and never rewritten.** A v1
 forecast is accepted by `forecastForPlan` and read field by field; it is not

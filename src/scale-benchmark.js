@@ -697,7 +697,7 @@ export function benchmarkRepositoryScale(options = {}) {
         causalNoteVolume: true,
         resolutionVolume: true,
         documentationVolume: {
-          companionSchema: "vcs-lab.spec-benchmark/v2",
+          companionSchema: "vcs-lab.spec-benchmark/v3",
           command: "vlab spec benchmark --documents <n> --blocks <n> --json",
         },
       },

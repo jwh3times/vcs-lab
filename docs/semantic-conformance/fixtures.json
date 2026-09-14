@@ -3,8 +3,21 @@
   "profiles": {
     "markdown-v1": {
       "parser": "stable-markdown-blocks/v1",
-      "merge": "stable-markdown-three-way/v1",
+      "merge": "stable-markdown-three-way/v2",
       "manifest": "vcs-lab.spec-manifest/v3",
+      "coverage": [
+        "indexed entities are not independent merge units",
+        "nested headings form primary units",
+        "duplicate key identity",
+        "literal examples must not create entities",
+        "fence indentation boundary characterization",
+        "same-section fenced divergence must block"
+      ]
+    },
+    "markdown-v2": {
+      "parser": "stable-markdown-blocks/v2",
+      "merge": "stable-markdown-three-way/v2",
+      "manifest": "vcs-lab.spec-manifest/v4",
       "coverage": [
         "indexed entities are not independent merge units",
         "nested headings form primary units",
@@ -1610,33 +1623,16 @@
         }
       },
       "expected": {
-        "status": "clean",
+        "status": "blocked",
         "counts": {
-          "unchanged": 2
+          "parser-migration-required": 1
         },
-        "ordering": "unchanged",
-        "conflicts": [],
-        "result": {
-          "deleted": false,
-          "text": "# Alpha\n\nBefore.\n\n```python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
-          "entities": [
-            "section:1:alpha:1",
-            "section:1:example-comment:1",
-            "requirement:REQ-DEMO:1"
-          ]
-        },
-        "decisions": [
-          [
-            "section:1:alpha:1",
-            "unchanged",
-            null
-          ],
-          [
-            "section:1:example-comment:1",
-            "unchanged",
-            null
-          ]
-        ]
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "parser-migration-required"
+        ],
+        "result": null,
+        "decisions": []
       },
       "knownFailure": {
         "issue": "https://github.com/jwh3times/vcs-lab/issues/51",
@@ -1675,6 +1671,35 @@
               ]
             ]
           }
+        },
+        "historicalPlan": {
+          "status": "clean",
+          "counts": {
+            "unchanged": 2
+          },
+          "ordering": "unchanged",
+          "conflicts": [],
+          "result": {
+            "deleted": false,
+            "text": "# Alpha\n\nBefore.\n\n```python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+            "entities": [
+              "section:1:alpha:1",
+              "section:1:example-comment:1",
+              "requirement:REQ-DEMO:1"
+            ]
+          },
+          "decisions": [
+            [
+              "section:1:alpha:1",
+              "unchanged",
+              null
+            ],
+            [
+              "section:1:example-comment:1",
+              "unchanged",
+              null
+            ]
+          ]
         }
       }
     },
@@ -1709,33 +1734,16 @@
         }
       },
       "expected": {
-        "status": "clean",
+        "status": "blocked",
         "counts": {
-          "unchanged": 2
+          "parser-migration-required": 1
         },
-        "ordering": "unchanged",
-        "conflicts": [],
-        "result": {
-          "deleted": false,
-          "text": "# Alpha\n\nBefore.\n\n~~~python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
-          "entities": [
-            "section:1:alpha:1",
-            "section:1:example-comment:1",
-            "requirement:REQ-DEMO:1"
-          ]
-        },
-        "decisions": [
-          [
-            "section:1:alpha:1",
-            "unchanged",
-            null
-          ],
-          [
-            "section:1:example-comment:1",
-            "unchanged",
-            null
-          ]
-        ]
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "parser-migration-required"
+        ],
+        "result": null,
+        "decisions": []
       },
       "knownFailure": {
         "issue": "https://github.com/jwh3times/vcs-lab/issues/51",
@@ -1774,6 +1782,35 @@
               ]
             ]
           }
+        },
+        "historicalPlan": {
+          "status": "clean",
+          "counts": {
+            "unchanged": 2
+          },
+          "ordering": "unchanged",
+          "conflicts": [],
+          "result": {
+            "deleted": false,
+            "text": "# Alpha\n\nBefore.\n\n~~~python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+            "entities": [
+              "section:1:alpha:1",
+              "section:1:example-comment:1",
+              "requirement:REQ-DEMO:1"
+            ]
+          },
+          "decisions": [
+            [
+              "section:1:alpha:1",
+              "unchanged",
+              null
+            ],
+            [
+              "section:1:example-comment:1",
+              "unchanged",
+              null
+            ]
+          ]
         }
       }
     },
@@ -1808,33 +1845,16 @@
         }
       },
       "expected": {
-        "status": "clean",
+        "status": "blocked",
         "counts": {
-          "unchanged": 2
+          "parser-migration-required": 1
         },
-        "ordering": "unchanged",
-        "conflicts": [],
-        "result": {
-          "deleted": false,
-          "text": "# Alpha\n\nBefore.\n\n````python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n`````\n",
-          "entities": [
-            "section:1:alpha:1",
-            "section:1:example-comment:1",
-            "requirement:REQ-DEMO:1"
-          ]
-        },
-        "decisions": [
-          [
-            "section:1:alpha:1",
-            "unchanged",
-            null
-          ],
-          [
-            "section:1:example-comment:1",
-            "unchanged",
-            null
-          ]
-        ]
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "parser-migration-required"
+        ],
+        "result": null,
+        "decisions": []
       },
       "knownFailure": {
         "issue": "https://github.com/jwh3times/vcs-lab/issues/51",
@@ -1873,6 +1893,35 @@
               ]
             ]
           }
+        },
+        "historicalPlan": {
+          "status": "clean",
+          "counts": {
+            "unchanged": 2
+          },
+          "ordering": "unchanged",
+          "conflicts": [],
+          "result": {
+            "deleted": false,
+            "text": "# Alpha\n\nBefore.\n\n````python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n`````\n",
+            "entities": [
+              "section:1:alpha:1",
+              "section:1:example-comment:1",
+              "requirement:REQ-DEMO:1"
+            ]
+          },
+          "decisions": [
+            [
+              "section:1:alpha:1",
+              "unchanged",
+              null
+            ],
+            [
+              "section:1:example-comment:1",
+              "unchanged",
+              null
+            ]
+          ]
         }
       }
     },
@@ -1907,33 +1956,16 @@
         }
       },
       "expected": {
-        "status": "clean",
+        "status": "blocked",
         "counts": {
-          "unchanged": 2
+          "parser-migration-required": 1
         },
-        "ordering": "unchanged",
-        "conflicts": [],
-        "result": {
-          "deleted": false,
-          "text": "# Alpha\n\nBefore.\n\n   ```python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n   ```\n",
-          "entities": [
-            "section:1:alpha:1",
-            "section:1:example-comment:1",
-            "requirement:REQ-DEMO:1"
-          ]
-        },
-        "decisions": [
-          [
-            "section:1:alpha:1",
-            "unchanged",
-            null
-          ],
-          [
-            "section:1:example-comment:1",
-            "unchanged",
-            null
-          ]
-        ]
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "parser-migration-required"
+        ],
+        "result": null,
+        "decisions": []
       },
       "knownFailure": {
         "issue": "https://github.com/jwh3times/vcs-lab/issues/51",
@@ -1972,6 +2004,35 @@
               ]
             ]
           }
+        },
+        "historicalPlan": {
+          "status": "clean",
+          "counts": {
+            "unchanged": 2
+          },
+          "ordering": "unchanged",
+          "conflicts": [],
+          "result": {
+            "deleted": false,
+            "text": "# Alpha\n\nBefore.\n\n   ```python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n   ```\n",
+            "entities": [
+              "section:1:alpha:1",
+              "section:1:example-comment:1",
+              "requirement:REQ-DEMO:1"
+            ]
+          },
+          "decisions": [
+            [
+              "section:1:alpha:1",
+              "unchanged",
+              null
+            ],
+            [
+              "section:1:example-comment:1",
+              "unchanged",
+              null
+            ]
+          ]
         }
       }
     },
@@ -2006,33 +2067,16 @@
         }
       },
       "expected": {
-        "status": "clean",
+        "status": "blocked",
         "counts": {
-          "unchanged": 2
+          "parser-migration-required": 1
         },
-        "ordering": "unchanged",
-        "conflicts": [],
-        "result": {
-          "deleted": false,
-          "text": "# Alpha\n\nBefore.\n\n```python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n",
-          "entities": [
-            "section:1:alpha:1",
-            "section:1:example-comment:1",
-            "requirement:REQ-DEMO:1"
-          ]
-        },
-        "decisions": [
-          [
-            "section:1:alpha:1",
-            "unchanged",
-            null
-          ],
-          [
-            "section:1:example-comment:1",
-            "unchanged",
-            null
-          ]
-        ]
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "parser-migration-required"
+        ],
+        "result": null,
+        "decisions": []
       },
       "knownFailure": {
         "issue": "https://github.com/jwh3times/vcs-lab/issues/51",
@@ -2071,6 +2115,35 @@
               ]
             ]
           }
+        },
+        "historicalPlan": {
+          "status": "clean",
+          "counts": {
+            "unchanged": 2
+          },
+          "ordering": "unchanged",
+          "conflicts": [],
+          "result": {
+            "deleted": false,
+            "text": "# Alpha\n\nBefore.\n\n```python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n",
+            "entities": [
+              "section:1:alpha:1",
+              "section:1:example-comment:1",
+              "requirement:REQ-DEMO:1"
+            ]
+          },
+          "decisions": [
+            [
+              "section:1:alpha:1",
+              "unchanged",
+              null
+            ],
+            [
+              "section:1:example-comment:1",
+              "unchanged",
+              null
+            ]
+          ]
         }
       }
     },
@@ -2105,33 +2178,16 @@
         }
       },
       "expected": {
-        "status": "clean",
+        "status": "blocked",
         "counts": {
-          "unchanged": 2
+          "parser-migration-required": 1
         },
-        "ordering": "unchanged",
-        "conflicts": [],
-        "result": {
-          "deleted": false,
-          "text": "# Alpha\n\nBefore.\n\n````python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
-          "entities": [
-            "section:1:alpha:1",
-            "section:1:example-comment:1",
-            "requirement:REQ-DEMO:1"
-          ]
-        },
-        "decisions": [
-          [
-            "section:1:alpha:1",
-            "unchanged",
-            null
-          ],
-          [
-            "section:1:example-comment:1",
-            "unchanged",
-            null
-          ]
-        ]
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "parser-migration-required"
+        ],
+        "result": null,
+        "decisions": []
       },
       "knownFailure": {
         "issue": "https://github.com/jwh3times/vcs-lab/issues/51",
@@ -2170,6 +2226,35 @@
               ]
             ]
           }
+        },
+        "historicalPlan": {
+          "status": "clean",
+          "counts": {
+            "unchanged": 2
+          },
+          "ordering": "unchanged",
+          "conflicts": [],
+          "result": {
+            "deleted": false,
+            "text": "# Alpha\n\nBefore.\n\n````python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+            "entities": [
+              "section:1:alpha:1",
+              "section:1:example-comment:1",
+              "requirement:REQ-DEMO:1"
+            ]
+          },
+          "decisions": [
+            [
+              "section:1:alpha:1",
+              "unchanged",
+              null
+            ],
+            [
+              "section:1:example-comment:1",
+              "unchanged",
+              null
+            ]
+          ]
         }
       }
     },
@@ -2204,33 +2289,16 @@
         }
       },
       "expected": {
-        "status": "clean",
+        "status": "blocked",
         "counts": {
-          "unchanged": 2
+          "parser-migration-required": 1
         },
-        "ordering": "unchanged",
-        "conflicts": [],
-        "result": {
-          "deleted": false,
-          "text": "# Alpha\n\nBefore.\n\n```python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
-          "entities": [
-            "section:1:alpha:1",
-            "section:1:example-comment:1",
-            "requirement:REQ-DEMO:1"
-          ]
-        },
-        "decisions": [
-          [
-            "section:1:alpha:1",
-            "unchanged",
-            null
-          ],
-          [
-            "section:1:example-comment:1",
-            "unchanged",
-            null
-          ]
-        ]
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "parser-migration-required"
+        ],
+        "result": null,
+        "decisions": []
       },
       "knownFailure": {
         "issue": "https://github.com/jwh3times/vcs-lab/issues/51",
@@ -2269,6 +2337,35 @@
               ]
             ]
           }
+        },
+        "historicalPlan": {
+          "status": "clean",
+          "counts": {
+            "unchanged": 2
+          },
+          "ordering": "unchanged",
+          "conflicts": [],
+          "result": {
+            "deleted": false,
+            "text": "# Alpha\n\nBefore.\n\n```python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+            "entities": [
+              "section:1:alpha:1",
+              "section:1:example-comment:1",
+              "requirement:REQ-DEMO:1"
+            ]
+          },
+          "decisions": [
+            [
+              "section:1:alpha:1",
+              "unchanged",
+              null
+            ],
+            [
+              "section:1:example-comment:1",
+              "unchanged",
+              null
+            ]
+          ]
         }
       }
     },
@@ -2360,33 +2457,16 @@
         }
       },
       "expected": {
-        "status": "clean",
+        "status": "blocked",
         "counts": {
-          "ours-edit": 1,
-          "theirs-edit": 1
+          "parser-migration-required": 1
         },
-        "ordering": "unchanged",
-        "conflicts": [],
-        "result": {
-          "deleted": false,
-          "text": "# Alpha\n\nTarget edit.\n\n```python\n\n# Example comment\nprint(2)\n```\n",
-          "entities": [
-            "section:1:alpha:1",
-            "section:1:example-comment:1"
-          ]
-        },
-        "decisions": [
-          [
-            "section:1:alpha:1",
-            "ours-edit",
-            null
-          ],
-          [
-            "section:1:example-comment:1",
-            "theirs-edit",
-            null
-          ]
-        ]
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "parser-migration-required"
+        ],
+        "result": null,
+        "decisions": []
       },
       "knownFailure": {
         "issue": "https://github.com/jwh3times/vcs-lab/issues/51",
@@ -2421,6 +2501,35 @@
               ]
             ]
           }
+        },
+        "historicalPlan": {
+          "status": "clean",
+          "counts": {
+            "ours-edit": 1,
+            "theirs-edit": 1
+          },
+          "ordering": "unchanged",
+          "conflicts": [],
+          "result": {
+            "deleted": false,
+            "text": "# Alpha\n\nTarget edit.\n\n```python\n\n# Example comment\nprint(2)\n```\n",
+            "entities": [
+              "section:1:alpha:1",
+              "section:1:example-comment:1"
+            ]
+          },
+          "decisions": [
+            [
+              "section:1:alpha:1",
+              "ours-edit",
+              null
+            ],
+            [
+              "section:1:example-comment:1",
+              "theirs-edit",
+              null
+            ]
+          ]
         }
       }
     },
@@ -2428,6 +2537,2048 @@
       "id": "fence-preserves-interior-bytes",
       "rule": "byte normalization",
       "profile": "markdown-v1",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\n```python\n    # indented comment\n    print(1)  \n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\n```python\n    # indented comment\n    print(1)  \n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\n```python\n    # indented comment\n    print(1)  \n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\n```python\n    # indented comment\n    print(1)  \n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-independent-edits",
+      "rule": "independent primary units merge",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\ntarget beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nsource alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "theirs-edit": 1,
+          "ours-edit": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nsource alpha\n\n# Beta\n\ntarget beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "theirs-edit",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "ours-edit",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-unchanged",
+      "rule": "unchanged content",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-identical-edits",
+      "rule": "identical edits",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nnew alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nnew alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "identical-edit": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nnew alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "identical-edit",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-same-unit-divergence",
+      "rule": "divergent edits block",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nnew alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nother alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "same-block-edit": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [
+          "same-block-edit"
+        ],
+        "result": null,
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "conflict",
+            "same-block-edit"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-both-delete-document",
+      "rule": "both delete",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": null,
+          "entities": []
+        },
+        "theirs": {
+          "text": null,
+          "entities": []
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "deleted-both": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": true,
+          "text": null,
+          "entities": []
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "deleted-both",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-target-deletes-document",
+      "rule": "one-sided deletion",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": null,
+          "entities": []
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "deleted-ours": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": true,
+          "text": null,
+          "entities": []
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "deleted-ours",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-source-deletes-document",
+      "rule": "one-sided deletion",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": null,
+          "entities": []
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "deleted-theirs": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": true,
+          "text": null,
+          "entities": []
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "deleted-theirs",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-delete-versus-edit",
+      "rule": "deletion versus edit blocks",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": null,
+          "entities": []
+        },
+        "theirs": {
+          "text": "# Alpha\n\nnew alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "delete-vs-edit": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [
+          "delete-vs-edit"
+        ],
+        "result": null,
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "conflict",
+            "delete-vs-edit"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-edit-versus-delete",
+      "rule": "deletion versus edit blocks",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nnew alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": null,
+          "entities": []
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "delete-vs-edit": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [
+          "delete-vs-edit"
+        ],
+        "result": null,
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "conflict",
+            "delete-vs-edit"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-independent-additions",
+      "rule": "ordered independent additions",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n# Gamma\n\nbase gamma\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:gamma:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1,
+          "ours-add": 1,
+          "theirs-add": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n\n# Gamma\n\nbase gamma\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1",
+            "section:1:gamma:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "ours-add",
+            null
+          ],
+          [
+            "section:1:gamma:1",
+            "theirs-add",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-reverse-independent-additions",
+      "rule": "ordered independent additions",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n\n# Gamma\n\nbase gamma\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:gamma:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1,
+          "ours-add": 1,
+          "theirs-add": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nbase alpha\n\n# Gamma\n\nbase gamma\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:gamma:1",
+            "section:1:beta:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "theirs-add",
+            null
+          ],
+          [
+            "section:1:gamma:1",
+            "ours-add",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-identical-additions",
+      "rule": "identical additions",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1,
+          "identical-add": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "identical-add",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-conflicting-additions",
+      "rule": "divergent additions block",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nnew beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "unchanged": 1,
+          "same-block-concurrent-add": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [
+          "same-block-concurrent-add"
+        ],
+        "result": null,
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "conflict",
+            "same-block-concurrent-add"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-move-with-edit",
+      "rule": "one-sided move",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "ours": {
+          "text": "# Beta\n\nbase beta\n\n# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:beta:1",
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nnew beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1,
+          "theirs-edit": 1
+        },
+        "ordering": "ours-move",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Beta\n\nnew beta\n\n# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:beta:1",
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "theirs-edit",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-source-move-with-edit",
+      "rule": "one-sided move",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nnew beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Beta\n\nbase beta\n\n# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:beta:1",
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1,
+          "ours-edit": 1
+        },
+        "ordering": "theirs-move",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Beta\n\nnew beta\n\n# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:beta:1",
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "ours-edit",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-identical-moves",
+      "rule": "identical moves",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "ours": {
+          "text": "# Beta\n\nbase beta\n\n# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:beta:1",
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Beta\n\nbase beta\n\n# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:beta:1",
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 2
+        },
+        "ordering": "same-move",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Beta\n\nbase beta\n\n# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:beta:1",
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-conflicting-moves",
+      "rule": "conflicting moves block",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n\n# Gamma\n\nbase gamma\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1",
+            "section:1:gamma:1"
+          ]
+        },
+        "ours": {
+          "text": "# Beta\n\nbase beta\n\n# Alpha\n\nbase alpha\n\n# Gamma\n\nbase gamma\n",
+          "entities": [
+            "section:1:beta:1",
+            "section:1:alpha:1",
+            "section:1:gamma:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n# Gamma\n\nbase gamma\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:gamma:1",
+            "section:1:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "unchanged": 3,
+          "conflicting-block-order": 1
+        },
+        "ordering": "conflict",
+        "conflicts": [
+          "conflicting-block-order"
+        ],
+        "result": null,
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:gamma:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-conflicting-add-placement",
+      "rule": "conflicting addition placement blocks",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Beta\n\nbase beta\n\n# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:beta:1",
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "unchanged": 1,
+          "identical-add": 1,
+          "concurrent-add-placement": 1
+        },
+        "ordering": "conflict",
+        "conflicts": [
+          "concurrent-add-placement"
+        ],
+        "result": null,
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "identical-add",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-conflicting-add-order",
+      "rule": "conflicting addition order blocks",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n\n# Gamma\n\nbase gamma\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1",
+            "section:1:gamma:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n# Gamma\n\nbase gamma\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:gamma:1",
+            "section:1:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "unchanged": 1,
+          "identical-add": 2,
+          "conflicting-added-block-order": 1
+        },
+        "ordering": "conflict",
+        "conflicts": [
+          "conflicting-added-block-order"
+        ],
+        "result": null,
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:beta:1",
+            "identical-add",
+            null
+          ],
+          [
+            "section:1:gamma:1",
+            "identical-add",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-empty-document",
+      "rule": "empty rendering",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "",
+          "entities": [
+            "preamble:1"
+          ]
+        },
+        "ours": {
+          "text": "",
+          "entities": [
+            "preamble:1"
+          ]
+        },
+        "theirs": {
+          "text": "",
+          "entities": [
+            "preamble:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "\n",
+          "entities": [
+            "preamble:1"
+          ]
+        },
+        "decisions": [
+          [
+            "preamble:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-normalize-newlines-and-boundaries",
+      "rule": "byte normalization",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\r\n\r\nbase alpha  \r\n\r\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\r\rbase alpha\r",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-metadata-missing",
+      "rule": "metadata refusal",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ],
+          "metadata": "missing"
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "semantic-metadata-unavailable": 1
+        },
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "semantic-metadata-unavailable"
+        ],
+        "result": null,
+        "decisions": []
+      }
+    },
+    {
+      "id": "v2-metadata-malformed",
+      "rule": "metadata refusal",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ],
+          "metadata": "malformed"
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "semantic-metadata-unavailable": 1
+        },
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "semantic-metadata-unavailable"
+        ],
+        "result": null,
+        "decisions": []
+      }
+    },
+    {
+      "id": "v2-metadata-stale",
+      "rule": "metadata refusal",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ],
+          "metadata": "stale"
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "semantic-metadata-unavailable": 1
+        },
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "semantic-metadata-unavailable"
+        ],
+        "result": null,
+        "decisions": []
+      }
+    },
+    {
+      "id": "v2-metadata-future-parser",
+      "rule": "metadata refusal",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ],
+          "metadata": "future-parser"
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "semantic-metadata-unavailable": 1
+        },
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "semantic-metadata-unavailable"
+        ],
+        "result": null,
+        "decisions": []
+      }
+    },
+    {
+      "id": "v2-metadata-future-manifest",
+      "rule": "metadata refusal",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ],
+          "metadata": "future-manifest"
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "semantic-metadata-unavailable": 1
+        },
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "semantic-metadata-unavailable"
+        ],
+        "result": null,
+        "decisions": []
+      }
+    },
+    {
+      "id": "v2-artifact-mismatch",
+      "rule": "artifact identity refusal",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ],
+          "artifactId": "artifact_other"
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "artifact-identity-mismatch": 1
+        },
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "artifact-identity-mismatch"
+        ],
+        "result": null,
+        "decisions": []
+      }
+    },
+    {
+      "id": "v2-duplicate-primary-ids",
+      "rule": "ambiguous identity refusal",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ],
+          "idOverrides": {
+            "section:1:alpha:1": "ent_duplicate",
+            "section:1:beta:1": "ent_duplicate"
+          }
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n# Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "semantic-metadata-unavailable": 1
+        },
+        "ordering": "not-evaluated",
+        "conflicts": [
+          "semantic-metadata-unavailable"
+        ],
+        "result": null,
+        "decisions": []
+      }
+    },
+    {
+      "id": "v2-legacy-v2-ids",
+      "rule": "legacy identity compatibility",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ],
+          "idOverrides": {
+            "section:1:alpha:1": "ent_legacy_identity"
+          },
+          "metadata": "legacy-v2"
+        },
+        "ours": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ],
+          "idOverrides": {
+            "section:1:alpha:1": "ent_legacy_identity"
+          }
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ],
+          "idOverrides": {
+            "section:1:alpha:1": "ent_legacy_identity"
+          }
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nbase alpha\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-requirements-share-section",
+      "rule": "indexed entities are not independent merge units",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nREQ-ONE: first\nREQ-TWO: second\n",
+          "entities": [
+            "section:1:alpha:1",
+            "requirement:REQ-ONE:1",
+            "requirement:REQ-TWO:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nREQ-ONE: target\nREQ-TWO: second\n",
+          "entities": [
+            "section:1:alpha:1",
+            "requirement:REQ-ONE:1",
+            "requirement:REQ-TWO:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nREQ-ONE: first\nREQ-TWO: source\n",
+          "entities": [
+            "section:1:alpha:1",
+            "requirement:REQ-ONE:1",
+            "requirement:REQ-TWO:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "same-block-edit": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [
+          "same-block-edit"
+        ],
+        "result": null,
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "conflict",
+            "same-block-edit"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-nested-heading-units",
+      "rule": "nested headings form primary units",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nbase alpha\n\n## Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:2:beta:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\ntarget alpha\n\n## Beta\n\nbase beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:2:beta:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nbase alpha\n\n## Beta\n\nsource beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:2:beta:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "ours-edit": 1,
+          "theirs-edit": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\ntarget alpha\n\n## Beta\n\nsource beta\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:2:beta:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "ours-edit",
+            null
+          ],
+          [
+            "section:2:beta:1",
+            "theirs-edit",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-duplicate-heading-occurrences",
+      "rule": "duplicate key identity",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nfirst\n\n# Alpha\n\nsecond\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:alpha:2"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\ntarget\n\n# Alpha\n\nsecond\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:alpha:2"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nfirst\n\n# Alpha\n\nsource\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:alpha:2"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "ours-edit": 1,
+          "theirs-edit": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\ntarget\n\n# Alpha\n\nsource\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:alpha:2"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "ours-edit",
+            null
+          ],
+          [
+            "section:1:alpha:2",
+            "theirs-edit",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-backticks",
+      "rule": "literal examples must not create entities",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-tildes",
+      "rule": "literal examples must not create entities",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nBefore.\n\n~~~python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nBefore.\n\n~~~python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nBefore.\n\n~~~python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nBefore.\n\n~~~python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-long-fence",
+      "rule": "literal examples must not create entities",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nBefore.\n\n````python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n`````\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nBefore.\n\n````python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n`````\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nBefore.\n\n````python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n`````\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nBefore.\n\n````python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n`````\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-indented-fence",
+      "rule": "literal examples must not create entities",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nBefore.\n\n   ```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n   ```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nBefore.\n\n   ```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n   ```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nBefore.\n\n   ```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n   ```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nBefore.\n\n   ```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n   ```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-unclosed-fence",
+      "rule": "literal examples must not create entities",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-short-closer",
+      "rule": "literal examples must not create entities",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nBefore.\n\n````python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nBefore.\n\n````python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nBefore.\n\n````python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nBefore.\n\n````python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-mismatched-closer",
+      "rule": "literal examples must not create entities",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n~~~\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-four-space-indent",
+      "rule": "fence indentation boundary characterization",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nBefore.\n\n    ```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n    ```\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:example-comment:1",
+            "requirement:REQ-DEMO:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nBefore.\n\n    ```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n    ```\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:example-comment:1",
+            "requirement:REQ-DEMO:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nBefore.\n\n    ```python\n# Example comment\nREQ-DEMO: literal\nprint(1)\n    ```\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:example-comment:1",
+            "requirement:REQ-DEMO:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "clean",
+        "counts": {
+          "unchanged": 2
+        },
+        "ordering": "unchanged",
+        "conflicts": [],
+        "result": {
+          "deleted": false,
+          "text": "# Alpha\n\nBefore.\n\n    ```python\n\n# Example comment\nREQ-DEMO: literal\nprint(1)\n    ```\n",
+          "entities": [
+            "section:1:alpha:1",
+            "section:1:example-comment:1",
+            "requirement:REQ-DEMO:1"
+          ]
+        },
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "unchanged",
+            null
+          ],
+          [
+            "section:1:example-comment:1",
+            "unchanged",
+            null
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-false-independent-edits",
+      "rule": "same-section fenced divergence must block",
+      "profile": "markdown-v2",
+      "stages": {
+        "base": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "ours": {
+          "text": "# Alpha\n\nTarget edit.\n\n```python\n# Example comment\nprint(1)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        },
+        "theirs": {
+          "text": "# Alpha\n\nBefore.\n\n```python\n# Example comment\nprint(2)\n```\n",
+          "entities": [
+            "section:1:alpha:1"
+          ]
+        }
+      },
+      "expected": {
+        "status": "blocked",
+        "counts": {
+          "same-block-edit": 1
+        },
+        "ordering": "unchanged",
+        "conflicts": [
+          "same-block-edit"
+        ],
+        "result": null,
+        "decisions": [
+          [
+            "section:1:alpha:1",
+            "conflict",
+            "same-block-edit"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "v2-fence-preserves-interior-bytes",
+      "rule": "byte normalization",
+      "profile": "markdown-v2",
       "stages": {
         "base": {
           "text": "# Alpha\n\n```python\n    # indented comment\n    print(1)  \n```\n",

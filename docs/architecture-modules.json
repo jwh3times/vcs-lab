@@ -97,7 +97,7 @@
   },
   "src/rebase-forecast.js": {
     "responsibility": "Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation",
-    "dependencies": "Rebase plan, forecast simulator, Git adapter"
+    "dependencies": "Rebase plan, forecast simulator, semantic version guards, Git adapter"
   },
   "src/rebase-operations.js": {
     "responsibility": "Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts",

@@ -143,7 +143,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/pending-operation.js` | Safe reconciliation/rebase journal routing for shared conflict tools | Reconciliation and rebase state |
 | `src/proof-bundle.js` | Portable coverage proof bundles and their independent verifier, which applies its own copy of the lattice (`PROOF_RULES`) and compares the evidence with the repository | Merge plan, canonical JSON, metadata, engine |
 | `src/provenance.js` | Declared authorship provenance (`vcs-lab.provenance/v1`): the closed role vocabulary, `VLAB_AGENT`, declaration at commit time, and exact carry onto rewritten commits | Notes, IDs, schemas |
-| `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation | Rebase plan, forecast simulator, Git adapter |
+| `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation | Rebase plan, forecast simulator, semantic version guards, Git adapter |
 | `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts | Rebase plan/forecast, Git, notes, specs, resolutions |
 | `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
 | `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
@@ -287,7 +287,7 @@ use at the current development baseline:
 | `vcs-lab.reconciliation` | v6 | v6 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.reconciliation-operation` | v4 | v4 | `<git dir>/vcs-lab/reconciliation.json` | `private` |
 | `vcs-lab.resolution` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
-| `vcs-lab.spec-manifest` | v1, v2, v3 | v3 | `.vcs-lab/specs/**` | `tracked` |
+| `vcs-lab.spec-manifest` | v1, v2, v3, v4 | v4 | `.vcs-lab/specs/**` | `tracked` |
 | `vcs-lab.workspace` | v1 | v1 | `entries of <common dir>/vcs-lab/workspaces.json` | `shared-local` |
 | `vcs-lab.workspaces` | v1 | v1 | `<common dir>/vcs-lab/workspaces.json` | `shared-local` |
 <!-- generated:schemas:end -->
@@ -302,8 +302,8 @@ Command and automation output shapes (outside the persisted-family registry):
 | `vcs-lab.rebase-plan/v1` | Read-only causal rebase selection and constraints | `rebase-plan.js` |
 | `vcs-lab.checkpoint/v1` | Checkpoint command result | `workspaces.js` |
 | `vcs-lab.workspace-prune/v1` | Preview/apply stale-path prune result | `workspaces.js` |
-| `vcs-lab.spec-merge-plan/v1` | Deterministic three-way semantic plan | `specs.js` |
-| `vcs-lab.spec-benchmark/v2` | Generated corpus measurements | `specs.js` |
+| `vcs-lab.spec-merge-plan/v2` | Deterministic three-way semantic plan | `specs.js` |
+| `vcs-lab.spec-benchmark/v3` | Generated corpus measurements | `specs.js` |
 | `vcs-lab.repository-scale-benchmark/v1` | Disposable repository/shared-metadata volume, scan, raw-Git floor, process-amplification, and decision measurements | `scale-benchmark.js` |
 | `vcs-lab.metadata-status/v1` | Deterministic repository metadata inventory | `metadata.js` |
 | `vcs-lab.metadata-validation/v1` | Inventory plus strict/non-strict validity result | `metadata.js` |
@@ -878,7 +878,7 @@ identity, merge rules, blockers, migrations, and sparse storage limitations.
 
 ### 13.1 Canonical and derived data
 
-Markdown is canonical. A v3 manifest persists only:
+Markdown is canonical. A v4 manifest persists only:
 
 - schema;
 - artifact ID;
@@ -893,15 +893,20 @@ reconstructed from the Markdown on demand.
 
 ### 13.2 Parser and entity identity
 
-The parser `stable-markdown-blocks/v1` identifies:
+The parser `stable-markdown-blocks/v2` identifies:
 
 - an optional preamble;
 - heading-delimited sections;
 - explicit `REQ-*:` records as nested addressable entities.
 
-Ordinary IDs are derived with
-`artifact-semantic-key-sha256/v1`. A migration from expanded v1/v2 manifests
-compares old identities and writes only non-derived values into `idOverrides`.
+Backtick and tilde fences suppress heading and requirement recognition under
+the explicit grammar in [ADR-0026](adr/0026-version-fence-aware-markdown-boundaries.md).
+Historical v1/v2/v3 manifests retain their v1 parsing on read. Indexing writes
+v4 after verifying the old source and matching surviving declarations by
+location. Ordinary IDs still use `artifact-semantic-key-sha256/v1`; shifted
+occurrence keys retain their real entity IDs through sparse `idOverrides`.
+Unknown versions and unavailable migration source refuse indexing, including
+`--force`. Older manifests bypass every unchanged-source/blob cache.
 
 ### 13.3 Incremental indexing
 
@@ -918,6 +923,11 @@ For repository-wide indexing:
 
 Merge units are non-overlapping preamble and heading sections. Requirements are
 nested identity/review entities, not a competing byte-merge layer.
+The v2 planner blocks legacy inputs whose corrected boundaries differ with
+`parser-migration-required`, including an affected historical base. Compatible
+legacy stages may participate without rewriting history. V1 semantic approvals
+cannot authorize v2 output; regenerate forecasts or abort pending operations
+before retrying. Raw exact-resolution records retain their byte-based rules.
 The [requirement-level evaluation](structured-document-adapters.md#requirement-level-merge-evaluation)
 explains why promoting indexed declaration lines is insufficient and what a
 future version must settle about byte ownership, context, identity, and migration.

@@ -7,7 +7,7 @@ import { runMarkdownCase } from "../test-support/semantic-conformance.js";
 
 const fixtureFile = fileURLToPath(new URL("../docs/semantic-conformance/fixtures.json", import.meta.url));
 const catalog = JSON.parse(fs.readFileSync(fixtureFile, "utf8"));
-const adapters = { "markdown-v1": runMarkdownCase };
+const adapters = { "markdown-v1": runMarkdownCase, "markdown-v2": runMarkdownCase };
 
 function expectation(entry) {
   return {
@@ -68,7 +68,7 @@ test("fixture omissions, orphan profiles, and resolved known failures cannot sil
 });
 
 for (const entry of catalog.cases) {
-  test(`${entry.profile}: ${entry.id}${entry.knownFailure ? " (known #51 defect; not conformance)" : ""}`, (t) => {
+  test(`${entry.profile}: ${entry.id}${entry.knownFailure ? " (historical boundaries; migration required)" : ""}`, (t) => {
     const actual = adapters[entry.profile](t, entry, catalog.profiles[entry.profile]);
     assert.deepEqual(actual, expectation(entry));
     if (entry.knownFailure) {

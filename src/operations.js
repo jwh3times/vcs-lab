@@ -53,6 +53,7 @@ import {
 import { forecastForPlan } from "./forecasts.js";
 import {
   captureSpecMergeOutcomes,
+  assertCurrentSpecDecisions,
   compactSpecMerge,
   materializeSpecMerge,
   specMergePlansForOperation,
@@ -836,6 +837,7 @@ function forkMergeMessage(operation, cwd) {
 function continueReconciliationInSession(options, cwd) {
   const phaseStarted = performance.now();
   const operation = requirePendingReconciliation(cwd);
+  assertCurrentSpecDecisions(operation);
   requireReconciliationBranch(operation, cwd);
   if (!operation.current) {
     throw new CliError("The pending reconciliation has no current change.",

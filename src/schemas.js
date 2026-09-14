@@ -148,9 +148,9 @@ export const RECORD_FAMILIES = new Map([
   }],
   ["vcs-lab.spec-manifest", {
     scope: "tracked",
-    registered: [1, 2, 3],
-    readable: [1, 2, 3],
-    written: [3],
+    registered: [1, 2, 3, 4],
+    readable: [1, 2, 3, 4],
+    written: [4],
     unknownVersion: "refuse",
     store: ".vcs-lab/specs/**",
   }],
