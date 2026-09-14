@@ -1000,7 +1000,9 @@ recorded in an ADR when it changes a durable decision.
    [ADR-0029](adr/0029-require-a-declared-lineage-bridge-for-imports-without-a-shared-root.md) (Proposed).
 2. Which causal claims are safe to merge automatically when two metadata
    sources disagree?
-   ([#44](https://github.com/jwh3times/vcs-lab/issues/44))
+   ([#44](https://github.com/jwh3times/vcs-lab/issues/44)). A per-family
+   conflict policy is proposed in
+   [ADR-0030](adr/0030-define-conflict-policy-for-competing-causal-facts.md) (Proposed).
 3. Should logical Change IDs be repository-scoped, globally namespaced, or
    issuer-qualified? **Answered in v0.12.0** by the frozen
    `vcs-lab.logical-id/v1` protocol ([docs/identity](identity/README.md)):

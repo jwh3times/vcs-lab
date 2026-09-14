@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Propose the conflict policy for competing causal facts (issue #44,
+  ADR-0030, Proposed): identity is the only conflict key, a conflicted fact
+  contributes nothing on either side, conflicts park rather than block or
+  overwrite, and a person resolves one with a declared local disposition.
+  Disposable two-clone evidence records that competing resolutions and
+  duplicate landings already coexist without a merge rule, and that the
+  planner still counts an id-conflicted receipt the validator quarantines.
+
 - Propose ADR-0029 for issue #43: a history-filtered repository may establish
   lineage with its pre-image only through a declared lineage bridge that names
   both lineage identities and carries the complete commit map, honored only
