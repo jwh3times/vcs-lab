@@ -84,8 +84,9 @@ requires every native median to be at most 110% of its contemporaneous Git floor
 A miss ends the bounded attempt and keeps Git as the delivered engine; further
 tuning requires a new decision. The committed regression baseline is unchanged.
 
-The first source package carrying this binding is the unreleased `0.13.2`
-development snapshot; this records source delivery, not npm publication. Under
-ADR-0014's two-minor-release sunset, remove it by `0.15.0` if its named budget and
+The binding entered the tree in the `0.13.2` development snapshot and first
+ships in the `0.14.0` release; this records source delivery, not npm
+publication. Under ADR-0014's two-minor-release sunset, counted from that
+snapshot, remove it by `0.15.0` if its named budget and
 identical-result requirement have not been met. ADR-0027 requires them before
 the initial delivery as well.

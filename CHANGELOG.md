@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.0
 
 - Verify proof bundles against a fork of their repository (issue #89).
   `vlab verify-proof` now applies the lineage relation `vlab metadata import`
