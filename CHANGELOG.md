@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Derive repository lineage with replacement objects disabled (issue #88). A
+  local `git replace` graft of a foreign root onto this repository's root no
+  longer changes the lineage identity, so an unrelated envelope stays refused
+  and a foreign proof bundle stays `different-repository`. Other reads still
+  honor replacements; widening that is a scope decision recorded on the issue.
+
 - Exclude identifier-conflicted causal records from every reader (issue #87).
   A record id that appears more than once in the notes tree is quarantined by
   `vlab metadata status` as `record-id-conflict`; the merge planner, proof
