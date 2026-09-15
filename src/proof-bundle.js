@@ -1,7 +1,12 @@
 import { sha256 } from "./ids.js";
 import { canonicalJson } from "./canonical-json.js";
 import { CliError } from "./errors.js";
-import { acceptedCausalRecords, readCausalRecordCatalog, repositoryLineage } from "./metadata.js";
+import {
+  acceptedCausalRecords,
+  lineageRelation,
+  readCausalRecordCatalog,
+  repositoryLineage,
+} from "./metadata.js";
 import { buildMergePlan, coverageEvidence } from "./merge-plan.js";
 import { commitHistory, currentHead, isAncestor, mergeBase, resolveObjectIds } from "./engine.js";
 
@@ -260,14 +265,21 @@ export function verifyAgainstRepository(bundle, cwd = process.cwd()) {
   // repository at all. Lineage is derived from the root commits, so it also
   // catches the case where the two repositories do not even share an object
   // format.
+  // The relation is the one `vlab metadata import` applies: a fork (a shared
+  // root plus further roots) holds every object the comparison needs and is
+  // verified like the same repository; only an unrelated or incompatible
+  // lineage means the bundle will never be about this repository (issue #89).
   const claimedLineage = bundle?.repository?.lineage ?? null;
   const actualLineage = repositoryLineage(cwd);
+  let relation = null;
   if (claimedLineage?.id) {
-    if (actualLineage?.id !== claimedLineage.id) {
+    relation = lineageRelation(claimedLineage, actualLineage);
+    if (!["same", "fork"].includes(relation)) {
       return {
         checked: false,
         reason: "different-repository",
         matches: null,
+        lineageRelation: relation,
         claimedLineage: claimedLineage.id,
         repositoryLineage: actualLineage?.id ?? null,
         claimedObjectFormat: claimedLineage.objectFormat ?? null,
@@ -333,7 +345,7 @@ export function verifyAgainstRepository(bundle, cwd = process.cwd()) {
     classifyFromEvidence(change, indexed),
   ));
   const checks = {
-    lineage: canonicalJson(claimedLineage) === canonicalJson(actualLineage),
+    lineage: relation === "same" || relation === "fork",
     evidence: canonicalJson(actual) === canonicalJson(bundle.evidence),
     sourceChanges: canonicalJson(sourceChanges) === canonicalJson(
       bundle.changes.map(({ commit, changeId, subject }) => ({ commit, changeId, subject })),
@@ -346,6 +358,7 @@ export function verifyAgainstRepository(bundle, cwd = process.cwd()) {
     checked: true,
     reason: null,
     matches: Object.values(checks).every(Boolean),
+    lineageRelation: relation,
     checks,
     evidenceHash: {
       claimed: sha256(canonicalJson(bundle.evidence ?? {})),
