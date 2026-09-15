@@ -226,6 +226,22 @@ test("a proof bundle verifies against a fork of its repository and is refused by
   assert.equal(verified.ok, true);
   assert.match(vlab(fork, "verify-proof", file), /lineage\s+fork/);
 
+  // A fork claim must be self-consistent: keeping the id while altering the
+  // stated roots is tampering, and it fails the lineage check rather than
+  // being read as the same repository or as a fork.
+  const tampered = JSON.parse(fs.readFileSync(file, "utf8"));
+  tampered.repository.lineage.rootCommits = [...tampered.repository.lineage.rootCommits, "f".repeat(40)];
+  const tamperedFile = path.join(origin, "..", "tampered-bundle.json");
+  fs.writeFileSync(tamperedFile, JSON.stringify(tampered));
+  const tamperedRun = spawnSync(process.execPath, [cli, "verify-proof", tamperedFile, "--json"], { cwd: fork, encoding: "utf8", env: testEnv() });
+  assert.equal(tamperedRun.status, 1, "a tampered lineage claim does not verify");
+  const tamperedResult = JSON.parse(tamperedRun.stdout);
+  assert.equal(tamperedResult.integrity.intact, false, "the restated roots break the bundle hash");
+  assert.equal(tamperedResult.repository.checked, true);
+  assert.equal(tamperedResult.repository.lineageRelation, "fork", "the shared root still reads as a fork");
+  assert.equal(tamperedResult.repository.checks.lineage, false, "but the altered identity does not hold");
+  assert.equal(tamperedResult.ok, false);
+
   const unrelated = makeRepository("sha1");
   const refused = JSON.parse(vlab(unrelated, "verify-proof", file, "--json"));
   assert.equal(refused.repository.checked, false);

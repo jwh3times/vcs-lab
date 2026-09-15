@@ -3,6 +3,7 @@ import { canonicalJson } from "./canonical-json.js";
 import { CliError } from "./errors.js";
 import {
   acceptedCausalRecords,
+  lineageIdentityId,
   lineageRelation,
   readCausalRecordCatalog,
   repositoryLineage,
@@ -238,6 +239,25 @@ export function buildProofBundle(sourceRef, cwd = process.cwd()) {
 }
 
 /**
+ * Whether the bundle's stated lineage survives comparison with this
+ * repository's. `same` is decided by the id alone, so the whole identity is
+ * compared: a bundle that kept its id but altered its root list is a tampered
+ * claim, not this repository. `fork` shares a root with a different id, so
+ * the claim must at least be self-consistent: its id must be the hash of the
+ * identity it states, in this repository's algorithm and object format.
+ */
+function lineageClaimHolds(claimed, actual, relation) {
+  if (relation === "same") return canonicalJson(claimed) === canonicalJson(actual);
+  if (relation === "fork") {
+    return Array.isArray(claimed?.rootCommits) &&
+      claimed.algorithm === actual.algorithm &&
+      claimed.objectFormat === actual.objectFormat &&
+      claimed.id === lineageIdentityId(claimed);
+  }
+  return false;
+}
+
+/**
  * Check the bundle's evidence against a real repository, which is the only
  * check that can catch **fabricated** evidence. Recomputing the classification
  * proves a plan follows from what it states; it cannot notice that a stated
@@ -345,7 +365,7 @@ export function verifyAgainstRepository(bundle, cwd = process.cwd()) {
     classifyFromEvidence(change, indexed),
   ));
   const checks = {
-    lineage: relation === "same" || relation === "fork",
+    lineage: lineageClaimHolds(claimedLineage, actualLineage, relation),
     evidence: canonicalJson(actual) === canonicalJson(bundle.evidence),
     sourceChanges: canonicalJson(sourceChanges) === canonicalJson(
       bundle.changes.map(({ commit, changeId, subject }) => ({ commit, changeId, subject })),
