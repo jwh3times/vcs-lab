@@ -1014,7 +1014,10 @@ recorded in an ADR when it changes a durable decision.
    ([#38](https://github.com/jwh3times/vcs-lab/issues/38))
 5. Does the accepted target-context application model for causal rebase remain
    intuitive once forecast, conflict recovery, and application are exercised?
-   ([#27](https://github.com/jwh3times/vcs-lab/issues/27))
+   ([#27](https://github.com/jwh3times/vcs-lab/issues/27)). An explicit
+   range named by its base is proposed in
+   [ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md)
+   (Proposed), with a walkthrough for this judgement on the issue.
 6. Should the accepted immutable source-checkpoint model expand to a captured
    target overlay, and what approval/application semantics should that require?
    ([#26](https://github.com/jwh3times/vcs-lab/issues/26)). A target overlay
