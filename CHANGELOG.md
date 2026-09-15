@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Hand sessions off between machines through Proton Drive. `/handoff` now
+  alerts on work not merged to `main`, publishes its document to the synced
+  `Documents/Handoffs` folder, records it as the repository's active handoff
+  in `handoff_map.json` through `scripts/handoff-map.mjs`, and closes with
+  `end-session`; the new `/lets-go` skill resumes from that handoff and clears
+  its map entry. `handoff` leaves `skills-lock.json` because it no longer
+  tracks the upstream skill.
+
 - Lead the empty-replay block message of `vlab rebase` with vlab's own
   instruction (`vlab rebase --abort`) and place Git's advice after it, so
   the first line an evaluator reads is not `git cherry-pick --skip`, the
