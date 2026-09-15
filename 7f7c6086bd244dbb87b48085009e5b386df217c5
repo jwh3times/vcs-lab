@@ -26,6 +26,27 @@
       ],
       "resultTree": "f6bb8dca9d804e7d738e007c4bd9da90f5ae68ed",
       "createdAt": "2026-09-15T03:27:25.112Z"
+    },
+    {
+      "schema": "vcs-lab.provenance/v1",
+      "type": "provenance",
+      "id": "prov_0mu242gk9b7686ec69f22",
+      "commit": "7f7c6086bd244dbb87b48085009e5b386df217c5",
+      "changeId": null,
+      "actors": [
+        {
+          "role": "generated",
+          "actor": "claude-fable-5-1"
+        }
+      ],
+      "origin": "carried",
+      "carriedFrom": [
+        "1805c6203f61b8505967391ed145ffb97e2d9a25",
+        "4635685e979ce14c4858c8c30b6cbc5bd3ce245b",
+        "85bbe43b255dc04f886c13395aa4c0e0f7177cda",
+        "f41c3b7dc11da2c6875d8c558643b73162157408"
+      ],
+      "createdAt": "2026-09-15T03:27:25.785Z"
     }
   ]
 }
