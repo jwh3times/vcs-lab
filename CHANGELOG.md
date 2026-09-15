@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Verify proof bundles against a fork of their repository (issue #89).
+  `vlab verify-proof` now applies the lineage relation `vlab metadata import`
+  uses: a repository that shares a root with the bundle's is compared, and
+  the result reports `lineageRelation` (`same` or `fork`), while only an
+  unrelated or incompatible lineage is reported as `different-repository`,
+  now with the relation named. The human report gains a `lineage` line.
+
+- Derive repository lineage with replacement objects disabled (issue #88). A
+  local `git replace` graft of a foreign root onto this repository's root no
+  longer changes the lineage identity, so an unrelated envelope stays refused
+  and a foreign proof bundle stays `different-repository`. Other reads still
+  honor replacements; widening that is a scope decision recorded on the issue.
+
+- Exclude identifier-conflicted causal records from every reader (issue #87).
+  A record id that appears more than once in the notes tree is quarantined by
+  `vlab metadata status` as `record-id-conflict`; the merge planner, proof
+  bundles, cherry-pick coverage checks, and the resolution catalog now apply
+  the same rule instead of proving coverage from a conflicted receipt. The
+  planner reads the whole notes tree once through the object session, so the
+  rule holds for a copy attached to an unreachable commit; the resolution
+  catalog checks the records its retained refs name.
+
 - Propose the portable-verification contract for issue #36 (ADR-0031,
   Proposed): a proof-bundle v2 that carries the raw commit objects of the
   source range, reachability and note-inclusion proofs for every positive

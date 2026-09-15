@@ -109,16 +109,27 @@ function sortDiagnostics(diagnostics) {
 
 export function repositoryLineage(cwd = process.cwd()) {
   const context = repoContext(cwd);
-  const roots = rootCommits(cwd);
   const identity = {
     algorithm: METADATA_LINEAGE_ALGORITHM,
     objectFormat: context.objectFormat,
-    rootCommits: roots,
+    rootCommits: rootCommits(cwd),
   };
-  // The identity is hashed under the frozen canonical JSON profile
-  // (vcs-lab.canonical-json/v1); for this float-free shape the bytes are
-  // identical to the legacy serializer's, so lineage IDs are unchanged.
-  return { ...identity, id: `lineage_${sha256(profileCanonicalJson(identity))}` };
+  return { ...identity, id: lineageIdentityId(identity) };
+}
+
+/**
+ * The lineage id a stated identity must carry. The identity is hashed under
+ * the frozen canonical JSON profile (vcs-lab.canonical-json/v1); for this
+ * float-free shape the bytes are identical to the legacy serializer's, so
+ * lineage IDs are unchanged. A claimed lineage whose id does not equal this
+ * value has been altered after it was produced.
+ */
+export function lineageIdentityId(identity) {
+  return `lineage_${sha256(profileCanonicalJson({
+    algorithm: identity?.algorithm,
+    objectFormat: identity?.objectFormat,
+    rootCommits: identity?.rootCommits,
+  }))}`;
 }
 
 export function lineageRelation(source, destination) {
@@ -283,17 +294,7 @@ function validatePortableNotes(context, diagnostics, options) {
     };
   });
 
-  const digestsById = new Map();
-  for (const entry of structural) {
-    if (typeof entry.record.id !== "string") continue;
-    const state = digestsById.get(entry.record.id) ?? { count: 0, digests: new Set() };
-    state.count += 1;
-    state.digests.add(entry.digest);
-    digestsById.set(entry.record.id, state);
-  }
-  const conflictingIds = new Set(
-    [...digestsById].filter(([, state]) => state.count > 1).map(([id]) => id),
-  );
+  const conflictingIds = duplicatedRecordIds(structural.map((entry) => entry.record));
 
   const references = structural
     .filter((entry) => entry.structurallyValid)
@@ -797,9 +798,60 @@ export function validateMetadata(options = {}) {
   return result;
 }
 
-export function acceptedCausalRecords(records, cwd = process.cwd()) {
+/**
+ * Record identifiers that appear more than once. A record identifier names
+ * exactly one fact; a second appearance, whatever it says and wherever it is
+ * attached, makes every copy a conflict that no reader may use until a person
+ * resolves it (ADR-0010). The snapshot reports such an identifier as
+ * `record-id-conflict`; `acceptedCausalRecords` excludes it. Both apply this
+ * one rule so they cannot disagree about which facts exist (issue #87).
+ */
+export function duplicatedRecordIds(records) {
+  const counts = new Map();
+  for (const record of records) {
+    if (typeof record?.id !== "string") continue;
+    counts.set(record.id, (counts.get(record.id) ?? 0) + 1);
+  }
+  return new Set([...counts].filter(([, count]) => count > 1).map(([id]) => id));
+}
+
+/**
+ * Every causal record in the notes tree, read once under the snapshot's
+ * container rules (bounds, container schema, JSON), together with the
+ * identifiers that appear more than once across the whole tree. A planner
+ * that already lists the notes tree reads all of its containers through this
+ * function rather than only the reachable ones: the conflict rule is a
+ * whole-tree property, and one batched read costs no extra process.
+ * Malformed containers yield no records here exactly as they yield none to
+ * the snapshot; their diagnostics belong to `vlab metadata status`.
+ */
+export function readCausalRecordCatalog(cwd = process.cwd()) {
   const context = repoContext(cwd);
+  const entries = noteEntries(context.root);
+  const noteObjects = objectLookup(entries.map((entry) => entry.note), context.root);
+  const records = [];
+  const ignoredDiagnostics = [];
+  for (const entry of entries) {
+    const parsed = parseNoteObject(noteObjects.get(entry.note), entry, ignoredDiagnostics);
+    for (const record of parsed ?? []) {
+      records.push({ ...record, attachedTo: entry.target });
+    }
+  }
+  return { records, conflictingIds: duplicatedRecordIds(records) };
+}
+
+/**
+ * The records a reader may rely on: structurally valid, every referenced
+ * object present with the expected type, and no identifier conflict. A caller
+ * that has already read the catalog passes its `conflictingIds`; otherwise
+ * the whole notes tree is read here, because the conflict rule cannot be
+ * evaluated on a subset.
+ */
+export function acceptedCausalRecords(records, cwd = process.cwd(), options = {}) {
+  const context = repoContext(cwd);
+  const conflicting = options.conflictingIds ?? readCausalRecordCatalog(context.root).conflictingIds;
   const structural = records.filter((record) =>
+    !conflicting.has(record.id) &&
     isStructurallyValidNoteRecord(record, context.objectFormat),
   );
   const references = structural.flatMap(referencedObjectsForRecord);

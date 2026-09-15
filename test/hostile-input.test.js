@@ -475,3 +475,82 @@ test("hostile proof bundles fail closed before any member is dereferenced", () =
     /exceeds the proofBundleBytes resource bound/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Record identifiers that name more than one fact (issue #87)
+// ---------------------------------------------------------------------------
+
+/** Tamper the note on `target` (not necessarily HEAD) and restore the ref. */
+function withTamperedNoteOn(repo, target, body, run) {
+  const notesBefore = git(repo, "rev-parse", "refs/notes/vcs-lab");
+  execFileSync("git", ["notes", "--ref=vcs-lab", "add", "-f", "-F", "-", target], {
+    cwd: repo,
+    input: body,
+    encoding: "utf8",
+    env: testEnv(),
+  });
+  try {
+    run();
+  } finally {
+    git(repo, "update-ref", "refs/notes/vcs-lab", notesBefore);
+  }
+}
+
+test("a record identifier that names two facts proves nothing to any reader", () => {
+  const { repo } = scenario();
+  const landing = git(repo, "rev-parse", "HEAD");
+  const container = JSON.parse(git(repo, "notes", "--ref=vcs-lab", "show", landing));
+  const receipt = container.records.find((record) => record.type === "landing");
+  assert.ok(receipt, "the scenario landed feature with a receipt");
+
+  // Before tampering the receipt is the proof: the squashed change is covered.
+  const before = JSON.parse(vlab(repo, "merge-plan", "feature", "--json"));
+  assert.ok(
+    before.changes.some((change) => change.status === "covered" && change.proof === "receipt-commit"),
+    "the untampered receipt proves coverage",
+  );
+  assert.deepEqual(before.reachableReceipts, [receipt.id]);
+
+  const assertNothingProven = (label) => {
+    const status = JSON.parse(vlabResult(repo, "metadata", "status", "--json").stdout);
+    assert.ok(
+      status.diagnostics.some((item) => item.code === "record-id-conflict" && item.subject === receipt.id),
+      label + ": the validator reports the identifier conflict",
+    );
+    const plan = JSON.parse(vlab(repo, "merge-plan", "feature", "--json"));
+    assert.deepEqual(plan.reachableReceipts, [], label + ": the planner admits neither copy");
+    assert.ok(
+      plan.changes.every((change) => change.proof !== "receipt-commit"),
+      label + ": no change is covered by the conflicted receipt",
+    );
+    const bundle = JSON.parse(vlab(repo, "proof-bundle", "feature", "--json"));
+    assert.ok(
+      !(bundle.evidence.receipts ?? []).some((item) => item.id === receipt.id),
+      label + ": the proof bundle carries neither copy as evidence",
+    );
+  };
+
+  // The same identifier twice inside one container, the second copy altered:
+  // the validator quarantines both copies, and every reader must agree.
+  const altered = { ...receipt, message: (receipt.message ?? "") + " [altered]" };
+  const duplicated = { ...container, records: [...container.records, altered] };
+  withTamperedNoteOn(repo, landing, JSON.stringify(duplicated) + "\n", () => {
+    assertNothingProven("duplicate inside one container");
+  });
+
+  // The same identifier on a commit the target does not reach. The copy is
+  // byte-identical and unreachable, so a reader that checked only what it
+  // reached would still trust the original; the rule is a whole-tree one.
+  const feature = git(repo, "rev-parse", "feature");
+  const ancestry = spawnSync("git", ["merge-base", "--is-ancestor", feature, landing], { cwd: repo, env: testEnv() });
+  assert.notEqual(ancestry.status, 0, "the feature tip is not reachable from the landing");
+  const copy = { schema: container.schema, records: [receipt] };
+  withTamperedNoteOn(repo, feature, JSON.stringify(copy) + "\n", () => {
+    assertNothingProven("copy on an unreachable commit");
+  });
+
+  // With the ref restored the receipt proves coverage again: nothing was
+  // rewritten to make the conflict go away.
+  const after = JSON.parse(vlab(repo, "merge-plan", "feature", "--json"));
+  assert.deepEqual(after.reachableReceipts, [receipt.id]);
+});

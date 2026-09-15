@@ -1118,7 +1118,9 @@ checkpoints, reconciliation/rebase journals, and forecasts remain deliberately
 local. The envelope carries accepted records plus referenced commits that may no
 longer be reachable from an ordinary branch after a rebase.
 
-Envelope v1 lineage uses Git object format plus sorted root commits reachable
+Envelope v1 lineage uses Git object format plus sorted root commits, read with
+replacement objects disabled so a local `git replace` graft cannot change the
+identity (issue #88), reachable
 from branches, tags, and remote-tracking refs. Equal roots identify the same
 lineage; any shared root identifies an ordinary fork. Unrelated and
 history-filtered histories fail closed.
@@ -1230,6 +1232,7 @@ lock without rewriting history.
 | Persistent object worker fails | Mark session failed and use ordinary Git. |
 | Merge-tree session fails or a forecast step is not clean | Discard the merge-tree attempt, rerun the whole queue in the worktree simulator, and record the reason in the forecast. |
 | Unknown/malformed/dangling causal record | Diagnose and quarantine it from coverage, resolution lookup, and export. |
+| A record identifier names more than one fact | Report `record-id-conflict` and exclude every copy from coverage, the resolution catalog, proof evidence, and export; the planner reads the whole notes tree so it applies the same rule as the validator (issue #87). |
 | Envelope payload or inventory mismatch | Reject before destination mutation. |
 | Import ID/ref conflict | Report exact conflict during dry-run; never overwrite silently. |
 | Import publication race/failure | Checked atomic ref transaction fails; existing destination facts remain intact. |

@@ -2523,6 +2523,38 @@ test("exact conflict resolutions are suggested and reused across worktrees", (t)
   assert.equal(catalog.length, 1);
   assert.equal(catalog[0].signature, signature);
 
+  // A resolution whose record identifier appears twice among the retained
+  // refs names two facts and serves as no candidate until a person resolves
+  // the conflict; the validator and the catalog must agree (issue #87).
+  {
+    const resolutionCommit = catalog[0].resolutionCommit;
+    const notesBefore = git(repo, "rev-parse", "refs/notes/vcs-lab");
+    const container = JSON.parse(git(repo, "notes", "--ref=vcs-lab", "show", resolutionCommit));
+    const record = container.records.find((item) => item.type === "resolution");
+    const duplicated = { ...container, records: [...container.records, { ...record, reason: "altered copy" }] };
+    execFileSync("git", ["notes", "--ref=vcs-lab", "add", "-f", "-F", "-", resolutionCommit], {
+      cwd: repo,
+      input: JSON.stringify(duplicated) + "\n",
+      encoding: "utf8",
+      env: testEnv(),
+    });
+    try {
+      const status = JSON.parse(vlabResult(repo, "metadata", "status", "--json").stdout);
+      assert.ok(
+        status.diagnostics.some((item) => item.code === "record-id-conflict" && item.subject === record.id),
+        "the duplicated resolution identifier is reported as a conflict",
+      );
+      assert.deepEqual(
+        JSON.parse(vlab(repo, "resolve", "list", "--json")),
+        [],
+        "the catalog serves neither copy of an id-conflicted resolution",
+      );
+    } finally {
+      git(repo, "update-ref", "refs/notes/vcs-lab", notesBefore);
+    }
+    assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 1, "the retained resolution returns once the conflict is gone");
+  }
+
   git(repo, "switch", "-c", "renamed-base", base.commit);
   git(repo, "mv", "shared.txt", "renamed.txt");
   const renamedBase = JSON.parse(
@@ -3938,6 +3970,28 @@ test("metadata envelope round-trips accepted facts between clones idempotently",
     "an unrelated lineage is refused as a shape this import does not support",
   );
   assert.match(unrelatedRefusal.message, /requires a shared root commit/i);
+
+  // A local replacement ref that grafts the unrelated root onto this
+  // repository's root makes Git itself report a shared root, but lineage is
+  // derived with replacement objects disabled, so the graft neither changes
+  // the lineage identity nor admits the envelope (issue #88).
+  const repoRoot = git(repo, "rev-list", "--max-parents=0", "main");
+  const unrelatedRoot = git(unrelated, "rev-list", "--max-parents=0", "main");
+  const lineageBeforeGraft = JSON.parse(vlab(unrelated, "metadata", "status", "--json")).repository.lineage;
+  assert.deepEqual(lineageBeforeGraft.rootCommits, [unrelatedRoot]);
+  git(unrelated, "fetch", "--no-tags", repo, "main");
+  git(unrelated, "replace", "--graft", unrelatedRoot, repoRoot);
+  assert.equal(
+    git(unrelated, "rev-list", "--max-parents=0", "--branches", "--tags", "--remotes"),
+    repoRoot,
+    "with the graft honored, Git reports the other repository's root",
+  );
+  const lineageWithGraft = JSON.parse(vlab(unrelated, "metadata", "status", "--json")).repository.lineage;
+  assert.deepEqual(lineageWithGraft, lineageBeforeGraft, "the graft does not change the lineage identity");
+  const graftedPreview = vlabResult(unrelated, "metadata", "import", envelopePath, "--dry-run", "--json");
+  assert.notEqual(graftedPreview.status, 0, "the graft does not admit an unrelated envelope");
+  assert.equal(JSON.parse(graftedPreview.stdout).code, "unsupported-repository-shape");
+  git(unrelated, "replace", "-d", unrelatedRoot);
 
   const destination = path.join(parent, "destination");
   git(parent, "clone", "--no-local", repo, destination);
