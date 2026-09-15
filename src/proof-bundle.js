@@ -1,8 +1,7 @@
 import { sha256 } from "./ids.js";
 import { canonicalJson } from "./canonical-json.js";
 import { CliError } from "./errors.js";
-import { acceptedCausalRecords, repositoryLineage } from "./metadata.js";
-import { recordsReachableFrom } from "./notes.js";
+import { acceptedCausalRecords, readCausalRecordCatalog, repositoryLineage } from "./metadata.js";
 import { buildMergePlan, coverageEvidence } from "./merge-plan.js";
 import { commitHistory, currentHead, isAncestor, mergeBase, resolveObjectIds } from "./engine.js";
 
@@ -311,11 +310,15 @@ export function verifyAgainstRepository(bundle, cwd = process.cwd()) {
     changeId: message.match(/^Change-Id:\s*(.+?)\s*$/im)?.[1]?.trim() ?? `git:${commit}`,
     subject,
   }));
+  const targetCommits = new Set(actual.targetCommits ?? []);
+  const catalog = readCausalRecordCatalog(cwd);
   const receipts = acceptedCausalRecords(
-    recordsReachableFrom(head, cwd, actual.targetCommits).filter((record) =>
+    catalog.records.filter((record) =>
+      targetCommits.has(record.attachedTo) &&
       ["landing", "reconciliation", "rebase"].includes(record.type),
     ),
     cwd,
+    { conflictingIds: catalog.conflictingIds },
   );
   let effectiveBase = { commit: physicalBase, reason: "physical-ancestry" };
   for (const receipt of receipts) {

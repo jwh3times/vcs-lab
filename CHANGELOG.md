@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Exclude identifier-conflicted causal records from every reader (issue #87).
+  A record id that appears more than once in the notes tree is quarantined by
+  `vlab metadata status` as `record-id-conflict`; the merge planner, proof
+  bundles, cherry-pick coverage checks, and the resolution catalog now apply
+  the same rule instead of proving coverage from a conflicted receipt. The
+  planner reads the whole notes tree once through the object session, so the
+  rule holds for a copy attached to an unreachable commit; the resolution
+  catalog checks the records its retained refs name.
+
 - Propose the portable-verification contract for issue #36 (ADR-0031,
   Proposed): a proof-bundle v2 that carries the raw commit objects of the
   source range, reachability and note-inclusion proofs for every positive

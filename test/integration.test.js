@@ -2523,6 +2523,38 @@ test("exact conflict resolutions are suggested and reused across worktrees", (t)
   assert.equal(catalog.length, 1);
   assert.equal(catalog[0].signature, signature);
 
+  // A resolution whose record identifier appears twice among the retained
+  // refs names two facts and serves as no candidate until a person resolves
+  // the conflict; the validator and the catalog must agree (issue #87).
+  {
+    const resolutionCommit = catalog[0].resolutionCommit;
+    const notesBefore = git(repo, "rev-parse", "refs/notes/vcs-lab");
+    const container = JSON.parse(git(repo, "notes", "--ref=vcs-lab", "show", resolutionCommit));
+    const record = container.records.find((item) => item.type === "resolution");
+    const duplicated = { ...container, records: [...container.records, { ...record, reason: "altered copy" }] };
+    execFileSync("git", ["notes", "--ref=vcs-lab", "add", "-f", "-F", "-", resolutionCommit], {
+      cwd: repo,
+      input: JSON.stringify(duplicated) + "\n",
+      encoding: "utf8",
+      env: testEnv(),
+    });
+    try {
+      const status = JSON.parse(vlabResult(repo, "metadata", "status", "--json").stdout);
+      assert.ok(
+        status.diagnostics.some((item) => item.code === "record-id-conflict" && item.subject === record.id),
+        "the duplicated resolution identifier is reported as a conflict",
+      );
+      assert.deepEqual(
+        JSON.parse(vlab(repo, "resolve", "list", "--json")),
+        [],
+        "the catalog serves neither copy of an id-conflicted resolution",
+      );
+    } finally {
+      git(repo, "update-ref", "refs/notes/vcs-lab", notesBefore);
+    }
+    assert.equal(JSON.parse(vlab(repo, "resolve", "list", "--json")).length, 1, "the retained resolution returns once the conflict is gone");
+  }
+
   git(repo, "switch", "-c", "renamed-base", base.commit);
   git(repo, "mv", "shared.txt", "renamed.txt");
   const renamedBase = JSON.parse(

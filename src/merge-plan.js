@@ -6,8 +6,9 @@ import {
   patchEquivalentCommits,
   resolveObjectIds,
 } from "./engine.js";
-import { recordsReachableFrom } from "./notes.js";
-import { acceptedCausalRecords } from "./metadata.js";
+import { acceptedCausalRecords, readCausalRecordCatalog } from "./metadata.js";
+
+const RECEIPT_TYPES = new Set(["landing", "reconciliation", "rebase"]);
 
 function directChangeCoverage(ref, cwd) {
   const history = commitHistory([ref], cwd);
@@ -26,12 +27,17 @@ function extractChangeId(commit, message) {
   return match?.[1]?.trim() ?? `git:${commit}`;
 }
 
-function receiptCoverage(ref, directCommits, cwd) {
+function receiptCoverage(directCommits, cwd) {
+  // The whole notes tree is read once: reachability selects the receipts
+  // that can prove coverage, and the tree-wide identifier check excludes any
+  // whose id names more than one fact (issue #87).
+  const catalog = readCausalRecordCatalog(cwd);
   const receipts = acceptedCausalRecords(
-    recordsReachableFrom(ref, cwd, directCommits).filter((record) =>
-      ["landing", "reconciliation", "rebase"].includes(record.type),
+    catalog.records.filter((record) =>
+      directCommits.has(record.attachedTo) && RECEIPT_TYPES.has(record.type),
     ),
     cwd,
+    { conflictingIds: catalog.conflictingIds },
   );
   const commits = new Set();
   const changeIds = new Set();
@@ -90,7 +96,7 @@ function buildMergePlanInSession(targetRef, sourceRef, cwd) {
   const exactStateEquality = targetTree === sourceTree;
 
   const direct = directChangeCoverage(targetHead, cwd);
-  const receipt = receiptCoverage(targetHead, direct.commits, cwd);
+  const receipt = receiptCoverage(direct.commits, cwd);
   const candidates = patchCandidates(targetHead, sourceHead, physicalBase, cwd);
   const sourceHistory = sourceChanges(physicalBase, sourceHead, cwd);
   const effectiveBase = chooseEffectiveBase(
@@ -153,7 +159,7 @@ function buildMergePlanInSession(targetRef, sourceRef, cwd) {
     exactStateEquality,
     physicalBase,
     effectiveBase,
-    reachableReceipts: receipt.receipts.map((item) => item.id),
+    reachableReceipts: [...new Set(receipt.receipts.map((item) => item.id))],
     counts,
     changes,
   };
@@ -181,7 +187,7 @@ export function coverageEvidence(sourceRef, cwd = process.cwd()) {
     );
     const physicalBase = mergeBase(targetHead, sourceHead, cwd);
     const direct = directChangeCoverage(targetHead, cwd);
-    const receipt = receiptCoverage(targetHead, direct.commits, cwd);
+    const receipt = receiptCoverage(direct.commits, cwd);
     const candidates = patchCandidates(targetHead, sourceHead, physicalBase, cwd);
     return {
       targetCommits: [...direct.commits].sort(),

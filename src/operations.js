@@ -23,9 +23,9 @@ import {
 } from "./engine.js";
 import { newId } from "./ids.js";
 import {
-  appendNote, listNoteRecords, recordsReachableFrom, withNotesLock,
+  appendNote, listNoteRecords, withNotesLock,
 } from "./notes.js";
-import { acceptedCausalRecords } from "./metadata.js";
+import { acceptedCausalRecords, readCausalRecordCatalog } from "./metadata.js";
 import { identityPreservingEdges } from "./identity-audit.js";
 import { faultPoint } from "./faults.js";
 import {
@@ -109,12 +109,17 @@ function targetCoversChange(originCommit, originChangeId, targetHead, cwd) {
     "same-logical-change", "causal-reconciliation", "contextual-application",
     "causal-rebase", "contextual-rebase",
   ]);
-  const applications = recordsReachableFrom(targetHead, cwd, history.map((item) => item.commit))
-    .filter((record) => record.originCommit === originCommit
+  const reachable = new Set(history.map((item) => item.commit));
+  const catalog = readCausalRecordCatalog(cwd);
+  const applications = catalog.records
+    .filter((record) => reachable.has(record.attachedTo)
+      && record.originCommit === originCommit
       && record.originChangeId === originChangeId
       && relations.has(record.relation));
   return applications.length > 0
-    && identityPreservingEdges(acceptedCausalRecords(applications, cwd)).length > 0;
+    && identityPreservingEdges(
+      acceptedCausalRecords(applications, cwd, { conflictingIds: catalog.conflictingIds }),
+    ).length > 0;
 }
 
 export function cherryPick(value, options = {}) {

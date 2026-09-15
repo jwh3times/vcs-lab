@@ -12,7 +12,7 @@ import {
 } from "./engine.js";
 import { newId } from "./ids.js";
 import { appendNote, readNote, readNotes } from "./notes.js";
-import { acceptedCausalRecords } from "./metadata.js";
+import { acceptedCausalRecords, duplicatedRecordIds } from "./metadata.js";
 import {
   RESOLUTION_SIGNATURE_ALGORITHM,
   resolutionSignatureFor,
@@ -132,7 +132,16 @@ function retainedResolutions(refs, cwd) {
       }
     }
   }
-  const accepted = acceptedCausalRecords(records, cwd).filter((record) =>
+  // The identifier-conflict rule is applied over the records the retained
+  // refs name, not over the whole notes tree: the catalog is the bounded
+  // ADR-0027 read and must not grow by every receipt in the repository. A
+  // resolution record copied onto some other commit already fails the
+  // ref/commit/signature checks below; the residual case, a duplicated id on
+  // a commit no resolution ref names, is reported by `vlab metadata status`
+  // and is recorded on issue #87.
+  const accepted = acceptedCausalRecords(records, cwd, {
+    conflictingIds: duplicatedRecordIds(records),
+  }).filter((record) =>
     record.ref === record.discoveredRef &&
     record.resolutionCommit === record.commit &&
     resolutionSignatureFor(record) === record.signature,
