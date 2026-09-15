@@ -417,10 +417,13 @@ function conflictError(operation, result) {
       `Causal rebase blocked while applying ${change.shortCommit}.`,
       {
         code: "conflict-blocked",
+        // vlab's instruction leads; Git's own advice (including
+        // 'cherry-pick --skip', the out-of-band path the next command
+        // refuses) follows as context rather than as the first thing read.
         details: [
-          result.output,
-          "Git did not report conflict paths; the replay may have become unexpectedly empty.",
           "No change was silently skipped. Run 'vlab rebase --abort'.",
+          "Git did not report conflict paths; the replay may have become unexpectedly empty.",
+          result.output ? `Git reported:\n${result.output}` : null,
         ]
           .filter(Boolean)
           .join("\n"),

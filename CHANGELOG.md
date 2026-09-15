@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Lead the empty-replay block message of `vlab rebase` with vlab's own
+  instruction (`vlab rebase --abort`) and place Git's advice after it, so
+  the first line an evaluator reads is not `git cherry-pick --skip`, the
+  out-of-band path the next command refuses (found by the #27 walkthrough).
+
 - Propose explicit linear ranges for causal rebase (issue #27, ADR-0032,
   Proposed): `--from <base>` restricts the current branch's source set, the
   commits between the physical base and `<base>` are listed in the plan and
