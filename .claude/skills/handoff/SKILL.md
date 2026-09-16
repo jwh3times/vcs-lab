@@ -22,14 +22,14 @@ How the Handoffs folder reaches this machine decides whether the **Pull** and
 
 - **Desktop client** (Windows): the Proton Drive client syncs the folder by
   itself. Skip every Pull and Push block.
-- **CLI mirror** (Fedora, which has no client): `PROTON_HANDOFFS_DIR` names a
+- **CLI mirror** (Fedora, which has no client): `HANDOFFS_DIR` names a
   local mirror folder and the `proton-drive` CLI moves files to and from the
   cloud folder `/my-files/Documents/Handoffs`. Nothing syncs unless a Pull or
   Push runs.
 
 Decide once, at the start: CLI mirror when `command -v proton-drive` succeeds
-and `PROTON_HANDOFFS_DIR` is set; otherwise desktop client. A `proton-drive`
-CLI with `PROTON_HANDOFFS_DIR` unset means the owner has not chosen a mirror
+and `HANDOFFS_DIR` is set; otherwise desktop client. A `proton-drive`
+CLI with `HANDOFFS_DIR` unset means the owner has not chosen a mirror
 folder yet: ask for one. A CLI reply of `You need to login first` means the
 owner runs `! proton-drive auth login`, then you retry the block.
 
@@ -87,8 +87,8 @@ checkout. It briefs a fresh agent on the other machine:
 wrote is the one this handoff supersedes, and list the cloud folder:
 
 ```bash
-mkdir -p "$PROTON_HANDOFFS_DIR"
-proton-drive filesystem download -f remove /my-files/Documents/Handoffs/handoff_map.json "$PROTON_HANDOFFS_DIR"
+mkdir -p "$HANDOFFS_DIR"
+proton-drive filesystem download -f remove /my-files/Documents/Handoffs/handoff_map.json "$HANDOFFS_DIR"
 proton-drive filesystem list /my-files/Documents/Handoffs
 ```
 
@@ -106,12 +106,12 @@ repository's entry in `handoff_map.json`, and prints JSON with the published
 `path` and the `previous` active handoff, which the report names as superseded
 (its file stays in the folder). If the script cannot find the folder, ask the
 owner where Proton Drive keeps `Documents/Handoffs` on this machine and rerun
-with `PROTON_HANDOFFS_DIR` set to it.
+with `HANDOFFS_DIR` set to it.
 
 **Push** (CLI mirror only): the document and the map leave this machine now:
 
 ```bash
-proton-drive filesystem upload -f create-new-revision -t "<path>" "$PROTON_HANDOFFS_DIR/handoff_map.json" /my-files/Documents/Handoffs
+proton-drive filesystem upload -f create-new-revision -t "<path>" "$HANDOFFS_DIR/handoff_map.json" /my-files/Documents/Handoffs
 ```
 
 `create-new-revision` keeps the cloud's earlier map as a revision. An unchanged

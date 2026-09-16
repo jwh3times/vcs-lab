@@ -42,13 +42,13 @@ test("the handoff folder is found under either Proton Drive client layout", () =
   });
 });
 
-test("PROTON_HANDOFFS_DIR overrides discovery and must hold the map", () => {
+test("HANDOFFS_DIR overrides discovery and must hold the map", () => {
   withHome((home) => {
     const elsewhere = handoffsFolder(home, "mnt", "handoffs");
-    assert.throws(() => resolveHandoffsDir({ env: { PROTON_HANDOFFS_DIR: elsewhere }, home }), /has no handoff_map\.json/);
+    assert.throws(() => resolveHandoffsDir({ env: { HANDOFFS_DIR: elsewhere }, home }), /has no handoff_map\.json/);
     writeMap(elsewhere, {});
-    assert.equal(resolveHandoffsDir({ env: { PROTON_HANDOFFS_DIR: elsewhere }, home }), elsewhere);
-    assert.throws(() => resolveHandoffsDir({ env: {}, home }), /set PROTON_HANDOFFS_DIR/);
+    assert.equal(resolveHandoffsDir({ env: { HANDOFFS_DIR: elsewhere }, home }), elsewhere);
+    assert.throws(() => resolveHandoffsDir({ env: {}, home }), /set HANDOFFS_DIR/);
   });
 });
 
