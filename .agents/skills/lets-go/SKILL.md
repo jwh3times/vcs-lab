@@ -13,7 +13,32 @@ clears the entry so each handoff is consumed once, and continues the work.
 `scripts/handoff-map.mjs` finds the folder and owns every map read and write;
 change the map only through it.
 
+## Transport
+
+How the Handoffs folder reaches this machine decides whether the **Pull** and
+**Push** blocks below run:
+
+- **Desktop client** (Windows): the Proton Drive client syncs the folder by
+  itself. Skip every Pull and Push block.
+- **CLI mirror** (Fedora, which has no client): `PROTON_HANDOFFS_DIR` names a
+  local mirror folder and the `proton-drive` CLI moves files to and from the
+  cloud folder `/my-files/Documents/Handoffs`. Nothing syncs unless a Pull or
+  Push runs.
+
+Decide once, at the start: CLI mirror when `command -v proton-drive` succeeds
+and `PROTON_HANDOFFS_DIR` is set; otherwise desktop client. A `proton-drive`
+CLI with `PROTON_HANDOFFS_DIR` unset means the owner has not chosen a mirror
+folder yet: ask for one. A CLI reply of `You need to login first` means the
+owner runs `! proton-drive auth login`, then you retry the block.
+
 ## 1. Find the active handoff
+
+**Pull** (CLI mirror only): fetch the current map before reading it:
+
+```bash
+mkdir -p "$PROTON_HANDOFFS_DIR"
+proton-drive filesystem download -f remove /my-files/Documents/Handoffs/handoff_map.json "$PROTON_HANDOFFS_DIR"
+```
 
 ```bash
 node scripts/handoff-map.mjs get
@@ -21,9 +46,18 @@ node scripts/handoff-map.mjs get
 
 - `"active": null`: report "No active handoff for <repo>" and ask what to work
   on. The skill ends here.
-- `"exists": false`: the map names a file this machine does not have yet.
-  Report the file name, ask the owner to let Proton Drive finish syncing, and
-  leave the entry in place.
+- `"exists": false`, CLI mirror: download the document the map names, then
+  rerun `get`:
+
+  ```bash
+  proton-drive filesystem download -f remove "/my-files/Documents/Handoffs/<active>" "$PROTON_HANDOFFS_DIR"
+  ```
+
+  A `Node not found` reply means the other machine has not pushed it yet.
+  Report the file name and leave the entry in place.
+- `"exists": false`, desktop client: the map names a file this machine does
+  not have yet. Report the file name, ask the owner to let Proton Drive finish
+  syncing, and leave the entry in place.
 - Folder not found: ask the owner where Proton Drive keeps
   `Documents/Handoffs` on this machine and rerun with `PROTON_HANDOFFS_DIR`
   set to it.
@@ -39,8 +73,16 @@ Read the file at `path` end to end. It is a briefing from the previous agent;
 node scripts/handoff-map.mjs clear
 ```
 
-Complete when the output shows `"cleared": true` and `previous` is the file you
-read. The document stays in the folder.
+**Push** (CLI mirror only): send the cleared map back, so the other machine
+cannot resume the same handoff again:
+
+```bash
+proton-drive filesystem upload -f create-new-revision -t "$PROTON_HANDOFFS_DIR/handoff_map.json" /my-files/Documents/Handoffs
+```
+
+Complete when the output shows `"cleared": true`, `previous` is the file you
+read, and on the CLI mirror the Push summary lists the map as uploaded. The
+document stays in the folder.
 
 ## 4. Reconcile the checkout
 
