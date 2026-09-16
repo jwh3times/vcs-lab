@@ -10,7 +10,7 @@
  * this repository's entry and `Last_Updated`.
  *
  * The folder is found under a home-directory `Proton Drive` root (the Windows
- * client nests an account folder before `My files`). Set PROTON_HANDOFFS_DIR
+ * client nests an account folder before `My files`). Set HANDOFFS_DIR
  * where a client mounts it anywhere else.
  *
  *   node scripts/handoff-map.mjs where
@@ -51,10 +51,10 @@ function childDirs(dir, pattern) {
 }
 
 export function resolveHandoffsDir({ env = process.env, home = os.homedir() } = {}) {
-  if (env.PROTON_HANDOFFS_DIR) {
-    const dir = path.resolve(env.PROTON_HANDOFFS_DIR);
+  if (env.HANDOFFS_DIR) {
+    const dir = path.resolve(env.HANDOFFS_DIR);
     if (!fs.existsSync(path.join(dir, MAP_NAME))) {
-      throw new Error(`PROTON_HANDOFFS_DIR has no ${MAP_NAME}: ${dir}`);
+      throw new Error(`HANDOFFS_DIR has no ${MAP_NAME}: ${dir}`);
     }
     return dir;
   }
@@ -74,10 +74,10 @@ export function resolveHandoffsDir({ env = process.env, home = os.homedir() } = 
   if (found.length === 0) {
     throw new Error(
       `No Proton Drive "My files/Documents/Handoffs/${MAP_NAME}" under ${home}; `
-        + "set PROTON_HANDOFFS_DIR to the folder that holds it.",
+        + "set HANDOFFS_DIR to the folder that holds it.",
     );
   }
-  throw new Error(`Several handoff folders found; set PROTON_HANDOFFS_DIR to one of:\n${found.join("\n")}`);
+  throw new Error(`Several handoff folders found; set HANDOFFS_DIR to one of:\n${found.join("\n")}`);
 }
 
 export function formatTimestamp(date) {

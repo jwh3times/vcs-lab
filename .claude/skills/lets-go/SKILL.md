@@ -21,14 +21,14 @@ How the Handoffs folder reaches this machine decides whether the **Pull** and
 
 - **Desktop client** (Windows): the Proton Drive client syncs the folder by
   itself. Skip every Pull and Push block.
-- **CLI mirror** (Fedora, which has no client): `PROTON_HANDOFFS_DIR` names a
+- **CLI mirror** (Fedora, which has no client): `HANDOFFS_DIR` names a
   local mirror folder and the `proton-drive` CLI moves files to and from the
   cloud folder `/my-files/Documents/Handoffs`. Nothing syncs unless a Pull or
   Push runs.
 
 Decide once, at the start: CLI mirror when `command -v proton-drive` succeeds
-and `PROTON_HANDOFFS_DIR` is set; otherwise desktop client. A `proton-drive`
-CLI with `PROTON_HANDOFFS_DIR` unset means the owner has not chosen a mirror
+and `HANDOFFS_DIR` is set; otherwise desktop client. A `proton-drive`
+CLI with `HANDOFFS_DIR` unset means the owner has not chosen a mirror
 folder yet: ask for one. A CLI reply of `You need to login first` means the
 owner runs `! proton-drive auth login`, then you retry the block.
 
@@ -37,8 +37,8 @@ owner runs `! proton-drive auth login`, then you retry the block.
 **Pull** (CLI mirror only): fetch the current map before reading it:
 
 ```bash
-mkdir -p "$PROTON_HANDOFFS_DIR"
-proton-drive filesystem download -f remove /my-files/Documents/Handoffs/handoff_map.json "$PROTON_HANDOFFS_DIR"
+mkdir -p "$HANDOFFS_DIR"
+proton-drive filesystem download -f remove /my-files/Documents/Handoffs/handoff_map.json "$HANDOFFS_DIR"
 ```
 
 ```bash
@@ -51,7 +51,7 @@ node scripts/handoff-map.mjs get
   rerun `get`:
 
   ```bash
-  proton-drive filesystem download -f remove "/my-files/Documents/Handoffs/<active>" "$PROTON_HANDOFFS_DIR"
+  proton-drive filesystem download -f remove "/my-files/Documents/Handoffs/<active>" "$HANDOFFS_DIR"
   ```
 
   A `Node not found` reply means the other machine has not pushed it yet.
@@ -60,7 +60,7 @@ node scripts/handoff-map.mjs get
   not have yet. Report the file name, ask the owner to let Proton Drive finish
   syncing, and leave the entry in place.
 - Folder not found: ask the owner where Proton Drive keeps
-  `Documents/Handoffs` on this machine and rerun with `PROTON_HANDOFFS_DIR`
+  `Documents/Handoffs` on this machine and rerun with `HANDOFFS_DIR`
   set to it.
 
 ## 2. Read the whole document
@@ -78,7 +78,7 @@ node scripts/handoff-map.mjs clear
 cannot resume the same handoff again:
 
 ```bash
-proton-drive filesystem upload -f create-new-revision -t "$PROTON_HANDOFFS_DIR/handoff_map.json" /my-files/Documents/Handoffs
+proton-drive filesystem upload -f create-new-revision -t "$HANDOFFS_DIR/handoff_map.json" /my-files/Documents/Handoffs
 ```
 
 Complete when the output shows `"cleared": true`, `previous` is the file you

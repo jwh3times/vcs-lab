@@ -8,7 +8,7 @@
   in `handoff_map.json` through `scripts/handoff-map.mjs`, and closes with
   `end-session`; the new `/lets-go` skill resumes from that handoff and clears
   its map entry. On a machine without the Proton Drive desktop client, both
-  skills treat `PROTON_HANDOFFS_DIR` as a local mirror and pull and push the
+  skills treat `HANDOFFS_DIR` as a local mirror and pull and push the
   map and document through the `proton-drive` CLI. `handoff` leaves
   `skills-lock.json` because it no longer tracks the upstream skill.
 
