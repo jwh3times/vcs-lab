@@ -14,6 +14,24 @@ repository's active handoff in that folder's `handoff_map.json`, which
 `/lets-go` consumes. `scripts/handoff-map.mjs` finds the folder and owns every
 map read and write; change the map only through it.
 
+## Transport
+
+How the Handoffs folder reaches this machine decides whether the **Pull** and
+**Push** blocks below run:
+
+- **Desktop client** (Windows): the Proton Drive client syncs the folder by
+  itself. Skip every Pull and Push block.
+- **CLI mirror** (Fedora, which has no client): `PROTON_HANDOFFS_DIR` names a
+  local mirror folder and the `proton-drive` CLI moves files to and from the
+  cloud folder `/my-files/Documents/Handoffs`. Nothing syncs unless a Pull or
+  Push runs.
+
+Decide once, at the start: CLI mirror when `command -v proton-drive` succeeds
+and `PROTON_HANDOFFS_DIR` is set; otherwise desktop client. A `proton-drive`
+CLI with `PROTON_HANDOFFS_DIR` unset means the owner has not chosen a mirror
+folder yet: ask for one. A CLI reply of `You need to login first` means the
+owner runs `! proton-drive auth login`, then you retry the block.
+
 ## 1. Inventory unlanded work
 
 The other machine sees only what reached `origin/main`. Fetch, then list
@@ -64,6 +82,19 @@ checkout. It briefs a fresh agent on the other machine:
 
 ## 3. Publish it
 
+**Pull** (CLI mirror only): refresh the map, so the entry the other machine
+wrote is the one this handoff supersedes, and list the cloud folder:
+
+```bash
+mkdir -p "$PROTON_HANDOFFS_DIR"
+proton-drive filesystem download -f remove /my-files/Documents/Handoffs/handoff_map.json "$PROTON_HANDOFFS_DIR"
+proton-drive filesystem list /my-files/Documents/Handoffs
+```
+
+The script picks an unused name by looking only at the local folder. Download
+each `<repo>-handoff-<today>*.md` the listing shows and the mirror lacks, the
+same way as the map, so the new document cannot overwrite one of them.
+
 ```bash
 node scripts/handoff-map.mjs publish <path-to-document.md>
 ```
@@ -76,15 +107,26 @@ repository's entry in `handoff_map.json`, and prints JSON with the published
 owner where Proton Drive keeps `Documents/Handoffs` on this machine and rerun
 with `PROTON_HANDOFFS_DIR` set to it.
 
+**Push** (CLI mirror only): the document and the map leave this machine now:
+
+```bash
+proton-drive filesystem upload -f create-new-revision -t "<path>" "$PROTON_HANDOFFS_DIR/handoff_map.json" /my-files/Documents/Handoffs
+```
+
+`create-new-revision` keeps the cloud's earlier map as a revision. An unchanged
+file reports as skipped, which counts as uploaded.
+
 Complete when `node scripts/handoff-map.mjs get` reports the new file as
-`active` with `"exists": true`.
+`active` with `"exists": true`, and on the CLI mirror the Push summary lists
+both files as uploaded.
 
 ## 4. Close the session
 
 Invoke the `end-session` skill with the Skill tool and complete it. When it
 changes something the document states — lands a branch, closes an issue,
 removes a stray — edit the published file at step 3's `path` so the handoff
-matches the end state.
+matches the end state. On the CLI mirror, rerun step 3's Push after the edit;
+the cloud copy is the one `/lets-go` reads.
 
 ## 5. Report
 
