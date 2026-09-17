@@ -1,6 +1,7 @@
 # ADR-0029: Require a declared lineage bridge for imports without a shared root
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Decided:** 2026-09-17
 - **Date:** 2026-09-14
 - **Owners:** Repository maintainers
 - **Implementation:** [#43](https://github.com/jwh3times/vcs-lab/issues/43)
@@ -170,3 +171,16 @@ sees a bridged relation and stays fail-closed by construction.
    re-derived on the image side, or are admitted for audit and history only.
 4. Whether implementation waits for envelope v2 under #40, as recommended,
    or is scoped as its own Gate B increment.
+
+## Owner decision (2026-09-17)
+
+Accepted with the recommended answer to each question:
+
+1. Question 1 is answered **yes, only through a declared and locally accepted
+   lineage bridge**. Nothing inferred from content establishes lineage.
+2. Acceptance is **local-only**: each clone records acceptance of a bridge's
+   digest, and a received declaration alone changes nothing.
+3. Carried-through-rewrite records **may contribute coverage** once every
+   claim is re-derived on the image side; a claim that does not re-derive
+   proves nothing.
+4. Implementation **waits for envelope v2** under #40.

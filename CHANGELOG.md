@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Accept ADR-0028 through ADR-0033 (owner decisions, 2026-09-17). Target
+  overlays (#26), declared lineage bridges with local-only acceptance built
+  with envelope v2 (#43), the conflict policy with park-and-dispose (#44), proof
+  bundle v2 with reachability proofs by default, notes-tip inclusion anchors,
+  and `git ls-remote` anchors against a verifier-chosen remote (#36), explicit
+  rebase ranges after the question-5 walkthrough matched every prediction
+  (#27), and offline-first capability negotiation (#37). ADR-0030 is amended:
+  the one-receipt-per-attachment conflict rule is dropped, because a no-op
+  re-run of `vlab reconcile` legitimately attaches a second reconciliation
+  receipt to the same commit. `docs/CONTEXT.md` starts the domain glossary
+  with the terms these decisions settle. No behavior changes yet.
+
 - Refuse a newer proof-bundle version as `unknown-schema-version` (issue
   #98). `vlab verify-proof` reported `vcs-lab.proof-bundle/v2` and later as
   `wrong-record-family`, whose published response is to stop and surface the

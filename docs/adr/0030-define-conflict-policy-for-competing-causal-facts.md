@@ -1,6 +1,7 @@
 # ADR-0030: Define the conflict policy for competing causal facts
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Decided:** 2026-09-17
 - **Date:** 2026-09-14
 - **Owners:** Repository maintainers
 - **Implementation:** [#44](https://github.com/jwh3times/vcs-lab/issues/44)
@@ -74,20 +75,13 @@ same conflicted receipt is both quarantined and proving coverage.
 
 | Family | Identity | Duplicate | Conflict | On conflict |
 | --- | --- | --- | --- | --- |
-| `landing`, `reconciliation`, `rebase`, `application`, `rebase-application` | record id | same id, same digest: `noop`. Distinct ids on distinct commits claiming the same change: independent facts, all accepted | same id, different digest; or two records of one family on one attachment commit | park both copies; neither proves coverage |
+| `landing`, `reconciliation`, `rebase`, `application`, `rebase-application` | record id | same id, same digest: `noop`. Distinct ids on distinct commits claiming the same change: independent facts, all accepted | same id, different digest | park both copies; neither proves coverage |
 | `provenance` | record id | same id, same digest | same id, different digest | park both; the commit shows no provenance from either |
 | `resolution` | record id and ref name | same id, same digest; same ref, same target | same id, different digest; same ref, different target | park the record, refuse the ref; the candidate leaves the catalog |
 | retention ref | derived | always merged (ADR-0025) | never | not applicable |
 | `note` container | attachment | rewritten only by vlab under the notes lock | any Git-level merge strategy | forbidden: no `git notes merge` on `refs/notes/vcs-lab` |
 | `logical-id` (`ch_*`) | trailer text | exact copies (FR-ID-02) | not a record; competing bearers are an identity collision | reported by `vlab audit identity`, unchanged here |
 | private, shared-local, tracked, envelope scopes | not portable | not merged | not merged | ADR-0020 refusal stands |
-
-The second conflict form for receipt families, two records of one family on
-one attachment commit, is new. Every receipt family writes exactly one record
-onto the commit it creates, so a second one is a forged or replayed claim,
-and it is cheaper to refuse at identity than to reason about its content.
-Provenance is excluded: several provenance records on one commit are several
-declared claims and all are shown.
 
 Same signature with a different result is not a conflict. It is the
 ambiguity ADR-0007 already defines, and a rejection in one operation is that
@@ -190,3 +184,24 @@ refused on an unknown version like the workspace registry.
 3. A local disposition registry with keep-local and replace-local outcomes,
    versus no memory and a re-reported conflict on every exchange.
 4. That conflicted facts reduce evidence but never block a mutation.
+
+## Owner decision (2026-09-17)
+
+Accepted with one amendment to decision 1.
+
+1. **Identity is the sole conflict key; the one-record-per-attachment rule is
+   dropped.** The proposal also treated two receipts of one family on one
+   attachment commit as a conflict, on the premise that every receipt family
+   writes exactly one record onto the commit it creates. That premise is false:
+   in a disposable repository on 2026-09-17, `vlab reconcile feature` run a
+   second time with every change already covered attached a second
+   `reconciliation` receipt to the same result commit, so the rule would have
+   quarantined a legitimate receipt on an ordinary re-run. The per-family table
+   and the policy text above reflect the amendment. A forged receipt under a
+   new identifier is an identity question for `vlab audit identity`, not a
+   conflict.
+2. Park-and-report is accepted: the explicit import keeps its refuse default
+   and gains `--park-conflicts`, the only mode automatic transport may use.
+3. The local disposition registry with keep-local and replace-local outcomes
+   is accepted.
+4. Conflicted facts reduce evidence and never block a mutation.

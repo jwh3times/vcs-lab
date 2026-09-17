@@ -1,6 +1,7 @@
 # ADR-0032: Generalize causal rebase to explicit linear ranges
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Decided:** 2026-09-17
 - **Date:** 2026-09-15
 - **Owners:** Repository maintainers
 - **Implementation:** [#27](https://github.com/jwh3times/vcs-lab/issues/27)
@@ -34,9 +35,7 @@ plan with their identities, recorded in the summary receipt, and neither
 replayed nor claimed as absorbed or covered. Execution still requires the
 checked-out named branch and a clean worktree; planning and forecasting may
 name any branch. Ranges that do not end at a branch tip, ranges containing
-merge commits, and dirty overlays remain refused. This is a proposal; nothing
-is implemented until the owner records the usability judgement of question 5
-and accepts the contract.
+merge commits, and dirty overlays remain refused.
 
 ## Evidence
 
@@ -164,3 +163,14 @@ Edit, reword, squash, and fixup stay with #30. Ranges are still linear.
 4. Confirm that a range not ending at a branch tip is refused in this version.
 5. Confirm that the forecast pins the range base and that abort semantics are
    unchanged.
+
+## Owner decision (2026-09-17)
+
+Accepted. For decision 1, the owner ran the question-5 kit
+(`rebase-walkthrough.sh` from #27, with a pause after each `PREDICT` prompt)
+against `main` at `bd92f0b` and reports that the tool matched every
+prediction: the linear v1 model is understandable, so the range contract
+proceeds. Decisions 2 through 5 are accepted as written: `--from <base>` on
+the current branch; excluded-by-range commits listed and recorded but neither
+proven nor acknowledged; a range not ending at a branch tip refused; the
+forecast pins the range base and abort is unchanged.

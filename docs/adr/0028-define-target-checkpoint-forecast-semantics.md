@@ -1,6 +1,7 @@
 # ADR-0028: Define target-checkpoint forecast semantics
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Decided:** 2026-09-17
 - **Date:** 2026-09-14
 - **Owners:** Repository maintainers
 - **Implementation:** [#26](https://github.com/jwh3times/vcs-lab/issues/26)
@@ -25,8 +26,7 @@ prediction stays exactly what a committed-heads forecast predicts today; the
 overlay adds a second pinned prediction, the target worktree after the overlay
 is re-materialized onto the new committed head. Application may mutate the
 committed target only with the source changes it forecast. It never commits
-the overlay, and no receipt ever names an overlay. This is a proposal for the
-owner's decision; implementation must not rely on it until accepted.
+the overlay, and no receipt ever names an overlay.
 
 ## Evidence
 
@@ -173,3 +173,12 @@ claims nothing.
 4. Confirm that both `vlab forecast` and `vlab workspace forecast` carry the
    option with identical semantics.
 5. Confirm that #28 inherits this contract unchanged for the rebase journal.
+
+## Owner decision (2026-09-17)
+
+Accepted as written. The owner accepted all five decisions above: the overlay
+is uncommitted context rather than a committed draft; an overlay conflict
+blocks in this version; application requires the live tree to equal the
+overlay tree and refuses with `stale-overlay` rather than re-capturing;
+`vlab forecast` and `vlab workspace forecast` carry `--target-checkpoint`
+with identical semantics; and #28 inherits this contract unchanged.

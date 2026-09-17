@@ -955,13 +955,13 @@ acceptance signals.
 | FR-ID-06, FR-ID-07 | Delivered in v0.12.0 | `vlab audit identity` and `vcs-lab.logical-id/v1`. Whether FR-ID-07 also needs an operation log and a second carrier of `ch_*` in commit headers is a Gate B question inside [#40](https://github.com/jwh3times/vcs-lab/issues/40) |
 | FR-ID-08, FR-TRUST-04 | Delivered in v0.12.0 for commit granularity | Sub-commit anchoring is [#34](https://github.com/jwh3times/vcs-lab/issues/34), which is open product question 11 |
 | FR-LAND-10 | Deferred | [#39](https://github.com/jwh3times/vcs-lab/issues/39) |
-| FR-PLAN-08 | Delivered in v0.12.0 | The remote half is [#36](https://github.com/jwh3times/vcs-lab/issues/36); its contract is proposed in [ADR-0031](adr/0031-carry-a-bound-source-inventory-for-portable-verification.md) (Proposed) |
+| FR-PLAN-08 | Delivered in v0.12.0 | The remote half is [#36](https://github.com/jwh3times/vcs-lab/issues/36); its contract is accepted in [ADR-0031](adr/0031-carry-a-bound-source-inventory-for-portable-verification.md) |
 | FR-RES-07 | Planned | [#35](https://github.com/jwh3times/vcs-lab/issues/35) |
 | FR-WS-08 | Deferred | [#40](https://github.com/jwh3times/vcs-lab/issues/40), under Gate B |
 | FR-WS-09 | Batched status implemented; Linux and Windows synthetic evidence recorded | Real-repository evidence is [#42](https://github.com/jwh3times/vcs-lab/issues/42); wider zero-process status remains gated beyond ADR-0027 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
 | FR-SPEC-13 | Gated; no additional format selected | [#31](https://github.com/jwh3times/vcs-lab/issues/31) and [#33](https://github.com/jwh3times/vcs-lab/issues/33) delivered the suite and contract. [#32](https://github.com/jwh3times/vcs-lab/issues/32) records the requirement-level evaluation and can be reopened for a concrete proposal. [ADR-0026](adr/0026-version-fence-aware-markdown-boundaries.md) corrects fenced boundaries with versioned migration; it does not deliver another format. |
 | FR-PERF-09 | Evidence gate | [#42](https://github.com/jwh3times/vcs-lab/issues/42); bounded native read scope accepted in ADR-0027 ([#18](https://github.com/jwh3times/vcs-lab/issues/18)) |
-| FR-PROTO-06 | Deferred | [#37](https://github.com/jwh3times/vcs-lab/issues/37); its contract is proposed in [ADR-0033](adr/0033-advertise-capabilities-as-a-document-negotiated-offline.md) (Proposed) |
+| FR-PROTO-06 | Deferred | [#37](https://github.com/jwh3times/vcs-lab/issues/37); its contract is accepted in [ADR-0033](adr/0033-advertise-capabilities-as-a-document-negotiated-offline.md) |
 | FR-TRUST-02, FR-TRUST-03 | Deferred | [#38](https://github.com/jwh3times/vcs-lab/issues/38) and [#39](https://github.com/jwh3times/vcs-lab/issues/39) |
 
 The following experimentally implemented requirements need continued real-world
@@ -996,13 +996,14 @@ recorded in an ADR when it changes a durable decision.
    and what proof can replace the shared-root rule without enabling unrelated
    metadata injection?
    ([#43](https://github.com/jwh3times/vcs-lab/issues/43)). A declared,
-   locally accepted lineage bridge is proposed in
-   [ADR-0029](adr/0029-require-a-declared-lineage-bridge-for-imports-without-a-shared-root.md) (Proposed).
+   locally accepted lineage bridge is accepted in
+   [ADR-0029](adr/0029-require-a-declared-lineage-bridge-for-imports-without-a-shared-root.md);
+   implementation waits for envelope v2 ([#40](https://github.com/jwh3times/vcs-lab/issues/40)).
 2. Which causal claims are safe to merge automatically when two metadata
    sources disagree?
    ([#44](https://github.com/jwh3times/vcs-lab/issues/44)). A per-family
-   conflict policy is proposed in
-   [ADR-0030](adr/0030-define-conflict-policy-for-competing-causal-facts.md) (Proposed).
+   conflict policy is accepted in
+   [ADR-0030](adr/0030-define-conflict-policy-for-competing-causal-facts.md).
 3. Should logical Change IDs be repository-scoped, globally namespaced, or
    issuer-qualified? **Answered in v0.12.0** by the frozen
    `vcs-lab.logical-id/v1` protocol ([docs/identity](identity/README.md)):
@@ -1015,14 +1016,15 @@ recorded in an ADR when it changes a durable decision.
 5. Does the accepted target-context application model for causal rebase remain
    intuitive once forecast, conflict recovery, and application are exercised?
    ([#27](https://github.com/jwh3times/vcs-lab/issues/27)). An explicit
-   range named by its base is proposed in
-   [ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md)
-   (Proposed), with a walkthrough for this judgement on the issue.
+   range named by its base is accepted in
+   [ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md).
+   **Answered 2026-09-17** for linear v1: the owner's walkthrough matched every
+   prediction, so the model is judged understandable.
 6. Should the accepted immutable source-checkpoint model expand to a captured
    target overlay, and what approval/application semantics should that require?
    ([#26](https://github.com/jwh3times/vcs-lab/issues/26)). A target overlay
-   carried as pinned uncommitted context is proposed in
-   [ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md) (Proposed).
+   carried as pinned uncommitted context is accepted in
+   [ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md).
 7. At what measured thresholds does a long-lived repository service outperform
    invocation-scoped Git plumbing enough to justify lifecycle and security
    costs? (§15 decision rows;
