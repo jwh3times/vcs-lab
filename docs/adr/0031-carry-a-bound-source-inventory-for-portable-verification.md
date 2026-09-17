@@ -1,6 +1,7 @@
 # ADR-0031: Carry a bound source inventory for portable verification
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Decided:** 2026-09-17
 - **Date:** 2026-09-14
 - **Owners:** Repository maintainers
 - **Implementation:** [#36](https://github.com/jwh3times/vcs-lab/issues/36)
@@ -120,7 +121,8 @@ that establishes absence, and it is unchanged by this decision.
 `vcs-lab.proof-bundle/v2` is a new schema, not an amendment: v1 bytes,
 members, and the repository-backed comparison are unchanged. A v2 verifier
 accepts a v1 document and reports tier 0 only; a v1 verifier refuses a v2
-document by family, as it refuses every unknown schema today. The verification
+document as `unknown-schema-version`, as it refuses every newer proof-bundle
+version since #98. The verification
 result gains a per-change tier and an explicit list of unavailable conclusions
 with reasons. The published bound `proofBundleBytes` (16 MiB) applies to v2; a
 producer whose proofs would exceed it refuses to emit rather than truncating,
@@ -173,3 +175,23 @@ is refused as `different-repository` exactly as today.
    the retention ref of ADR-0025.
 5. Which channel supplies anchors first: a remote named in the bundle and read
    with `git ls-remote`, or deferral to #37.
+
+## Owner decision (2026-09-17)
+
+Accepted, with decision 5 refined:
+
+1. The tiered contract is accepted: `new` and `candidate-equivalent` are
+   reported as claimed, never proven, without objects.
+2. `vcs-lab.proof-bundle/v2` is a new schema version; v1 is unchanged.
+3. Reachability paths are **carried by default**. The #36 measurement put a
+   recent landing's v2 bundle at 35.6 KB and the size bound out of reach until
+   about 9,800 commits of path depth; an omit option waits for a real bundle
+   that hits the refuse rule.
+4. Receipt inclusion proofs **anchor to the notes tip only**. Every receipt in
+   this repository's history is reachable without the ADR-0025 retention ref,
+   which matters only on the source side of a hard squash.
+5. Anchors come first from **`git ls-remote` against a remote the verifier
+   chooses**. A remote named inside the bundle is a hint the verifier may
+   offer, never a channel it trusts automatically, because the bundle's
+   producer controls that name. The #37 gateway (ADR-0033) is not the first
+   anchor channel.

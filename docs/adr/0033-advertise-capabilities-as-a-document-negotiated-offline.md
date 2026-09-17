@@ -1,6 +1,7 @@
 # ADR-0033: Advertise capabilities as a document that negotiates offline
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Decided:** 2026-09-17
 - **Date:** 2026-09-16
 - **Owners:** Repository maintainers
 - **Implementation:** [#37](https://github.com/jwh3times/vcs-lab/issues/37)
@@ -42,8 +43,7 @@ documents**. A build states what it reads and writes in a
 decides what can be exchanged by comparing its own document with the peer's.
 Where the peer's document came from (a gateway, a file, an envelope, a
 colleague) does not change the result, so every decision a gateway enables can
-also be made offline. The gateway is narrow: it serves the document and,
-if ADR-0031 is accepted with that option, the anchors a verifier needs. It
+also be made offline. The gateway is narrow: it serves the document. It
 plans nothing, stores nothing, and authenticates nothing.
 
 ## Evidence
@@ -298,3 +298,23 @@ and the gateway serves the capability document only.
    offline half of FR-PROTO-06.
 6. Whether a gateway serves ADR-0031 anchors, which depends on the answer to
    ADR-0031 decision 5.
+
+## Owner decision (2026-09-17)
+
+Accepted. ADR-0031 was accepted on the same day, so its dependent branch above
+applies: the proof bundle is registered as an exchanged family and
+`bound-source-inventory/v1` is advertised when v2 ships.
+
+1. Negotiation is a pure function of two capability documents.
+2. Stored records are filtered per record; freshly produced documents select
+   the highest common version.
+3. `no-common-version` is a new error code.
+4. The `advertisement` scope with `unknownVersion: refuse` and a
+   `capabilityDocumentBytes` bound is accepted.
+5. `vlab capabilities` and `--against` **ship before any gateway**, as the
+   offline half of FR-PROTO-06.
+6. The gateway **does not serve anchors** in this contract. ADR-0031 decision 5
+   chose `git ls-remote` against a verifier-chosen remote as the first anchor
+   channel, so the "defer to #37" branch above does not apply. A gateway may
+   later be added as one more anchor channel, trusted no further than
+   `git ls-remote` against the same host.
