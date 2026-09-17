@@ -222,3 +222,39 @@ Run `vlab provenance <commit> --json` again in the affected repository and verif
 the declared actors. The commit ID and branch history remain unchanged. If the
 original declaration is unavailable or existing provenance disagrees, preserve
 the evidence for human review instead of inventing or overwriting a claim.
+
+## 8. Naming a provenance actor
+
+A `vcs-lab.provenance/v1` actor is free text: `--authored-by`, `--generated-by`,
+`--reviewed-by`, and `VLAB_AGENT` record exactly the string they are given.
+Provenance is declared and never inferred (FR-TRUST-04), so vcs-lab never
+normalizes a name when it reads one, and anything that groups work by actor
+compares the strings exactly. One actor spelled two ways is therefore two actors
+to every consumer. This repository's own history shows it: `codex` and
+`OpenAI Codex` name the same tool.
+
+The convention is not part of `vcs-lab.logical-id/v1` and changes no record
+format. Spell every actor the same way every time:
+
+- **A machine actor** (`generated`) is the model identifier its provider
+  publishes, exactly as published, for example `claude-opus-5` or
+  `claude-fable-5-1`. Leave out harness decorations that are not part of the
+  identifier, such as a context-window suffix like `[1m]`. When a tool exposes
+  no model identifier, use the tool's lowercase command name, for example
+  `codex`. A new model version is a different actor, so its name differs.
+- **A person** (`authored`, `reviewed`) is the name they choose to be recorded
+  under, spelled the same way every time.
+- **An agent harness** sets `VLAB_AGENT` once to the machine actor's name, so
+  the spelling comes from configuration rather than from each command.
+
+`vlab audit identity` reports a `near-duplicate-actor-names` warning for actor
+names that look like one actor spelled differently: the same words ignoring case
+and punctuation (`Claude-Opus-5`, `claude-opus-5`), or one name's words a subset
+of the other's with at least one extra word that is not a number (`codex`,
+`OpenAI Codex`). A difference of numbers alone reads as a version, so
+`claude-opus-5` and `claude-opus-5-1` are not reported. The warning does not
+change the exit code, and nothing rewrites a published record: the names were
+claims made when the work was recorded. Fix the spelling for future commits, and
+treat existing spellings as a known alias wherever work is grouped by actor.
+`nearDuplicateActorNames` in `src/identity-audit.js` is the authority for the
+rule, and `test/integration.test.js` pins it.

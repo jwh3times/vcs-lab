@@ -60,7 +60,7 @@
     "dependencies": "Git, schemas, specs"
   },
   "src/identity-audit.js": {
-    "responsibility": "Repository-wide logical identity audit (`vcs-lab.identity-audit/v1`): union-find over identity-preserving application edges, multi-trailer, multi-origin, and invariant findings",
+    "responsibility": "Repository-wide logical identity audit (`vcs-lab.identity-audit/v1`): union-find over identity-preserving application edges, multi-trailer, multi-origin, and invariant findings, plus the near-duplicate provenance actor warning",
     "dependencies": "Engine, notes"
   },
   "src/metadata-envelope.js": {

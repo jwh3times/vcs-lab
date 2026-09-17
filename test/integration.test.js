@@ -5879,6 +5879,51 @@ test("the identity audit separates preserved identity from a real collision", (t
   );
 });
 
+test("the identity audit warns about near-duplicate provenance actor names", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "a.txt", "base\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "base");
+  vlab(repo, "init");
+
+  // One tool under two spellings, one model under two casings, and a later
+  // model version that is a different actor rather than a respelling.
+  const actors = ["codex", "OpenAI Codex", "claude-opus-5", "Claude-Opus-5", "claude-opus-5-1"];
+  actors.forEach((actor, index) => {
+    write(repo, `work-${index}.txt`, `${actor}\n`);
+    git(repo, "add", ".");
+    vlab(repo, "commit", "-m", `work ${index}`, "--generated-by", actor);
+  });
+
+  const result = vlabResult(repo, "audit", "identity", "--json");
+  // Actor names are declared claims, so a respelling is a warning to fix the
+  // convention going forward, not an identity error.
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.summary.errors, 0);
+  assert.equal(report.summary.warnings, 2);
+  assert.equal(report.summary.nearDuplicateActors, 2);
+  assert.equal(report.summary.clean, false);
+
+  const groups = report.findings
+    .filter((item) => item.code === "near-duplicate-actor-names")
+    .map((item) => {
+      assert.equal(item.severity, "warning");
+      assert.equal(item.commits.length, item.actors.length, "each spelling names its commit");
+      return item.actors;
+    })
+    .sort((left, right) => left[0].localeCompare(right[0]));
+  assert.deepEqual(groups, [
+    ["Claude-Opus-5", "claude-opus-5"],
+    ["OpenAI Codex", "codex"],
+  ]);
+
+  const human = vlab(repo, "audit", "identity");
+  assert.match(human, /near-duplicate-actor-names/);
+  assert.match(human, /actors {7}2 groups of near-duplicate actor names/);
+  assert.doesNotMatch(human, /logical identity is not unambiguous/);
+});
+
 test("a proof bundle lets a verifier recompute coverage instead of trusting it", async (t) => {
   const { canonicalJson } = await import(
     pathToFileURL(path.join(projectRoot, "src", "canonical-json.js")).href
