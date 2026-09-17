@@ -152,7 +152,7 @@ rendering at all.
 | --- | --- |
 | `vlab commit` | Projection `{commit, changeId, message}` |
 | `vlab merge-plan` | `vcs-lab.merge-plan/v1` |
-| `vlab audit identity` | `vcs-lab.identity-audit/v1`; exits non-zero when findings are reported |
+| `vlab audit identity` | `vcs-lab.identity-audit/v1`; exits non-zero when errors are reported, while warnings such as `near-duplicate-actor-names` leave the exit code at zero |
 | `vlab proof-bundle` | `vcs-lab.proof-bundle/v1`; always JSON, since the bundle exists to be handed to another tool |
 | `vlab verify-proof` | `vcs-lab.proof-verification/v1`; exits non-zero when the bundle does not verify |
 | `vlab rebase-plan` | `vcs-lab.rebase-plan/v1` |

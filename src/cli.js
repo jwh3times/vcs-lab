@@ -228,6 +228,7 @@ function formatIdentityAudit(result) {
     `collisions   ${result.summary.collisions}`,
     `trailers     ${result.summary.conflictingTrailers} commits claiming more than one identity`,
     `origins      ${result.summary.ambiguousOrigins} commits with more than one claimed origin`,
+    `actors       ${result.summary.nearDuplicateActors} groups of near-duplicate actor names`,
     `findings     ${result.summary.errors} errors, ${result.summary.warnings} warnings`,
   ];
   for (const item of result.findings) {
@@ -237,7 +238,9 @@ function formatIdentityAudit(result) {
     "",
     result.summary.clean
       ? "No identity collisions or ambiguous origins were found."
-      : "Review the findings above; logical identity is not unambiguous in this repository.",
+      : result.summary.errors === 0
+        ? "Logical identity is unambiguous; review the warnings above (see docs/identity/README.md §8)."
+        : "Review the findings above; logical identity is not unambiguous in this repository.",
   );
   return lines.join("\n");
 }

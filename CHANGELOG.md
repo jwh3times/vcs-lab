@@ -12,6 +12,24 @@
   map and document through the `proton-drive` CLI. `handoff` leaves
   `skills-lock.json` because it no longer tracks the upstream skill.
 
+- Warn about near-duplicate provenance actor names (issue #34 side finding).
+  `vlab audit identity` reports `near-duplicate-actor-names` when two declared
+  actors look like one actor spelled differently, such as `codex` and
+  `OpenAI Codex` in this repository's own history, while a version difference
+  such as `claude-opus-5` and `claude-opus-5-1` stays silent. The warning
+  leaves the exit code at zero and rewrites no record; `summary` gains the
+  optional `nearDuplicateActors` count within `vcs-lab.identity-audit/v1`.
+  `docs/identity/README.md` §8 records the actor naming convention.
+
+- Propose capability negotiation for a narrow remote gateway (issue #37,
+  ADR-0033, Proposed): negotiation is a pure function of two
+  `vcs-lab.capabilities/v1` documents projected from the runtime registries,
+  so every gateway conclusion is reproducible offline through a proposed
+  `vlab capabilities --against`; stored records are filtered per record
+  rather than re-encoded, a missing common version fails as
+  `no-common-version`, and the gateway plans, stores, and authenticates
+  nothing. No behavior changes until the owner decides.
+
 - Lead the empty-replay block message of `vlab rebase` with vlab's own
   instruction (`vlab rebase --abort`) and place Git's advice after it, so
   the first line an evaluator reads is not `git cherry-pick --skip`, the

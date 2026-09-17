@@ -73,6 +73,33 @@ function finding(code, severity, message, extra = {}) {
   return { code, severity, message, ...extra };
 }
 
+/** The lowercase alphanumeric words of an actor name, in order. */
+function actorTokens(actor) {
+  return String(actor).toLowerCase().match(/[a-z0-9]+/g) ?? [];
+}
+
+/**
+ * Whether two distinct actor names look like spellings of one actor
+ * (docs/identity/README.md §8): the same words ignoring case and punctuation
+ * (`Claude-Opus-5`, `claude-opus-5`), or one name's words a subset of the
+ * other's with at least one extra word that is not a number (`codex`,
+ * `OpenAI Codex`). A difference of numbers alone is a version, and a version
+ * is a different actor by the convention, so `claude-opus-5` and
+ * `claude-opus-5-1` are not near-duplicates.
+ */
+export function nearDuplicateActorNames(left, right) {
+  if (left === right) return false;
+  const a = actorTokens(left);
+  const b = actorTokens(right);
+  if (a.length === 0 || b.length === 0) return false;
+  if (a.join(" ") === b.join(" ")) return true;
+  const [small, large] = a.length <= b.length ? [a, b] : [b, a];
+  const largeSet = new Set(large);
+  if (!small.every((token) => largeSet.has(token))) return false;
+  const smallSet = new Set(small);
+  return large.some((token) => !smallSet.has(token) && !/^\d+$/.test(token));
+}
+
 /**
  * Repository-wide identity audit (FR-ID-06). Answers three questions the
  * per-command paths cannot, because each of them looks at one plan:
@@ -209,6 +236,47 @@ export function auditIdentity(cwd = process.cwd()) {
     }
   }
 
+  // 6. Provenance actor names that look like one actor spelled two ways. The
+  //    names are declared claims and are never normalized when read
+  //    (FR-TRUST-04), so this is a warning about the naming convention, not
+  //    an identity error, and it rewrites nothing.
+  const commitsByActor = new Map();
+  for (const record of records) {
+    if (record.type !== "provenance") continue;
+    for (const { actor } of record.actors ?? []) {
+      if (typeof actor !== "string" || actor === "") continue;
+      if (!commitsByActor.has(actor)) commitsByActor.set(actor, new Set());
+      commitsByActor.get(actor).add(record.commit ?? record.attachedTo);
+    }
+  }
+  const actorNames = [...commitsByActor.keys()].sort();
+  const actorGroups = makeComponents();
+  for (let i = 0; i < actorNames.length; i += 1) {
+    for (let j = i + 1; j < actorNames.length; j += 1) {
+      if (nearDuplicateActorNames(actorNames[i], actorNames[j])) {
+        actorGroups.union(actorNames[i], actorNames[j]);
+      }
+    }
+  }
+  const spellings = new Map();
+  for (const actor of actorNames) {
+    const root = actorGroups.find(actor);
+    if (!spellings.has(root)) spellings.set(root, []);
+    spellings.get(root).push(actor);
+  }
+  for (const group of spellings.values()) {
+    if (group.length < 2) continue;
+    findings.push(finding(
+      "near-duplicate-actor-names",
+      "warning",
+      `Provenance names ${group.map((actor) => `'${actor}'`).join(", ")}, which look like one actor spelled ${group.length} ways.`,
+      {
+        actors: group,
+        commits: group.map((actor) => [...commitsByActor.get(actor)].sort()[0]),
+      },
+    ));
+  }
+
   const errors = findings.filter((item) => item.severity === "error").length;
   const warnings = findings.filter((item) => item.severity === "warning").length;
   return {
@@ -234,6 +302,9 @@ export function auditIdentity(cwd = process.cwd()) {
         (item) => item.code === "conflicting-change-id-trailer",
       ).length,
       ambiguousOrigins: findings.filter((item) => item.code === "ambiguous-origin").length,
+      nearDuplicateActors: findings.filter(
+        (item) => item.code === "near-duplicate-actor-names",
+      ).length,
       clean: errors === 0 && warnings === 0,
     },
   };
