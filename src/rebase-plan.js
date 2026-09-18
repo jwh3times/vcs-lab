@@ -1,5 +1,12 @@
 import { withGitObjectSession } from "./git.js";
-import { mergeCommitsBetween, symbolicRef } from "./engine.js";
+import {
+  commitHistory,
+  isAncestor,
+  listRefs,
+  mergeCommitsBetween,
+  resolveObjectIds,
+  symbolicRef,
+} from "./engine.js";
 import { sha256 } from "./ids.js";
 import { buildMergePlanBetween } from "./merge-plan.js";
 import { CliError } from "./errors.js";
@@ -19,12 +26,20 @@ function mergeCommits(base, sourceHead, cwd) {
   return mergeCommitsBetween(base, sourceHead, cwd);
 }
 
+/**
+ * The plan identity a forecast approval is pinned to. `range.base` is covered
+ * because it decides what would be replayed, so a forecast for one range is
+ * stale for another. `range.explicit` is deliberately *not* covered: an
+ * approval made without `--from` authorizes a run that names the same base,
+ * because it is the same range either way (ADR-0032).
+ */
 function fingerprint(plan) {
   return sha256(JSON.stringify({
     schema: plan.schema,
     mode: plan.mode,
     ontoHead: plan.ontoHead,
     sourceHead: plan.sourceHead,
+    rangeBase: plan.range.base,
     ontoTree: plan.ontoTree,
     sourceTree: plan.sourceTree,
     physicalBase: plan.physicalBase,
@@ -41,9 +56,78 @@ function fingerprint(plan) {
   }));
 }
 
-function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd) {
+/**
+ * Resolve `--from` into the exclusive lower bound of the source set, refusing
+ * every shape ADR-0032 does not admit.
+ *
+ * The tip check is the one worth stating: a range whose tip is in the middle of
+ * a branch would leave the commits after it needing new parents, which is the
+ * interactive editing #30 owns rather than something this range form can do
+ * quietly.
+ */
+function resolveRange(ontoRef, sourceRef, requestedBase, cwd) {
+  const [tip] = resolveObjectIds([`${sourceRef}^{commit}`], cwd);
+  if (requestedBase === undefined || requestedBase === null) {
+    return { baseRef: null, base: null, tip, explicit: false };
+  }
+  const [base] = resolveObjectIds([`${requestedBase}^{commit}`], cwd);
+  if (base === tip) {
+    throw new CliError(
+      `--from ${requestedBase} names the source tip, so the range would be empty.`,
+      {
+        code: "unsupported-range",
+        details: "Name a commit below the tip; the base is the exclusive lower bound.",
+      },
+    );
+  }
+  if (!isAncestor(base, tip, cwd)) {
+    throw new CliError(
+      `--from ${requestedBase} is not an ancestor of ${sourceRef}.`,
+      {
+        code: "unsupported-range",
+        details: "A range runs from an ancestor up to a branch tip.",
+      },
+    );
+  }
+  const branchTips = new Set(listRefs("refs/heads/", cwd).map((entry) => entry.oid));
+  if (!branchTips.has(tip)) {
+    throw new CliError(
+      `${sourceRef} resolves to ${tip.slice(0, 12)}, which is not a branch tip.`,
+      {
+        code: "unsupported-range",
+        details:
+          "The commits after it would need re-parenting, which linear ranges do not do. " +
+          "Name a branch, or use interactive editing when it exists.",
+      },
+    );
+  }
+  void ontoRef;
+  return { baseRef: String(requestedBase), base, tip, explicit: true };
+}
+
+/**
+ * The commits the caller declared out of the source set: those between the
+ * physical merge base and the range base. They are listed so a person sees
+ * exactly what will not travel, and they are listed *only* — never replayed,
+ * classified, absorbed, or covered, because no receipt may claim work that
+ * stayed behind (ADR-0032).
+ */
+function excludedByRange(physicalBase, rangeBase, cwd) {
+  if (!rangeBase || rangeBase === physicalBase) return [];
+  return commitHistory([`${physicalBase}..${rangeBase}`], cwd, { reverse: true })
+    .map((item) => ({
+      commit: item.commit,
+      changeId: item.message.match(/^Change-Id:\s*(.+?)\s*$/im)?.[1]?.trim() ?? `git:${item.commit}`,
+      subject: item.subject,
+    }));
+}
+
+function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd, options = {}) {
   const sourceRef = requestedSourceRef ?? currentBranch(cwd);
-  const causal = buildMergePlanBetween(ontoRef, sourceRef, cwd);
+  const range = resolveRange(ontoRef, sourceRef, options.from, cwd);
+  const causal = buildMergePlanBetween(ontoRef, sourceRef, cwd, {
+    rangeBase: range.base ?? undefined,
+  });
   const unsupportedMerges = mergeCommits(
     causal.physicalBase,
     causal.sourceHead,
@@ -94,6 +178,8 @@ function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd) {
     // Carried from the causal plan and deliberately outside `fingerprint`,
     // for the reason src/merge-plan.js gives (ADR-0030).
     quarantinedFacts: causal.quarantinedFacts,
+    range: { ...range, base: causal.rangeBase },
+    excludedByRange: excludedByRange(causal.physicalBase, range.base, cwd),
     constraints: {
       supported,
       linearHistory: supported,
@@ -114,9 +200,10 @@ export function buildRebasePlan(
   ontoRef,
   sourceRef = null,
   cwd = process.cwd(),
+  options = {},
 ) {
   return withGitObjectSession(cwd, () =>
-    buildRebasePlanInSession(ontoRef, sourceRef, cwd),
+    buildRebasePlanInSession(ontoRef, sourceRef, cwd, options),
   );
 }
 
@@ -150,6 +237,17 @@ export function formatRebasePlan(plan) {
     `summary       ${plan.counts.covered} omitted, ${plan.counts["candidate-equivalent"]} review, ${plan.counts.new} replay`,
     `replay queue  ${plan.replayQueue.length}`,
   );
+  if (plan.range.explicit) {
+    lines.push(`range         ${plan.range.baseRef} (${plan.range.base.slice(0, 12)})..${plan.range.tip.slice(0, 12)}`);
+  }
+  if (plan.excludedByRange.length) {
+    lines.push(
+      `excluded      ${plan.excludedByRange.length} commit${plan.excludedByRange.length === 1 ? "" : "s"} below the range base stay behind`,
+    );
+    for (const excluded of plan.excludedByRange) {
+      lines.push(`  - ${excluded.commit.slice(0, 12)} ${excluded.changeId} ${excluded.subject}`);
+    }
+  }
   if (plan.quarantinedFacts?.length) {
     lines.push(
       `quarantined   ${plan.quarantinedFacts.length} reachable fact${plan.quarantinedFacts.length === 1 ? "" : "s"} excluded: ${plan.quarantinedFacts.join(", ")}`,

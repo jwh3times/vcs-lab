@@ -113,9 +113,9 @@ Usage:
   vlab merge-plan <source> [--json]
   vlab proof-bundle <source>
   vlab verify-proof <file> [--offline] [--anchors-from <remote>] [--json]
-  vlab rebase-plan <onto> [<source>] [--json]
-  vlab rebase-forecast <onto> [<source>] [--accept-candidates] [--json]
-  vlab rebase <onto> [--accept-candidates] [--use-forecast <id>] [--json]
+  vlab rebase-plan <onto> [<source>] [--from <base>] [--json]
+  vlab rebase-forecast <onto> [<source>] [--from <base>] [--accept-candidates] [--json]
+  vlab rebase <onto> [--from <base>] [--accept-candidates] [--use-forecast <id>] [--json]
   vlab rebase --status [--json]
   vlab rebase --continue [--fork] [--json]
   vlab rebase --abort [--json]
@@ -1347,7 +1347,7 @@ export async function main(rawArgs) {
         throw new CliError("Usage: vlab rebase-plan <onto> [<source>]",
           { code: "usage-missing-argument" });
       }
-      const plan = buildRebasePlan(onto, positionals[1]);
+      const plan = buildRebasePlan(onto, positionals[1], undefined, { from: options.from });
       print(options.json ? plan : formatRebasePlan(plan), options.json);
       return;
     }
@@ -1364,6 +1364,7 @@ export async function main(rawArgs) {
       }
       const forecast = forecastRebase(onto, positionals[1], {
         acceptCandidates: options.acceptCandidates,
+        from: options.from,
       });
       print(
         options.json ? forecast : formatRebaseForecast(forecast),
@@ -1400,6 +1401,7 @@ export async function main(rawArgs) {
       const result = startRebase(onto, {
         acceptCandidates: options.acceptCandidates,
         forecastId: options.useForecast,
+        from: options.from,
       });
       print(options.json ? result : formatRebaseResult(result), options.json);
       return;

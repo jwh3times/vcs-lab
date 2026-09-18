@@ -1187,6 +1187,40 @@ names. Nothing here authenticates a claim: which copy is true remains the trust
 question of §15.3, and this policy only guarantees that neither copy is used
 until someone decides.
 
+### 15.2.4 A rebase range is a declaration, not a discovery
+
+[ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md)
+generalizes causal rebase from the current branch's whole divergence to an
+explicit linear range. `--from <base>` names the exclusive lower bound; without
+it the base is the physical merge base, so a v1 plan is unchanged byte for byte,
+which `test/rebase-ranges.test.js` pins by building the same plan both ways.
+
+The range moves only the *enumeration* of source changes. `physicalBase` keeps
+its meaning as the real merge base, and the effective-base and candidate logic
+still read it; what changes is where the change list starts. That is deliberate:
+a commit below the range base is absent from `changes` rather than filtered out
+of it later, so there is no member for it to linger in and nothing that could
+accidentally classify, absorb, or cover it.
+
+What the caller leaves behind is declared instead. The plan and the summary
+receipt both carry `excludedByRange` — commit, `Change-Id`, and subject for every
+commit between the physical merge base and the range base — so a person sees
+exactly what will not travel. Nothing is dropped silently; equally, nothing is
+proven about it, because a receipt that claimed work which stayed behind would be
+false.
+
+Three shapes are refused with `unsupported-range` rather than guessed at: a base
+that is not an ancestor of the tip, a base that *is* the tip (an empty range), and
+a tip that is not a branch tip. The last is the interesting one — the commits
+after a mid-branch tip would need re-parenting, which is the interactive editing
+of #30 and not something a linear range should do quietly.
+
+The forecast pins `range.base` beside the heads and trees it already pins, and the
+plan fingerprint covers the base, so an approval for one range cannot authorize
+another. `range.explicit` is deliberately outside the fingerprint: naming the same
+base is the same range, whether or not the caller typed it. Abort is unchanged —
+the range decides what is replayed, never what is restored.
+
 ### 15.2.3 Portable verification is bound to Git objects
 
 [ADR-0031](adr/0031-carry-a-bound-source-inventory-for-portable-verification.md)
@@ -1386,6 +1420,8 @@ lock without rewriting history.
 | A peer reads no version of a family this build writes | Filter those records out of the exchange and name them; the rest still moves (ADR-0033). |
 | A peer disagrees about a profile, algorithm, object format, or lineage | Refuse with `no-common-version` or `repository-mismatch` before any transfer; there is nothing both sides would read alike. |
 | A capability document of an unknown version, or over its bound | Refuse with `unknown-schema-version` or `resource-bound-exceeded`; the bound is checked before the document is parsed. |
+| A rebase range whose base is not an ancestor of the tip, is the tip, or whose tip is not a branch tip | Refuse with `unsupported-range` before anything moves; re-parenting the commits after a mid-branch tip is interactive editing, not a linear range (ADR-0032). |
+| A rebase forecast approved for a different range base | Refuse as `stale-forecast`, naming both ranges; the fingerprint covers the base, so the refusal cannot be bypassed. |
 | A proof bundle whose carried objects do not hash to the ids they claim | Fail verification and name each object; the bundle does not reach the bound tier (ADR-0031). |
 | A proof bundle whose proofs would exceed `proofBundleBytes` | Refuse to emit and name the member that did not fit; a truncated proof cannot be told apart from an omission. |
 | An anchor a verifier's chosen channel cannot confirm | Report it unconfirmed and stay at the bound tier; it is not a binding failure. |

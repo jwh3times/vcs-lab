@@ -70,12 +70,15 @@ export function rebaseForecastForPlan(id, plan, cwd = process.cwd()) {
     forecast.ontoHead !== plan.ontoHead ||
     forecast.ontoTree !== plan.ontoTree ||
     forecast.planFingerprint !== plan.fingerprint ||
-    forecast.plan?.fingerprint !== plan.fingerprint
+    forecast.plan?.fingerprint !== plan.fingerprint ||
+    (forecast.range?.base ?? null) !== (plan.range?.base ?? null)
   ) {
     throw new CliError(`Rebase forecast '${id}' is stale.`, {
       code: "stale-forecast",
       details:
-        "The source, onto target, or causal metadata changed. Generate and review a new rebase forecast.",
+        (forecast.range?.base ?? null) !== (plan.range?.base ?? null)
+          ? `The forecast approved the range from ${forecast.range?.base ?? "the merge base"}, not ${plan.range?.base ?? "the merge base"}. Generate and review a new rebase forecast.`
+          : "The source, onto target, or causal metadata changed. Generate and review a new rebase forecast.",
     });
   }
   const expectedCandidates = plan.candidates.map((candidate) => ({
@@ -196,7 +199,7 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
   phases.preflightMs = performance.now() - preflightStarted;
 
   const planningStarted = performance.now();
-  const plan = buildRebasePlan(ontoRef, sourceRef, cwd);
+  const plan = buildRebasePlan(ontoRef, sourceRef, cwd, { from: options.from });
   phases.planningMs = performance.now() - planningStarted;
 
   const simulationStarted = performance.now();
@@ -250,6 +253,10 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     ontoHead: plan.ontoHead,
     ontoTree: plan.ontoTree,
     quarantinedFacts: plan.quarantinedFacts ?? [],
+    // Pinned beside the heads and trees: a forecast approves one range, and
+    // application refuses it for another (ADR-0032).
+    range: plan.range,
+    excludedByRange: plan.excludedByRange,
     targetWorktree: context.root,
     scope: "committed-heads",
     ignoredCallerDirtyFiles: ignoredDirtyFiles(before.status),

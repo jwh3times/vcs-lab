@@ -507,6 +507,11 @@ function finalizeRebase(operation, cwd) {
     effectiveBase: operation.plan.effectiveBase,
     planFingerprint: operation.plan.fingerprint,
     quarantinedFacts: operation.plan.quarantinedFacts ?? [],
+    // The range this rebase ran, and the commits the caller declared out of it.
+    // A receipt never claims excluded work, so recording the omission beside the
+    // range is what makes it auditable rather than invisible (ADR-0032).
+    range: operation.plan.range,
+    excludedByRange: operation.plan.excludedByRange ?? [],
     acceptCandidates: operation.acceptCandidates,
     candidatePolicy: operation.candidatePolicy,
     omitted: operation.plan.omitted,
@@ -711,7 +716,7 @@ function startRebaseInSession(ontoRef, options, cwd) {
   assertClean(cwd);
   assertNoGitReplay(cwd);
   const branch = currentBranch(cwd);
-  const plan = buildRebasePlan(ontoRef, branch.name, cwd);
+  const plan = buildRebasePlan(ontoRef, branch.name, cwd, { from: options.from });
   if (!plan.constraints.supported) {
     throw new CliError(
       "Linear causal rebase does not support source history containing merge commits.",

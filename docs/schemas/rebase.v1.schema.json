@@ -300,6 +300,57 @@
         "minLength": 1
       },
       "description": "Identifiers reachable from the target that the conflict rule excluded, so a reviewer can see that coverage was computed on reduced evidence (ADR-0030). Absent in records written before v0.15.0; an empty array means nothing was excluded. Deliberately outside every plan fingerprint."
+    },
+    "range": {
+      "type": "object",
+      "required": [
+        "base",
+        "tip",
+        "explicit"
+      ],
+      "description": "The source set this plan describes. Without --from, `base` is the physical merge base and `explicit` is false, so a v1 plan is unchanged. The plan fingerprint covers `base`, because it decides what would be replayed; it does not cover `explicit`, because naming the same base is the same range (ADR-0032). Absent in records written before v0.15.0.",
+      "properties": {
+        "baseRef": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The revision the caller named, as typed, or null when the base was implicit."
+        },
+        "base": {
+          "$ref": "#/$defs/oid"
+        },
+        "tip": {
+          "$ref": "#/$defs/oid"
+        },
+        "explicit": {
+          "type": "boolean"
+        }
+      }
+    },
+    "excludedByRange": {
+      "type": "array",
+      "description": "Commits between the physical merge base and the range base: work the caller declared out of the source set. They are listed and nothing else — never replayed, classified, absorbed, or covered, and no receipt claims them. The omission is declared, not proven (ADR-0032).",
+      "items": {
+        "type": "object",
+        "required": [
+          "commit",
+          "changeId",
+          "subject"
+        ],
+        "properties": {
+          "commit": {
+            "$ref": "#/$defs/oid"
+          },
+          "changeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "$defs": {

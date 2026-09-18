@@ -302,6 +302,26 @@ disposition rather than requiring a caller to match English. One test pins the
 boundary: a global flag consumed before the argument parse keeps prose, because
 no output mode is known yet, while an unknown command is enveloped.
 
+`test/rebase-ranges.test.js` covers explicit linear rebase ranges
+([ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md)). Its
+first test is the one the rest depends on: a plan built with `--from` at the
+physical merge base must equal the plan built without `--from`, fingerprint
+included. If that ever diverges, the generalization has changed v1, and the issue
+named v1's two safe properties — exact origin/result mappings and
+unexpected-empty blocking — as non-negotiable.
+
+The remaining cases are about what a range excludes and what it refuses. An
+excluded commit must be absent from `changes`, `omitted`, and `candidates`, not
+merely flagged: the suite asserts the absence rather than the flag, because a
+commit that lingered in any of those could still be classified or claimed. The
+three `unsupported-range` shapes each have a case, including the tip that is not a
+branch tip, which is the one that would silently need re-parenting. And a forecast
+approved for one range must refuse another, which works because the base is inside
+the plan fingerprint rather than beside it.
+
+One test exists only to pin what did *not* change: abort restores the exact
+original tip whether or not a range was named.
+
 `test/portable-verification.test.js` covers the Git bindings a proof bundle
 carries ([ADR-0031](adr/0031-carry-a-bound-source-inventory-for-portable-verification.md)).
 Its fixture is the one the ADR's evidence table was measured on: a source branch

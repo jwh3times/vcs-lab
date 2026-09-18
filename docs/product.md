@@ -327,7 +327,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-LAND-06 | P1 | Exact target/source tree equality shall be visible even when history differs. | Implemented | Merge plan reports `same state`. |
 | FR-LAND-07 | P1 | Landing messages shall retain portable trailers for mode, source revision, and absorbed logical changes. | Implemented | Git commit message is useful even when notes are not fetched. |
 | FR-LAND-08 | P1 | A landing that conflicts before commit shall publish no false receipt. | Implemented | Conflict exits without receipt creation. |
-| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Implemented experimentally | [ADR-0011](adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted; plan, forecast, supervised application, recovery, and portable completed receipts are integration-tested for linear v1. |
+| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Implemented experimentally | [ADR-0011](adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted; plan, forecast, supervised application, recovery, and portable completed receipts are integration-tested for linear v1. Since v0.15.0 the source set may be an explicit linear range ([ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md), built in #27): `--from <base>` names it, commits below it are declared in `excludedByRange` and claimed by no receipt, and the forecast pins the base. Per-commit origin/result mapping and unexpected-empty blocking are unchanged, which is what the generalization had to preserve. |
 | FR-LAND-10 | P2 | A higher-level landing transaction shall eventually support policy checks and atomic publication. | Deferred | Requires a trusted coordinator or protocol gateway. |
 
 ### 9.4 Causal merge planning
@@ -772,11 +772,13 @@ Each links to the issue that carries it; the board is where its status lives.
   [#28](https://github.com/jwh3times/vcs-lab/issues/28)) and native private
   draft stacks beyond the conservative worktree-backed implementation
   ([#40](https://github.com/jwh3times/vcs-lab/issues/40), Gate B).
-- Broader causal rebase forms beyond linear v1: arbitrary ranges
-  ([#27](https://github.com/jwh3times/vcs-lab/issues/27)), merge preservation
+- Broader causal rebase forms beyond explicit linear ranges: merge preservation
   ([#29](https://github.com/jwh3times/vcs-lab/issues/29)), interactive editing
   ([#30](https://github.com/jwh3times/vcs-lab/issues/30)), and checkpoint/draft
-  overlays ([#28](https://github.com/jwh3times/vcs-lab/issues/28)).
+  overlays ([#28](https://github.com/jwh3times/vcs-lab/issues/28)). Explicit
+  linear ranges ([#27](https://github.com/jwh3times/vcs-lab/issues/27)) landed in
+  v0.15.0; a range whose tip is mid-branch is still refused, because re-parenting
+  what follows it belongs to #30.
 - Rerun the accepted repository-scale schema on larger fixtures and real
   repositories now that workspace-status and resolution-catalog scans are
   batched (the Windows rerun is recorded in ADR-0013); consider incremental

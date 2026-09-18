@@ -317,9 +317,41 @@ intent. That creates a new Change ID with `Derived-From` provenance. Use
 earlier queue entries replayed cleanly. Application and summary receipts remain
 private until the complete queue and any predicted final tree are verified.
 
-Linear v1 operates only on the current named branch. Merge-preserving,
-interactive edit/reword/squash, arbitrary range, and dirty-overlay rebases
-remain ordinary Git workflows.
+### Naming an explicit range
+
+By default the source set is everything the branch has that `onto` does not.
+`--from <base>` names the exclusive lower bound instead:
+
+```bash
+vlab rebase-plan main --from HEAD~2
+vlab rebase-forecast main --from HEAD~2
+vlab rebase main --from HEAD~2
+```
+
+Without `--from` nothing changes: the base is the physical merge base and the
+plan is the one earlier versions produced. With it, only the commits above the
+base are replayed, and the ones below it are **declared rather than dropped** —
+the plan and the summary receipt both list them under `excludedByRange` with
+commit, `Change-Id`, and subject, so you can see exactly what will not travel. No
+receipt ever claims them; the omission is stated, not proven.
+
+When the base is already reachable from `onto`, nothing is excluded and the range
+is an ordinary rebase.
+
+Three ranges are refused with `unsupported-range` rather than guessed at: a base
+that is not an ancestor of the tip, a base that *is* the tip, and a tip that is
+not a branch tip. The last is the one worth knowing — the commits after a
+mid-branch tip would need new parents, which is interactive editing rather than a
+linear range.
+
+A forecast pins the range base, so an approval for one range refuses to authorize
+another with `stale-forecast`. Abort is unaffected: the range decides what is
+replayed, never what is restored. See
+[ADR-0032](docs/adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md).
+
+Linear rebase operates only on the current named branch. Merge-preserving,
+interactive edit/reword/squash, and dirty-overlay rebases remain ordinary Git
+workflows.
 
 ## Forecasting reconciliation
 
