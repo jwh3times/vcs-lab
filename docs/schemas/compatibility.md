@@ -61,6 +61,7 @@ version in `also read` is migrated forward as section 3 describes.
 | `vcs-lab.disposition` | shared-local | v1 | — | refuse | entries of `<common dir>/vcs-lab/dispositions.json` |
 | `vcs-lab.spec-manifest` | tracked | v4 | v1, v2, v3 | refuse | `.vcs-lab/specs/**` |
 | `vcs-lab.metadata-envelope` | envelope | v1 | — | refuse | `manifest.json` of a metadata export directory |
+| `vcs-lab.capabilities` | advertisement | v1 | — | refuse | produced on demand by vlab capabilities; served by a gateway |
 
 `vcs-lab.application` writes two versions on purpose: `vlab cherry-pick`
 publishes `v1` and reconciliation publishes the richer `v4`. Both are current;
@@ -110,6 +111,13 @@ The rule follows from who wrote the record and what is lost by guessing.
   re-indexing rather than guessed at.
 - **Envelopes are refused.** Import is an explicit, auditable act on untrusted
   input; a version mismatch is reported rather than partially applied.
+- **Capability documents are refused.** A client cannot negotiate from a
+  document it does not understand: every conclusion it would draw — which
+  versions to send, which records to withhold, which bound applies — would be
+  drawn from members it could not read. Refusing costs exactly one exchange and
+  names the version, so the remedy is obvious (ADR-0033). The document is also
+  the one input a client reads *before* it has decided anything about the peer,
+  which is why `capabilityDocumentBytes` is checked before it is parsed.
 
 ## 2.1 Superseded values inside a version
 
@@ -180,6 +188,17 @@ tracked, or imported input refuses the command.
 | `envelopeRecords` | 1000000 | Records one envelope declares | Refuse |
 | `provenanceActors` | 64 | Actors in one `vcs-lab.provenance/v1` record | Refuse the write; a landing's provenance is the union of every absorbed commit's actors, so this bounds what one branch can accumulate before the claim stops being reviewable by a person |
 | `proofBundleBytes` | 16777216 | One `vcs-lab.proof-bundle/v1` document handed to `vlab verify-proof` | Refuse before reading the file |
+| `capabilityDocumentBytes` | 1048576 | One `vcs-lab.capabilities/v1` document read by `vlab capabilities --against` or from a gateway | Refuse before parsing the document |
+
+Bounds divide in one more way once a peer is involved. **Bounds are the
+receiver's**: the bound that governs what this build may send is the peer's, and
+the bound that governs what it may be sent is its own. A capability document
+advertises the bounds that apply to exchanged families, so a sender withholds an
+over-bound record and reports it rather than sending it to be refused
+(ADR-0033). `ADVERTISED_BOUNDS` and `UNADVERTISED_BOUNDS` in
+`src/capabilities.js` must together name every bound in the table above, each
+unadvertised one carrying its reason, so a new bound cannot be added without
+deciding whether a peer needs it.
 
 `readJson` in `src/store.js` is the single reader for every worktree-private and
 shared-local document, which is why `localStateBytes` is enforced there and

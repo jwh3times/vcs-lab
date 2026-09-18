@@ -302,6 +302,32 @@ disposition rather than requiring a caller to match English. One test pins the
 boundary: a global flag consumed before the argument parse keeps prose, because
 no output mode is known yet, while an unknown command is enveloped.
 
+`test/capabilities.test.js` covers capability advertisement and negotiation
+([ADR-0033](adr/0033-advertise-capabilities-as-a-document-negotiated-offline.md)).
+Because negotiation is a pure function of two documents, every case is this
+build's own document with exactly one part changed — a family a peer never
+learned, a peer that reads only the older of two current versions, a different
+canonical-JSON profile, a different lineage — so what the report says can only
+have been caused by that one difference. Two properties carry the requirement.
+The document is a **projection**: the suite compares it field by field with
+`RECORD_FAMILIES` and `RESOURCE_BOUNDS` and asserts that no private,
+shared-local, or tracked family appears, so a build cannot advertise a contract
+it does not enforce or leak the existence of state a peer never receives. And
+the command **changes nothing**: it is run against a repository whose Git
+configuration and runtime directory are checked afterwards, because a command
+that states what a build can do has no business calling `initLab`.
+
+The negotiation cases pin the line between an exchange that is smaller and one
+that is impossible. A version gap reduces or blocks one family and leaves the
+rest compatible; a profile, algorithm, object-format, or lineage disagreement
+refuses outright, as does a peer that reads no capability version this build
+writes, because there would be no document to negotiate with. An unknown feature
+token must be ignored rather than refused, since tokens are opaque by contract.
+Negotiating against a real exported envelope covers the case that is easiest to
+get wrong: a manifest states no families at all, and the report has to say *not
+stated* rather than *unreadable*, or every exchange with an ordinary envelope
+would look catastrophically incompatible.
+
 `test/conflict-policy.test.js` covers the conflict policy of
 [ADR-0030](adr/0030-define-conflict-policy-for-competing-causal-facts.md), one
 test per row of its per-family table. Its fixture lands a branch with a hard

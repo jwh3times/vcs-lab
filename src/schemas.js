@@ -13,6 +13,39 @@ export const METADATA_STATUS_SCHEMA = "vcs-lab.metadata-status/v1";
 export const METADATA_VALIDATION_SCHEMA = "vcs-lab.metadata-validation/v1";
 export const METADATA_ENVELOPE_SCHEMA = "vcs-lab.metadata-envelope/v1";
 export const METADATA_LINEAGE_ALGORITHM = "git-root-commits-sha256/v1";
+export const CAPABILITIES_SCHEMA = "vcs-lab.capabilities/v1";
+
+/**
+ * The scopes whose records cross a repository boundary, and which a capability
+ * document therefore advertises (ADR-0033). Private, shared-local, and tracked
+ * families are never advertised: a peer never receives a journal, a forecast, or
+ * a workspace registry, and tracked manifests move with ordinary Git content.
+ *
+ * `advertisement` is here because the capability document is itself exchanged. A
+ * family that did not advertise its own versions would leave a client no way to
+ * ask for one the peer writes.
+ */
+export const EXCHANGED_SCOPES = Object.freeze([
+  "note-container",
+  "note-record",
+  "envelope",
+  "advertisement",
+]);
+
+/**
+ * Behaviors a peer needs to know about that are not a record version
+ * (ADR-0033). A token is advertised only when this build both produces and
+ * consumes the behavior it names, and tokens are opaque: a reader ignores one it
+ * does not know. `src/metadata-envelope.js` writes the same list into every
+ * envelope manifest, which is where these tokens already existed without a
+ * published meaning.
+ */
+export const EXCHANGE_FEATURES = Object.freeze([
+  "causal-notes/v1",
+  "causal-rebase/v1",
+  "exact-resolutions/v1",
+  "metadata-integrity/v1",
+]);
 export const RESOLUTION_SIGNATURE_ALGORITHM = "ordered-three-way-blobs/v1";
 
 /**
@@ -186,6 +219,16 @@ export const RECORD_FAMILIES = new Map([
     unknownVersion: "refuse",
     store: "manifest.json of a metadata export directory",
   }],
+  ["vcs-lab.capabilities", {
+    scope: "advertisement",
+    registered: [1],
+    readable: [1],
+    written: [1],
+    // A client cannot negotiate from a document it does not understand, and
+    // refusing costs exactly one exchange (ADR-0033).
+    unknownVersion: "refuse",
+    store: "produced on demand by vlab capabilities; served by a gateway",
+  }],
 ]);
 
 const KNOWN_SCHEMAS = new Map(
@@ -226,6 +269,14 @@ export const RESOURCE_BOUNDS = Object.freeze({
   provenanceActors: 64,
   /** Bytes of one `vcs-lab.proof-bundle/v1` document handed to `vlab verify-proof`. */
   proofBundleBytes: 16 * 1024 * 1024,
+  /**
+   * Bytes of one `vcs-lab.capabilities/v1` document, checked before it is
+   * parsed. The document is a projection of the registries and is small by
+   * construction — the whole of this build's is a few kilobytes — so this bound
+   * is not a growth allowance but a limit on what an unauthenticated peer can
+   * make a client read before it has decided anything (ADR-0033).
+   */
+  capabilityDocumentBytes: 1024 * 1024,
 });
 
 /**

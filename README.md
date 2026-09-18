@@ -805,6 +805,54 @@ either side of this: the manual strategy stops in a conflicted worktree, and
 dropping every record on that attachment. See
 [ADR-0030](docs/adr/0030-define-conflict-policy-for-competing-causal-facts.md).
 
+## What this build can exchange
+
+Two builds decide what they may exchange by comparing documents, not by asking a
+server. `vlab capabilities` prints what this build reads and writes, projected
+from the same registries the rest of the tool enforces, so the statement cannot
+drift from the behavior:
+
+```bash
+vlab capabilities
+vlab capabilities --json
+```
+
+Outside a repository the document is build-scoped; inside one it adds the object
+format and lineage, which makes it repository-scoped. It writes nothing.
+
+Negotiation is a pure function of two such documents, so every conclusion a
+gateway would enable is already available offline:
+
+```bash
+vlab capabilities --against ../peer-capabilities.json
+vlab capabilities --against ../project-metadata      # an envelope directory
+```
+
+The report separates an exchange that is *smaller* from one that is
+*impossible*. A version gap in a family is smaller: a stored record's version is
+fixed by whoever wrote it and is never re-encoded, so records the peer cannot
+read are filtered out and named, together with what the peer's own document says
+it would do with them, and everything else still moves. The command exits
+non-zero so a script notices, while the exchange remains possible.
+
+A disagreement about a profile, an algorithm, the object format, or the lineage
+is impossible: there is no set of bytes both sides would read the same way, so it
+refuses with `no-common-version`, or `repository-mismatch` for the repository
+cases, before anything is transferred. A feature token a reader does not know is
+opaque and is ignored rather than refused, and bounds are the receiver's — a
+record over the peer's advertised bound is withheld and reported rather than sent
+to be refused.
+
+An envelope manifest states a producer, a repository, and feature tokens and
+nothing else, so negotiating against one reports the families as *not stated*
+rather than as unreadable. That distinction is the point: a document says what it
+says, and a report that filled in the rest would be inventing a peer.
+
+The gateway itself is not built. It would add exactly one thing an offline reader
+cannot have — the current document of a party that is not in the room — and would
+change nothing about what negotiation concludes. See
+[ADR-0033](docs/adr/0033-advertise-capabilities-as-a-document-negotiated-offline.md).
+
 ## Metadata locations
 
 - Git notes: `refs/notes/vcs-lab`

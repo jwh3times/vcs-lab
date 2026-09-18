@@ -6,11 +6,18 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  EXCHANGED_SCOPES,
+  EXCHANGE_FEATURES,
   RECORD_FAMILIES,
   RESOURCE_BOUNDS,
   schemaCompatibility,
   withinBound,
 } from "../src/schemas.js";
+import {
+  ADVERTISED_BOUNDS,
+  UNADVERTISED_BOUNDS,
+  capabilityDocument,
+} from "../src/capabilities.js";
 import { appendNote, readNote } from "../src/notes.js";
 import { forecastForPlan } from "../src/forecasts.js";
 import { testEnv } from "../test-support/git-environment.js";
@@ -126,6 +133,66 @@ test("the published bounds table matches the runtime resource bounds", () => {
     assert.equal(value, RESOURCE_BOUNDS[name], `documented value of '${name}'`);
     assert.ok(Number.isSafeInteger(RESOURCE_BOUNDS[name]), `'${name}' must be a safe integer`);
     assert.ok(RESOURCE_BOUNDS[name] > 0, `'${name}' must be positive`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The capability document is a projection, not a second list
+// ---------------------------------------------------------------------------
+
+test("the advertised document equals the registries it projects", () => {
+  // ADR-0033 requires this direction specifically: a registry change that is
+  // not advertised must fail the suite, because a peer negotiating from a stale
+  // document would conclude something this build will not honour.
+  const document = capabilityDocument({ repository: null });
+
+  const advertised = new Map(document.families.map((entry) => [entry.family, entry]));
+  const exchanged = [...RECORD_FAMILIES].filter(([, policy]) =>
+    EXCHANGED_SCOPES.includes(policy.scope));
+  assert.deepEqual(
+    [...advertised.keys()].sort(),
+    exchanged.map(([family]) => family).sort(),
+    "every exchanged family is advertised, and nothing else is",
+  );
+  for (const [family, policy] of exchanged) {
+    const entry = advertised.get(family);
+    assert.equal(entry.scope, policy.scope, `scope of '${family}'`);
+    assert.equal(entry.unknownVersion, policy.unknownVersion, `unknown-version rule of '${family}'`);
+    assert.deepEqual(entry.written, [...policy.written].sort((a, b) => a - b), `written of '${family}'`);
+    assert.deepEqual(entry.readable, [...policy.readable].sort((a, b) => a - b), `readable of '${family}'`);
+  }
+
+  // A family whose records never leave this machine is not a peer's business.
+  for (const [family, policy] of RECORD_FAMILIES) {
+    if (EXCHANGED_SCOPES.includes(policy.scope)) continue;
+    assert.equal(advertised.has(family), false,
+      `'${family}' is ${policy.scope} and must not be advertised`);
+  }
+
+  assert.deepEqual(document.features, [...EXCHANGE_FEATURES].sort());
+  assert.deepEqual(
+    Object.keys(document.bounds).sort(),
+    [...ADVERTISED_BOUNDS].sort(),
+  );
+  for (const [name, value] of Object.entries(document.bounds)) {
+    assert.equal(value, RESOURCE_BOUNDS[name], `advertised value of '${name}'`);
+  }
+});
+
+test("every resource bound is either advertised or deliberately not", () => {
+  // The partition is what stops a new bound from being added without deciding
+  // whether a peer needs it.
+  const decided = [...ADVERTISED_BOUNDS, ...Object.keys(UNADVERTISED_BOUNDS)].sort();
+  assert.deepEqual(decided, Object.keys(RESOURCE_BOUNDS).sort(),
+    "ADVERTISED_BOUNDS and UNADVERTISED_BOUNDS must together name every bound");
+  assert.deepEqual(
+    ADVERTISED_BOUNDS.filter((name) => name in UNADVERTISED_BOUNDS),
+    [],
+    "a bound cannot be both advertised and not",
+  );
+  for (const [name, reason] of Object.entries(UNADVERTISED_BOUNDS)) {
+    assert.ok(reason.split(/\s+/).length >= 6,
+      `'${name}' must say why a peer does not need it`);
   }
 });
 

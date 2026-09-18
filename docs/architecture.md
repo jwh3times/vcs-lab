@@ -122,6 +122,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | --- | --- | --- |
 | `bin/vlab.js` | Minimal executable entry point and error/exit boundary | `src/cli.js` |
 | `src/canonical-json.js` | The frozen `vcs-lab.canonical-json/v1` profile: RFC 8785 restricted to UTF-16-code-unit-sorted members and safe integers, refusing what it cannot serialize byte-identically | None |
+| `src/capabilities.js` | The `vcs-lab.capabilities/v1` document projected from the runtime registries, and negotiation as a pure function of two such documents (ADR-0033) | `src/schemas.js`, `src/metadata.js`, `src/metadata-envelope.js`, `src/canonical-json.js` |
 | `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
 | `src/dispositions.js` | Resolving one parked conflict: keep-local or replace-local, the note rewrite it implies, and the recorded decision that stops the same disagreement being reported twice (ADR-0030) | `src/quarantine.js`, `src/metadata.js`, `src/notes.js` |
 | `src/engine.js` | The read-side engine seam: the catalog of 40 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison | `src/git.js`, `src/native-engine.js` |
@@ -280,6 +281,7 @@ use at the current development baseline:
 | Family | Readable versions | Written versions | Store | Scope |
 | --- | --- | --- | --- | --- |
 | `vcs-lab.application` | v1, v4 | v1, v4 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.capabilities` | v1 | v1 | `produced on demand by vlab capabilities; served by a gateway` | `advertisement` |
 | `vcs-lab.disposition` | v1 | v1 | `entries of <common dir>/vcs-lab/dispositions.json` | `shared-local` |
 | `vcs-lab.dispositions` | v1 | v1 | `<common dir>/vcs-lab/dispositions.json` | `shared-local` |
 | `vcs-lab.forecast` | v1, v2 | v2 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
@@ -1183,6 +1185,49 @@ names. Nothing here authenticates a claim: which copy is true remains the trust
 question of §15.3, and this policy only guarantees that neither copy is used
 until someone decides.
 
+### 15.2.2 Capabilities are a document, not a conversation
+
+[ADR-0033](adr/0033-advertise-capabilities-as-a-document-negotiated-offline.md)
+settles how two builds decide what they may exchange. A build states what it
+reads and writes in a `vcs-lab.capabilities/v1` document projected from
+`RECORD_FAMILIES`, `RESOURCE_BOUNDS`, and the profile and algorithm constants,
+so the document cannot disagree with the build that emits it; the projection is
+checked against the registries by `test/schema-compatibility.test.js`, which
+fails when a registry change is not advertised.
+
+Negotiation is then a **pure function of two documents**. It reads no network,
+no repository, and no clock, so where the peer's document came from — a gateway,
+a file, an envelope, a colleague — cannot change what it concludes. That is what
+keeps offline envelope inspection a first-class path rather than a fallback: a
+gateway adds exactly one thing an offline reader cannot have, the *current*
+document of a party that is not in the room.
+
+The comparison distinguishes an exchange that is **smaller** from one that is
+**impossible**.
+
+- Smaller: a family version gap. A stored record's version is fixed by whoever
+  wrote it and compatibility §3 forbids re-encoding it, so records the peer
+  cannot read are filtered out and named in `unreadableByPeer` with the
+  disposition the peer's own document states. Everything else still moves.
+  `vcs-lab.application` is why this is per record and not per family: v1 and v4
+  are both current, written by different commands.
+- Impossible: a profile, algorithm, object-format, or lineage disagreement, or a
+  peer that reads no capability version this build writes. There is no set of
+  bytes both sides would read the same way, so there is nothing to report per
+  record. These refuse with `no-common-version`, or `repository-mismatch` for
+  the repository cases, before any transfer.
+
+For a document produced fresh for the exchange — an envelope, a proof bundle,
+the capability document itself — the producer selects the highest version in
+`local.written ∩ peer.readable`. Features are used only when both sides
+advertise them, and tokens are opaque, so one a reader does not know is ignored
+rather than refused. Bounds are the receiver's.
+
+`vlab capabilities` prints the document and `vlab capabilities --against` the
+report. Neither writes anything: in particular `capabilities` must not call
+`initLab`, because a command that states what a build can do has no business
+writing repository configuration.
+
 ### 15.2.1 Logical identity is not authentication
 
 Logical identifiers are specified by `vcs-lab.logical-id/v1`
@@ -1293,6 +1338,9 @@ lock without rewriting history.
 | A record identifier names more than one fact | Report `record-id-conflict` and exclude every copy from coverage, the resolution catalog, proof evidence, and export; the planner reads the whole notes tree so it applies the same rule as the validator (issue #87). |
 | Envelope payload or inventory mismatch | Reject before destination mutation. |
 | Import ID/ref conflict | Report exact conflict during dry-run; never overwrite silently. |
+| A peer reads no version of a family this build writes | Filter those records out of the exchange and name them; the rest still moves (ADR-0033). |
+| A peer disagrees about a profile, algorithm, object format, or lineage | Refuse with `no-common-version` or `repository-mismatch` before any transfer; there is nothing both sides would read alike. |
+| A capability document of an unknown version, or over its bound | Refuse with `unknown-schema-version` or `resource-bound-exceeded`; the bound is checked before the document is parsed. |
 | Import ID conflict under `--park-conflicts` | Apply the rest atomically; write the incoming copy under `refs/vcs-lab/quarantine/<lineage>/<record id>`; report `parked-record-conflict` against the local copy so neither side proves coverage (ADR-0030). |
 | Import resolution-ref conflict under `--park-conflicts` | Leave the destination ref exactly where it pointed, park the incoming records that name it, and keep the rest of the exchange applicable. |
 | An arriving digest a disposition already rejected | Report it as `disposed` and neither apply nor park it again. |

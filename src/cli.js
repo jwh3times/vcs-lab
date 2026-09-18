@@ -97,6 +97,7 @@ import { metadataStatus, validateMetadata } from "./metadata.js";
 import { retainMetadata, formatRetention } from "./retention.js";
 import { exportMetadata, importMetadata } from "./metadata-transfer.js";
 import { disposeConflict } from "./dispositions.js";
+import { capabilityDocument, negotiateAgainst } from "./capabilities.js";
 import { benchmarkRepositoryScale } from "./scale-benchmark.js";
 
 const HELP = `vcs-lab — Git-backed experiments for causal source control
@@ -140,6 +141,8 @@ Usage:
   vlab metadata import <directory> --dry-run [--park-conflicts] [--json]
   vlab metadata import <directory> --apply [--park-conflicts] [--json]
   vlab metadata dispose <record-id> --keep-local|--replace-local [--reason <text>] [--json]
+  vlab capabilities [--json]                     what this build reads and writes
+  vlab capabilities --against <document|envelope-directory> [--json]
   vlab metadata benchmark [--history <n>] [--workspaces <n>] [--notes <n>] [--resolutions <n>] [--areas <n>] [--files-per-area <n>] [--samples <n>] [--budget-ms <n>] [--json]
   vlab workspace create <name> [--from <ref>] [--path <directory>] [--owner <name>] [--focus <text>] [--cone <dir,dir>] [--json]
   vlab workspace list
@@ -183,7 +186,7 @@ function parseArgs(args) {
   // Declared provenance can name several actors on one commit (FR-ID-08), so
   // these accumulate instead of the last one winning.
   const repeatableFlags = new Set(["--authored-by", "--generated-by", "--reviewed-by"]);
-  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--cone", "--label", "--reason", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks", "--history", "--workspaces", "--notes", "--resolutions", "--budget-ms", "--areas", "--files-per-area"]);
+  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--cone", "--against", "--label", "--reason", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks", "--history", "--workspaces", "--notes", "--resolutions", "--budget-ms", "--areas", "--files-per-area"]);
   for (let index = 0; index < args.length; index += 1) {
     const item = args[index];
     if (valueFlags.has(item) || repeatableFlags.has(item)) {
@@ -379,6 +382,81 @@ function formatDisposition(result) {
       ? "The record is in service again; the decision is local and is never exported."
       : `The dispute is resolved, but the record is still quarantined: ${result.record.diagnostics.join(", ") || "see vlab metadata status"}.`,
   ].join("\n");
+}
+
+function formatCapabilities(document) {
+  const lines = [
+    "Capabilities",
+    `schema       ${document.schema}`,
+    `producer     ${document.producer.name} ${document.producer.version}`,
+    `scope        ${document.repository ? "repository" : "build"}`,
+  ];
+  if (document.repository) {
+    lines.push(
+      `repository   ${document.repository.objectFormat}; lineage ${document.repository.lineage.id}`,
+    );
+  }
+  lines.push(
+    `families     ${document.families.length} exchanged`,
+    `profiles     canonical JSON ${document.profiles.canonicalJson}; identity ${document.profiles.logicalId}; errors ${document.profiles.errorEnvelope}`,
+    `algorithms   lineage ${document.algorithms.lineage}; resolution ${document.algorithms.resolutionSignature}; integrity ${document.algorithms.integrity}`,
+    `formats      ${document.objectFormats.join(", ")}`,
+    `features     ${document.features.join(", ")}`,
+    `integrity    ${document.integrity.algorithm} ${document.integrity.documentHash}`,
+    "",
+  );
+  for (const entry of document.families) {
+    const also = entry.readable.filter((version) => !entry.written.includes(version));
+    lines.push(
+      `  ${entry.family.padEnd(30)} writes v${entry.written.join(", v") || "-"}` +
+      `${also.length ? `; also reads v${also.join(", v")}` : ""}` +
+      `; unknown: ${entry.unknownVersion} (${entry.scope})`,
+    );
+  }
+  lines.push("", "Bounds a peer must respect when sending to this build");
+  for (const [name, value] of Object.entries(document.bounds)) {
+    lines.push(`  ${name.padEnd(26)} ${value}`);
+  }
+  return lines.join("\n");
+}
+
+function formatCapabilityReport(report) {
+  const lines = [
+    "Capability negotiation",
+    `peer         ${report.peer.producer ? `${report.peer.producer.name} ${report.peer.producer.version}` : "(unnamed)"} via ${report.peer.source}`,
+    `compatible   ${report.summary.fullyCompatible ? "fully" : "partially"}; exchange is possible`,
+  ];
+  if (report.repository) {
+    lines.push(
+      `repository   ${report.repository.lineageRelation}; ${report.repository.localObjectFormat} both sides`,
+    );
+  } else {
+    lines.push("repository   not compared; one side is build-scoped");
+  }
+  lines.push(
+    `families     ${report.summary.families} compared, ${report.summary.reducedFamilies} reduced, ${report.summary.blockedFamilies} blocked`,
+  );
+  if (!report.peer.statedFamilies) {
+    lines.push("             the peer document states no families, so none were compared");
+  }
+  lines.push(
+    `features     ${report.features.common.length} shared; ${report.features.localOnly.length} local only, ${report.features.peerOnly.length} peer only`,
+  );
+  for (const entry of report.families) {
+    if (entry.status === "compatible") continue;
+    const detail = entry.status === "reduced"
+      ? `sends v${entry.selectedForSend}; peer cannot read v${entry.unreadableByPeer.join(", v")} (${entry.peerDisposition})`
+      : entry.status === "blocked"
+        ? `peer reads none of v${entry.localWritten.join(", v")} (${entry.peerDisposition ?? "unstated"})`
+        : entry.status === "peer-unknown-family"
+          ? "the peer does not advertise it"
+          : "not stated by the peer";
+    lines.push(`  ${entry.status === "reduced" ? "?" : "!"} ${entry.family}: ${detail}`);
+  }
+  for (const token of report.features.localOnly) {
+    lines.push(`  ? feature ${token}: withheld, the peer does not advertise it`);
+  }
+  return lines.join("\n");
 }
 
 function formatScaleBenchmark(result) {
@@ -1613,6 +1691,20 @@ export async function main(rawArgs) {
       }
       throw new CliError("Unknown spec command. Use index, show, merge-plan, status, resolve, or benchmark.",
         { code: "usage-unknown-command" });
+    }
+    case "capabilities": {
+      // A projection of the registries, not a repository read: outside a
+      // repository it is build-scoped, inside one it adds the lineage, and in
+      // neither case does it write anything (ADR-0033).
+      if (options.against) {
+        const report = negotiateAgainst(options.against);
+        print(options.json ? report : formatCapabilityReport(report), options.json);
+        if (!report.summary.fullyCompatible) process.exitCode = 1;
+        return;
+      }
+      const document = capabilityDocument();
+      print(options.json ? document : formatCapabilities(document), options.json);
+      return;
     }
     case "doctor": {
       // A diagnostic must not change what it diagnoses: the doctor reads the

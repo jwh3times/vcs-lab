@@ -294,6 +294,151 @@
       ]
     },
     {
+      "name": "capabilities",
+      "argv": [
+        "capabilities"
+      ],
+      "stage": "clean",
+      "mode": "reread",
+      "note": "What this build reads and writes, projected from the runtime registries. It is the document a peer negotiates against, so the reader must be able to see the same contracts a machine would (ADR-0033).",
+      "required": [
+        {
+          "pointer": "/producer/name",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/producer/version",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/repository/objectFormat",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/repository/lineage/id",
+          "rule": "prefix",
+          "minPrefix": 12
+        },
+        {
+          "pointer": "/families",
+          "rule": "count"
+        },
+        {
+          "pointer": "/families/0/family",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/families/0/unknownVersion",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/profiles/canonicalJson",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/profiles/logicalId",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/profiles/errorEnvelope",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/algorithms/lineage",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/algorithms/resolutionSignature",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/algorithms/integrity",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/features/0",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/integrity/documentHash",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/schema",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/families/0/scope",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/repository/lineage/algorithm",
+          "rule": "exact"
+        }
+      ],
+      "jsonOnly": [
+        {
+          "pointer": "/repository/lineage/rootCommits/0",
+          "reason": "The root commits are what the lineage id is computed from. A reader compares the id; a verifier recomputing it reads the JSON."
+        }
+      ]
+    },
+    {
+      "name": "capabilities-against",
+      "argv": [
+        "capabilities",
+        "--against",
+        "{envelope}"
+      ],
+      "stage": "clean",
+      "mode": "reread",
+      "note": "Negotiation against this repository's own envelope. An envelope manifest states a producer, a repository, and feature tokens and nothing else, so the report says the families were not stated rather than that the peer cannot read them.",
+      "required": [
+        {
+          "pointer": "/peer/source",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/peer/producer/name",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/peer/producer/version",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/repository/lineageRelation",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/summary/families",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/summary/reducedFamilies",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/summary/blockedFamilies",
+          "rule": "exact"
+        }
+      ],
+      "jsonOnly": [
+        {
+          "pointer": "/schema",
+          "reason": "Machine dispatch key."
+        },
+        {
+          "pointer": "/summary/exchangeable",
+          "reason": "Always true in a report that was produced at all; an impossible exchange refuses with a code instead of reporting, so printing it would be noise."
+        },
+        {
+          "pointer": "/local/repositoryScoped",
+          "reason": "Whether each side is repository-scoped is implied by the repository line, which names the relation or says the comparison did not happen."
+        }
+      ]
+    },
+    {
       "name": "metadata-status",
       "argv": [
         "metadata",
