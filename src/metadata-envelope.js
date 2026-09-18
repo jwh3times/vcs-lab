@@ -1,8 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { sha256 } from "./ids.js";
-import { canonicalJson } from "./canonical-json.js";
-import { METADATA_ENVELOPE_SCHEMA, RESOURCE_BOUNDS, isOid } from "./schemas.js";
+import { hashedPayload } from "./canonical-json.js";
+import {
+  EXCHANGE_FEATURES,
+  METADATA_ENVELOPE_SCHEMA,
+  RESOURCE_BOUNDS,
+  isOid,
+} from "./schemas.js";
 import { VERSION } from "./version.js";
 import { CliError } from "./errors.js";
 
@@ -38,11 +43,8 @@ function validRef(ref) {
  * hashes remain valid.
  */
 function manifestHash(value) {
-  const copy = structuredClone(value);
-  delete copy.integrity;
-  delete copy.signatures;
   try {
-    return sha256(canonicalJson(copy));
+    return sha256(hashedPayload(value));
   } catch (error) {
     if (error instanceof TypeError) {
       throw new CliError(
@@ -71,12 +73,10 @@ export function buildEnvelopeManifest(snapshot, payload, refs) {
       objectFormat: snapshot.repository.objectFormat,
       lineage: snapshot.repository.lineage,
     },
-    capabilities: [
-      "causal-notes/v1",
-      "causal-rebase/v1",
-      "exact-resolutions/v1",
-      "metadata-integrity/v1",
-    ],
+    // The same tokens the capability document advertises, from one registry, so
+    // an envelope cannot claim a behavior the producer does not advertise
+    // (ADR-0033).
+    capabilities: [...EXCHANGE_FEATURES].sort(),
     includedNamespaces: [
       "refs/notes/vcs-lab",
       "refs/vcs-lab/resolutions/*",

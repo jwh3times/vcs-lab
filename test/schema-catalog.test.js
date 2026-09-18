@@ -225,6 +225,7 @@ test("document identity, file naming, and scope agree with the runtime registry"
     ["shared-local", "shared-local"],
     ["tracked", "tracked"],
     ["envelope", "envelope"],
+    ["advertisement", "advertisement"],
   ]);
   for (const [id, { file, document }] of documents) {
     const match = id.match(/^vcs-lab\.(.+)\/v(\d+)$/);
@@ -459,6 +460,11 @@ function scenario() {
   ));
   keep("doctor", vlabJson(repo, "doctor", "--differential"));
 
+  // The capability document and a negotiation against this repository's own
+  // envelope, so both advertisement documents exist as real CLI output.
+  keep("capabilities", vlabJson(repo, "capabilities", "--json"));
+  keep("capability-report", vlabJson(repo, "capabilities", "--against", envelopeDir, "--json"));
+
   // Small bounded benchmarks for the two benchmark families.
   keep("scale-benchmark", vlabJson(
     repo, "metadata", "benchmark",
@@ -498,6 +504,8 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
     ["vcs-lab.metadata-envelope/v1", "metadata-envelope"],
     ["vcs-lab.metadata-import-preview/v1", "metadata-import-preview"],
     ["vcs-lab.metadata-import/v1", "metadata-import"],
+    ["vcs-lab.capabilities/v1", "capabilities"],
+    ["vcs-lab.capability-report/v1", "capability-report"],
     ["vcs-lab.metadata-import/v1", "metadata-import-parked"],
     ["vcs-lab.quarantined-record/v1", "quarantined-record"],
     ["vcs-lab.dispositions/v1", "disposition-registry"],

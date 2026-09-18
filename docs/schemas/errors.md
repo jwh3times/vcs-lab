@@ -74,6 +74,7 @@ code is a defect, not a category.
 | `unknown-schema-version` | A record's schema version is outside what this build reads. Read it with the build that wrote it. |
 | `wrong-record-family` | A store held a record of a different family than expected. Stop and surface this to a human. |
 | `resource-bound-exceeded` | An input exceeded a published resource bound. Reduce the input, or raise the bound deliberately. |
+| `no-common-version` | Two builds share no version of a family, profile, or algorithm an exchange needs. Upgrade one side; nothing is wrong with either record. |
 
 ### The repository or operation is not in the required state
 

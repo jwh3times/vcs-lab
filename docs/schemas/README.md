@@ -83,6 +83,12 @@ and rebase timing snapshots include and exclude.
 | `vcs-lab.dispositions/v1` | [dispositions.v1.schema.json](dispositions.v1.schema.json) | `<common dir>/vcs-lab/dispositions.json` |
 | `vcs-lab.disposition/v1` | [disposition.v1.schema.json](disposition.v1.schema.json) | Entries of the disposition registry |
 
+### Advertisement (produced on demand, never stored)
+
+| Schema | Document | Store |
+| --- | --- | --- |
+| `vcs-lab.capabilities/v1` | [capabilities.v1.schema.json](capabilities.v1.schema.json) | None: projected from the registries by `vlab capabilities`, and served by a gateway when one exists |
+
 ### Tracked-portable (committed beside the working tree)
 
 | Schema | Document | Store |
@@ -130,6 +136,7 @@ vocabulary is published in [errors.md](errors.md).
 | `vcs-lab.metadata-import-preview/v1` | [metadata-import-preview.v1.schema.json](metadata-import-preview.v1.schema.json) |
 | `vcs-lab.metadata-import/v1` | [metadata-import.v1.schema.json](metadata-import.v1.schema.json) |
 | `vcs-lab.metadata-disposition/v1` | [metadata-disposition.v1.schema.json](metadata-disposition.v1.schema.json) |
+| `vcs-lab.capability-report/v1` | [capability-report.v1.schema.json](capability-report.v1.schema.json) |
 | `vcs-lab.engine-differential/v1` | [engine-differential.v1.schema.json](engine-differential.v1.schema.json) |
 | `vcs-lab.error/v1` | [error.v1.schema.json](error.v1.schema.json) |
 
@@ -182,6 +189,8 @@ rendering at all.
 | `vlab metadata import --dry-run` | `vcs-lab.metadata-import-preview/v1` |
 | `vlab metadata import --apply` | `vcs-lab.metadata-import/v1` |
 | `vlab metadata dispose` | `vcs-lab.metadata-disposition/v1` (records a `vcs-lab.disposition/v1` entry) |
+| `vlab capabilities` | `vcs-lab.capabilities/v1`; repository-scoped inside a repository, build-scoped outside one |
+| `vlab capabilities --against` | `vcs-lab.capability-report/v1`; exits non-zero when a family is reduced or blocked, while the exchange itself remains possible |
 | `vlab metadata benchmark` | `vcs-lab.repository-scale-benchmark/v1` |
 | `vlab workspace create/move/archive/restore/repair` | `vcs-lab.workspace/v1` plus inspection projections (`lifecycle` default, `status`, `pathStatus`, `head`, `dirtyFiles`; mutations add `changed`) |
 | `vlab workspace list` | Array of inspected `vcs-lab.workspace/v1` |

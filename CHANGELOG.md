@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- Advertise capabilities and negotiate them offline (issue #37, FR-PROTO-06;
+  ADR-0033). `vlab capabilities` prints a `vcs-lab.capabilities/v1` document
+  projected from `RECORD_FAMILIES`, `RESOURCE_BOUNDS`, and the profile and
+  algorithm constants, so what a build says it can do cannot drift from what it
+  does; `test/schema-compatibility.test.js` fails the suite when a registry
+  change is not advertised. The document is build-scoped outside a repository and
+  repository-scoped inside one, and producing it writes nothing — in particular
+  it does not call `initLab`.
+
+  `vlab capabilities --against <document|envelope-directory>` negotiates, as a
+  pure function of the two documents: it reads no network, no repository, and no
+  clock, so where the peer's document came from cannot change the result. That is
+  what keeps offline envelope inspection a first-class path rather than a
+  fallback; a gateway would add only the *current* document of a party not in the
+  room, and remains unscheduled.
+
+  The report separates an exchange that is smaller from one that is impossible. A
+  family version gap filters the records the peer cannot read — a stored record's
+  version is fixed by whoever wrote it and is never re-encoded — names them with
+  the disposition the peer's own document states, and exits non-zero while the
+  exchange stays possible. A profile, algorithm, object-format, or lineage
+  disagreement, or a peer that reads no capability version this build writes,
+  refuses with the new `no-common-version` code, or `repository-mismatch` for the
+  repository cases, before anything moves. Feature tokens are opaque, so one a
+  reader does not know is ignored rather than refused, and bounds are the
+  receiver's. Negotiating against an envelope reports its families as *not
+  stated* rather than as unreadable, because a v1 manifest carries a producer, a
+  repository, and feature tokens and nothing else.
+
+  New family `vcs-lab.capabilities/v1` in a new `advertisement` scope, refused on
+  an unknown version; new `capabilityDocumentBytes` bound, checked before the
+  document is parsed; new `no-common-version` error code. The envelope's four
+  `capabilities` tokens finally have a published meaning: they and the document
+  now read one registry, so an envelope cannot claim a behavior its producer does
+  not advertise. The reserved-member hashing rule the envelope manifest already
+  used is shared as `hashedPayload` in `src/canonical-json.js`, with byte-identical
+  results, so a future detached signature covers exactly what either hash covered.
+
+  Not in this increment, and not deferred by accident: registering
+  `vcs-lab.proof-bundle` as an exchanged family and advertising
+  `bound-source-inventory/v1` arrive with the proof bundle's v2 (#36), as #37
+  says.
+
 - Implement the ADR-0030 conflict policy (issue #102). Identity is the only
   conflict key, and every reader now applies the same one: `readCausalRecordCatalog`
   builds its conflict set from both an identifier duplicated inside the notes tree

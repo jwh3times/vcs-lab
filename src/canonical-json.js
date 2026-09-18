@@ -13,6 +13,20 @@
  */
 export const CANONICAL_JSON_PROFILE = "vcs-lab.canonical-json/v1";
 
+/**
+ * The canonical bytes a document's own hash and any future detached signature
+ * cover: the document without its reserved `integrity` and `signatures` members
+ * (docs/canonical-json/README.md). The envelope manifest and the capability
+ * document both hash under this rule, and sharing it is what keeps a signature
+ * covering exactly the bytes the hash covered.
+ */
+export function hashedPayload(value) {
+  const copy = structuredClone(value);
+  delete copy.integrity;
+  delete copy.signatures;
+  return canonicalJson(copy);
+}
+
 export function canonicalJson(value) {
   return serialize(value, "$");
 }

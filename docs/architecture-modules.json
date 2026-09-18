@@ -71,6 +71,10 @@
     "responsibility": "Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import",
     "dependencies": "Metadata, envelope, Git"
   },
+  "src/capabilities.js": {
+    "responsibility": "The `vcs-lab.capabilities/v1` document projected from the runtime registries, and negotiation as a pure function of two such documents (ADR-0033)",
+    "dependencies": "`src/schemas.js`, `src/metadata.js`, `src/metadata-envelope.js`, `src/canonical-json.js`"
+  },
   "src/quarantine.js": {
     "responsibility": "The conflict policy's two local stores: parked conflicting records as one blob-bearing ref each under `refs/vcs-lab/quarantine/<lineage>/<record id>`, and the shared-local disposition registry (ADR-0030)",
     "dependencies": "`src/engine.js`, `src/git.js`, `src/store.js`, `src/schemas.js`"
