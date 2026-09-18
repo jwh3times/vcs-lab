@@ -425,6 +425,38 @@ function scenario() {
   ));
   keep("metadata-import-preview", vlabJson(repo, "metadata", "import", envelopeDir, "--dry-run", "--json"));
   keep("metadata-import", vlabJson(repo, "metadata", "import", envelopeDir, "--apply", "--json"));
+
+  // The conflict policy (ADR-0030). Altering one exported record in place makes
+  // the envelope carry the same identifier with different content, which is the
+  // conflict `--park-conflicts` parks and `vlab metadata dispose` resolves.
+  const landingRecord = captured.outputs.get("landing");
+  const conflictedCommit = landingRecord.landingCommit;
+  const container = JSON.parse(git(repo, "notes", "--ref=vcs-lab", "show", conflictedCommit));
+  execFileSync("git", ["notes", "--ref=vcs-lab", "add", "-f", "-F", "-", conflictedCommit], {
+    cwd: repo,
+    input: `${JSON.stringify({
+      ...container,
+      records: container.records.map((record) =>
+        record.id === landingRecord.id
+          ? { ...record, sourceSubject: "a subject the peer never wrote" }
+          : record),
+    }, null, 2)}\n`,
+    encoding: "utf8",
+    env: testEnv(),
+  });
+  const parkResult = vlabJson(repo, "metadata", "import", envelopeDir, "--apply", "--park-conflicts", "--json");
+  assert.equal(parkResult.summary.parkRecords, 1, "the catalog fixture must park one record");
+  keep("metadata-import-parked", parkResult);
+  keep("quarantined-record", JSON.parse(
+    git(repo, "cat-file", "-p", parkResult.parked[0].ref),
+  ));
+  keep("metadata-disposition", vlabJson(
+    repo, "metadata", "dispose", landingRecord.id, "--keep-local",
+    "--reason", "the catalog fixture keeps the record it published", "--json",
+  ));
+  keep("disposition-registry", JSON.parse(
+    fs.readFileSync(path.join(repo, ".git", "vcs-lab", "dispositions.json"), "utf8"),
+  ));
   keep("doctor", vlabJson(repo, "doctor", "--differential"));
 
   // Small bounded benchmarks for the two benchmark families.
@@ -466,6 +498,10 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
     ["vcs-lab.metadata-envelope/v1", "metadata-envelope"],
     ["vcs-lab.metadata-import-preview/v1", "metadata-import-preview"],
     ["vcs-lab.metadata-import/v1", "metadata-import"],
+    ["vcs-lab.metadata-import/v1", "metadata-import-parked"],
+    ["vcs-lab.quarantined-record/v1", "quarantined-record"],
+    ["vcs-lab.dispositions/v1", "disposition-registry"],
+    ["vcs-lab.metadata-disposition/v1", "metadata-disposition"],
     ["vcs-lab.repository-scale-benchmark/v1", "scale-benchmark"],
     ["vcs-lab.spec-benchmark/v3", "spec-benchmark"],
   ];
@@ -485,6 +521,9 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
   assertValid("vcs-lab.engine-differential/v1", state.outputs.get("doctor").differential, "doctor differential");
   for (const workspace of state.outputs.get("workspace-list")) {
     assertValid("vcs-lab.workspace/v1", workspace, `workspace listing '${workspace.name}'`);
+  }
+  for (const entry of state.outputs.get("disposition-registry").dispositions) {
+    assertValid("vcs-lab.disposition/v1", entry, `disposition '${entry.id}'`);
   }
 });
 

@@ -91,6 +91,9 @@ function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd) {
     physicalBase: causal.physicalBase,
     effectiveBase: causal.effectiveBase,
     reachableReceipts: causal.reachableReceipts,
+    // Carried from the causal plan and deliberately outside `fingerprint`,
+    // for the reason src/merge-plan.js gives (ADR-0030).
+    quarantinedFacts: causal.quarantinedFacts,
     constraints: {
       supported,
       linearHistory: supported,
@@ -147,6 +150,11 @@ export function formatRebasePlan(plan) {
     `summary       ${plan.counts.covered} omitted, ${plan.counts["candidate-equivalent"]} review, ${plan.counts.new} replay`,
     `replay queue  ${plan.replayQueue.length}`,
   );
+  if (plan.quarantinedFacts?.length) {
+    lines.push(
+      `quarantined   ${plan.quarantinedFacts.length} reachable fact${plan.quarantinedFacts.length === 1 ? "" : "s"} excluded: ${plan.quarantinedFacts.join(", ")}`,
+    );
+  }
   if (!plan.constraints.supported) {
     lines.push(
       `unsupported  ${plan.constraints.mergeCommits.length} merge commit${plan.constraints.mergeCommits.length === 1 ? "" : "s"}; linear v1 cannot execute this plan`,

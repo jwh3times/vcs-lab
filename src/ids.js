@@ -23,6 +23,7 @@ export const ID_NAMESPACES = Object.freeze({
   ws: "a workspace registry entry",
   prov: "a declared authorship provenance record",
   artifact: "a specification artifact",
+  disposition: "a local decision about a parked conflict",
 });
 
 /** Random bits per identifier: `randomBytes(6)` rendered as 12 hex digits. */

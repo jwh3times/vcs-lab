@@ -45,6 +45,12 @@ A person's recorded, local decision on a conflicted fact: keep the local copy or
 replace it with the parked one.
 _Avoid_: resolution (that word names conflict-resolution memory)
 
+**Reduced evidence**:
+The state of a conclusion reached while a reachable fact was excluded; the
+conclusion names what it could not use, and can only be weaker than one reached
+with the whole record.
+_Avoid_: partial proof, degraded coverage
+
 **Capability document**:
 A build's statement of the record versions, profiles, algorithms, features, and
 bounds it reads and writes; two documents alone decide what an exchange may

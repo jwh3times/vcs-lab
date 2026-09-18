@@ -4,7 +4,8 @@
 - **Decided:** 2026-09-17
 - **Date:** 2026-09-14
 - **Owners:** Repository maintainers
-- **Implementation:** [#44](https://github.com/jwh3times/vcs-lab/issues/44)
+- **Implementation:** [#44](https://github.com/jwh3times/vcs-lab/issues/44),
+  built in [#102](https://github.com/jwh3times/vcs-lab/issues/102)
 - **Related:** [#37](https://github.com/jwh3times/vcs-lab/issues/37),
   [#38](https://github.com/jwh3times/vcs-lab/issues/38),
   [#40](https://github.com/jwh3times/vcs-lab/issues/40),

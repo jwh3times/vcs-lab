@@ -302,6 +302,30 @@ disposition rather than requiring a caller to match English. One test pins the
 boundary: a global flag consumed before the argument parse keeps prose, because
 no output mode is known yet, while an unknown command is enveloped.
 
+`test/conflict-policy.test.js` covers the conflict policy of
+[ADR-0030](adr/0030-define-conflict-policy-for-competing-causal-facts.md), one
+test per row of its per-family table. Its fixture lands a branch with a hard
+squash, so the landing receipt is the *only* thing that proves the branch's
+change is covered: every case then disturbs that one receipt and reads what the
+planner concludes. Two clones of that repository, with the source's copy of the
+receipt altered in place, produce the envelope that carries one identifier with
+two contents.
+
+What the suite pins is that the reduction is visible and bounded. A conflicted
+receipt drops the change to `candidate-equivalent`, never out of the plan and
+never up the lattice, and the plan names the excluded identifier in
+`quarantinedFacts` in both renderings. The default import still refuses the
+whole envelope and moves no ref; `--park-conflicts` applies the rest, and the
+parked blob is read back with plain `git cat-file` to prove the store is
+inspectable without vcs-lab. After parking, the *local* copy stops proving
+coverage too and leaves the export, which is the half of "contributes nothing on
+both sides" that is easy to implement in only one direction. A disposition
+returns the record to service with no code change in between, and re-importing
+the same envelope afterwards reports `disposed` rather than parking a second
+time. The last test is the amendment the owner made: two reconciliation receipts
+on one commit, from an ordinary no-op re-run, must produce no conflict
+diagnostic at all.
+
 `test/provenance.test.js` covers declared authorship provenance (FR-ID-08).
 The tests that carry the requirement are the ones that follow a declaration
 through a rewrite and then check what stock Git has left: after a hard squash,

@@ -90,6 +90,22 @@ from them.
 - `vlab help` prints the command inventory. Automation cannot enumerate
   commands from JSON; this is a known limitation, not a state gap.
 
+### Members the human text prints only when they say something
+
+`quarantinedFacts` is on `vcs-lab.merge-plan/v1`, `vcs-lab.rebase-plan/v1`, the
+two forecast families, and the reconciliation and rebase receipts. The plan
+renderers print a `quarantined` line, and the sentence that says coverage rested
+on reduced evidence, only when the list is non-empty — an empty list is the
+ordinary case, and a line reading `quarantined  0` in every plan would be noise
+a reader learns to skip past.
+
+It is therefore declared in neither `required` nor `jsonOnly`: the fixtures run
+against a clean repository, where an `exact` or `count` rule would be satisfied
+by any stray `0` in the summary line rather than by the member. What pins the
+rendering instead is `test/conflict-policy.test.js`, which parks a conflict and
+asserts the line appears. If the plan ever prints the empty case too, move the
+member into `required` here and drop this paragraph.
+
 ### Fixed rather than declared
 
 Four renderers asserted a value as fixed prose instead of reading the record,

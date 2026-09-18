@@ -4,49 +4,131 @@
   "commands": [
     {
       "name": "metadata-retain-preview",
-      "argv": ["metadata", "retain", "--dry-run"],
-      "stage": "clean", "mode": "reread",
+      "argv": [
+        "metadata",
+        "retain",
+        "--dry-run"
+      ],
+      "stage": "clean",
+      "mode": "reread",
       "note": "Backfill reports eligible and quarantined facts without publishing a ref.",
       "required": [
-        { "pointer": "/mode", "rule": "exact" },
-        { "pointer": "/eligibleRecords", "rule": "exact" },
-        { "pointer": "/quarantinedRecords", "rule": "exact" },
-        { "pointer": "/objects/commits", "rule": "exact" },
-        { "pointer": "/objects/trees", "rule": "exact" },
-        { "pointer": "/objects/blobs", "rule": "exact" },
-        { "pointer": "/notesTip", "rule": "exact" },
-        { "pointer": "/retentionBefore", "rule": "exact" }
+        {
+          "pointer": "/mode",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/eligibleRecords",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/quarantinedRecords",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/objects/commits",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/objects/trees",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/objects/blobs",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/notesTip",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/retentionBefore",
+          "rule": "exact"
+        }
       ],
       "jsonOnly": []
     },
     {
       "name": "verify-proof",
-      "argv": ["verify-proof", "{proofBundle}"],
+      "argv": [
+        "verify-proof",
+        "{proofBundle}"
+      ],
       "stage": "clean",
       "mode": "reread",
       "note": "Repository verification checks the complete source inventory and bases in addition to evidence; adversarial refusal parity is covered by integration tests.",
       "required": [
-        { "pointer": "/bundleSchema", "rule": "exact" },
-        { "pointer": "/integrity/intact", "rule": "mapped", "render": { "true": "intact", "false": "BROKEN" } },
-        { "pointer": "/classification/counts/agrees", "rule": "mapped", "render": { "true": "counts       agree", "false": "counts       DO NOT AGREE" } },
-        { "pointer": "/classification/uniqueCommits", "rule": "mapped", "render": { "true": "unique commits", "false": "DUPLICATE commits" } },
-        { "pointer": "/repository/matches", "rule": "mapped", "render": { "true": "matches this repository", "false": "DOES NOT MATCH this repository" } },
-        { "pointer": "/repository/lineageRelation", "rule": "exact" },
-        { "pointer": "/trust/statement", "rule": "exact" }
+        {
+          "pointer": "/bundleSchema",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/integrity/intact",
+          "rule": "mapped",
+          "render": {
+            "true": "intact",
+            "false": "BROKEN"
+          }
+        },
+        {
+          "pointer": "/classification/counts/agrees",
+          "rule": "mapped",
+          "render": {
+            "true": "counts       agree",
+            "false": "counts       DO NOT AGREE"
+          }
+        },
+        {
+          "pointer": "/classification/uniqueCommits",
+          "rule": "mapped",
+          "render": {
+            "true": "unique commits",
+            "false": "DUPLICATE commits"
+          }
+        },
+        {
+          "pointer": "/repository/matches",
+          "rule": "mapped",
+          "render": {
+            "true": "matches this repository",
+            "false": "DOES NOT MATCH this repository"
+          }
+        },
+        {
+          "pointer": "/repository/lineageRelation",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/trust/statement",
+          "rule": "exact"
+        }
       ],
       "jsonOnly": [
-        { "pointer": "/integrity/computed", "reason": "The human report states whether the digest matches; the complete hash remains machine-readable." }
+        {
+          "pointer": "/integrity/computed",
+          "reason": "The human report states whether the digest matches; the complete hash remains machine-readable."
+        }
       ]
     },
     {
       "name": "verify-proof-offline",
-      "argv": ["verify-proof", "{proofBundle}", "--offline"],
+      "argv": [
+        "verify-proof",
+        "{proofBundle}",
+        "--offline"
+      ],
       "stage": "clean",
       "mode": "reread",
       "note": "Offline success cannot establish source completeness, identities, or bases.",
       "required": [
-        { "pointer": "/repository/reason", "rule": "exact" },
-        { "pointer": "/trust/statement", "rule": "exact" }
+        {
+          "pointer": "/repository/reason",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/trust/statement",
+          "rule": "exact"
+        }
       ],
       "jsonOnly": []
     },
@@ -219,7 +301,7 @@
       ],
       "stage": "clean",
       "mode": "reread",
-      "note": "The repository-wide metadata inventory, including quarantine counts and diagnostics.",
+      "note": "The repository-wide metadata inventory, including quarantine counts and diagnostics, the parked conflicts of ADR-0030, and the local dispositions recorded about them.",
       "required": [
         {
           "pointer": "/repository/root",
@@ -244,6 +326,14 @@
         },
         {
           "pointer": "/scopes/sharedPortable/notes/quarantinedCount",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/scopes/sharedLocal/quarantine/refCount",
+          "rule": "exact"
+        },
+        {
+          "pointer": "/scopes/sharedLocal/dispositions/count",
           "rule": "exact"
         },
         {

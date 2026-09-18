@@ -46,7 +46,9 @@ string that happens to contain an underscore.
 | `rebase_forecast` | a stored rebase forecast |
 | `resolution` | a recorded conflict resolution |
 | `ws` | a workspace registry entry |
+| `prov` | a declared authorship provenance record |
 | `artifact` | a specification artifact |
+| `disposition` | a local decision about a parked conflict (ADR-0030) |
 
 ### Identifiers that are not minted
 

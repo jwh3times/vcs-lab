@@ -6,34 +6,110 @@
   "x-vcs-lab-scope": "cli-output",
   "type": "object",
   "required": [
-    "schema", "path", "repository", "records", "refs", "objectProblems",
-    "summary", "exclusions", "trust", "applied", "changed"
+    "schema",
+    "path",
+    "repository",
+    "records",
+    "refs",
+    "objectProblems",
+    "summary",
+    "exclusions",
+    "trust",
+    "applied",
+    "changed"
   ],
   "properties": {
-    "schema": { "const": "vcs-lab.metadata-import/v1" },
-    "path": { "type": "string", "minLength": 1 },
-    "repository": { "$ref": "vcs-lab.metadata-import-preview/v1#/$defs/repository" },
+    "schema": {
+      "const": "vcs-lab.metadata-import/v1"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "$ref": "vcs-lab.metadata-import-preview/v1#/$defs/repository"
+    },
     "records": {
       "type": "array",
-      "items": { "$ref": "vcs-lab.metadata-import-preview/v1#/$defs/recordAction" }
+      "items": {
+        "$ref": "vcs-lab.metadata-import-preview/v1#/$defs/recordAction"
+      }
     },
     "refs": {
       "type": "array",
-      "items": { "$ref": "vcs-lab.metadata-import-preview/v1#/$defs/refAction" }
-    },
-    "objectProblems": { "type": "array" },
-    "summary": { "$ref": "vcs-lab.metadata-import-preview/v1#/$defs/summary" },
-    "exclusions": { "type": "array", "items": { "type": "string" } },
-    "trust": {
-      "type": "object",
-      "required": ["cryptographicallySigned", "authorized", "statement"],
-      "properties": {
-        "cryptographicallySigned": { "const": false },
-        "authorized": { "const": false },
-        "statement": { "type": "string" }
+      "items": {
+        "$ref": "vcs-lab.metadata-import-preview/v1#/$defs/refAction"
       }
     },
-    "applied": { "const": true },
-    "changed": { "type": "boolean" }
+    "objectProblems": {
+      "type": "array"
+    },
+    "summary": {
+      "$ref": "vcs-lab.metadata-import-preview/v1#/$defs/summary"
+    },
+    "exclusions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "trust": {
+      "type": "object",
+      "required": [
+        "cryptographicallySigned",
+        "authorized",
+        "statement"
+      ],
+      "properties": {
+        "cryptographicallySigned": {
+          "const": false
+        },
+        "authorized": {
+          "const": false
+        },
+        "statement": {
+          "type": "string"
+        }
+      }
+    },
+    "applied": {
+      "const": true
+    },
+    "changed": {
+      "type": "boolean"
+    },
+    "mode": {
+      "$ref": "vcs-lab.metadata-import-preview/v1#/properties/mode"
+    },
+    "parked": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "recordId",
+          "digest",
+          "sourceLineage"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "recordId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "sourceLineage": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "The refs this import created under refs/vcs-lab/quarantine. Present only on an applied --park-conflicts import (ADR-0030)."
+    }
   }
 }

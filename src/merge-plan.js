@@ -32,10 +32,11 @@ function receiptCoverage(directCommits, cwd) {
   // that can prove coverage, and the tree-wide identifier check excludes any
   // whose id names more than one fact (issue #87).
   const catalog = readCausalRecordCatalog(cwd);
+  const reachable = catalog.records.filter((record) =>
+    directCommits.has(record.attachedTo),
+  );
   const receipts = acceptedCausalRecords(
-    catalog.records.filter((record) =>
-      directCommits.has(record.attachedTo) && RECEIPT_TYPES.has(record.type),
-    ),
+    reachable.filter((record) => RECEIPT_TYPES.has(record.type)),
     cwd,
     { conflictingIds: catalog.conflictingIds },
   );
@@ -45,7 +46,34 @@ function receiptCoverage(directCommits, cwd) {
     for (const commit of receipt.absorbedCommits ?? []) commits.add(commit);
     for (const changeId of receipt.absorbedChanges ?? []) changeIds.add(changeId);
   }
-  return { receipts, commits, changeIds };
+  return { receipts, commits, changeIds, quarantined: quarantinedFacts(reachable, catalog) };
+}
+
+/**
+ * The identifiers reachable from the target that the conflict rule excluded
+ * (ADR-0030). A conflicted fact contributes nothing on either side, so a
+ * classification computed without it rests on reduced evidence; naming the
+ * exclusions is what lets a reviewer see that, rather than reading a change
+ * reported as `new` and assuming no receipt was ever written for it.
+ *
+ * Every reachable record counts, not only the receipt families the planner
+ * reads: a quarantined provenance or resolution attached to the target is
+ * evidence this repository holds and cannot use, and the point of the list is
+ * to be complete about that.
+ *
+ * It is deliberately absent from every plan fingerprint. A quarantine that
+ * changes a classification already changes `changes`, which the fingerprints
+ * cover; one that does not cannot change what an operation would do, and
+ * hashing it would invalidate stored forecasts for no behavioral reason.
+ */
+function quarantinedFacts(reachable, catalog) {
+  return [...new Set(
+    reachable
+      .filter((record) =>
+        typeof record.id === "string" && catalog.conflictingIds.has(record.id),
+      )
+      .map((record) => record.id),
+  )].sort();
 }
 
 /**
@@ -160,6 +188,7 @@ function buildMergePlanInSession(targetRef, sourceRef, cwd) {
     physicalBase,
     effectiveBase,
     reachableReceipts: [...new Set(receipt.receipts.map((item) => item.id))],
+    quarantinedFacts: receipt.quarantined,
     counts,
     changes,
   };
@@ -203,6 +232,7 @@ export function coverageEvidence(sourceRef, cwd = process.cwd()) {
         }))
         .sort((left, right) => String(left.id).localeCompare(String(right.id))),
       patchEquivalentCommits: [...candidates].sort(),
+      quarantinedFacts: receipt.quarantined,
     };
   });
 }
@@ -244,6 +274,12 @@ export function formatMergePlan(plan) {
     "",
     `summary      ${plan.counts.covered} covered, ${plan.counts["candidate-equivalent"]} candidate, ${plan.counts.new} new`,
   );
+  if (plan.quarantinedFacts?.length) {
+    lines.push(
+      `quarantined  ${plan.quarantinedFacts.length} reachable fact${plan.quarantinedFacts.length === 1 ? "" : "s"} excluded: ${plan.quarantinedFacts.join(", ")}`,
+      "Coverage was computed on reduced evidence; resolve with vlab metadata dispose.",
+    );
+  }
   if (plan.counts["candidate-equivalent"] > 0) {
     lines.push("Candidates are advisory and are never silently suppressed.");
   }

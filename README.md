@@ -751,6 +751,60 @@ no-op, and a conflicting record ID or resolution ref is never overwritten.
 These checks establish internal integrity, not cryptographic signature trust,
 actor identity, landing authorization, or permission to execute content.
 
+### Competing facts: parking and disposition
+
+A conflict is one record identifier naming different content — nothing else.
+Two records with distinct identifiers are independent facts even when they claim
+the same thing, so an ordinary re-run that writes a second receipt onto one
+commit is not a conflict.
+
+While a conflict is unresolved, neither copy is used: it proves no coverage,
+serves as no resolution candidate, shows no provenance, and is not exported. The
+change it would have covered is classified from the evidence that remains, so it
+moves to `candidate-equivalent` or `new` and never the other way, and the plan,
+the forecast, and the receipt carry a `quarantinedFacts` list naming what was
+excluded. Nothing blocks: one disputed record from one peer must never stop local
+work.
+
+The default import still refuses a whole envelope over one conflict. Park mode
+applies the rest instead and sets the conflict aside:
+
+```bash
+vlab metadata import ../project-metadata --apply --park-conflicts
+```
+
+Each conflicting incoming record becomes the blob of one ref under
+`refs/vcs-lab/quarantine/<source-lineage>/<record-id>`, inspectable with
+`git cat-file -p`, listed by `vlab metadata status` beside the local digests it
+disputes, and excluded from every reader and from export. The namespace is local:
+nothing fetches or pushes it.
+
+A successful park exits 0, and the report names what was parked. Park mode exists
+so one disputed record cannot stop an exchange, so it does not signal failure for
+having done its job; read `summary.parkRecords` and the `parked` list, or
+`vlab metadata status`, to act on a dispute.
+
+A person then decides, once:
+
+```bash
+vlab metadata dispose <record-id> --keep-local --reason "the peer altered it"
+vlab metadata dispose <record-id> --replace-local
+```
+
+`--keep-local` removes the parked copy and returns the local record to service.
+`--replace-local` rewrites the local record to the parked content under the notes
+lock and returns that instead. Either way the decision is recorded in
+`<common-git-dir>/vcs-lab/dispositions.json` with the digest kept and the digests
+rejected, so the same disagreement arriving again is reported as already disposed
+rather than parked a second time. That registry is deliberately local: two clones
+may decide differently, and the disagreement between them is real.
+
+Git's own `git notes merge` is not a supported way to combine causal notes on
+either side of this: the manual strategy stops in a conflicted worktree, and
+`-s union` concatenates the containers into something vcs-lab reads as malformed,
+dropping every record on that attachment. See
+[ADR-0030](docs/adr/0030-define-conflict-policy-for-competing-causal-facts.md).
+
 ## Metadata locations
 
 - Git notes: `refs/notes/vcs-lab`
@@ -760,6 +814,8 @@ actor identity, landing authorization, or permission to execute content.
 - Saved forecasts: the current worktree Git directory under `vcs-lab/forecasts/<forecast-id>.json`
 - Workspace registry: the common Git directory under `vcs-lab/workspaces.json`
 - Checkpoints: `refs/vcs-lab/checkpoints/<workspace-id>`
+- Parked conflicting records: `refs/vcs-lab/quarantine/<source-lineage>/<record-id>`
+- Conflict dispositions: the common Git directory under `vcs-lab/dispositions.json`
 - Reusable resolution blobs: `refs/vcs-lab/resolutions/<signature>/<result-blob>`
 - Portable spec manifests: `.vcs-lab/specs/**/*.json`
 

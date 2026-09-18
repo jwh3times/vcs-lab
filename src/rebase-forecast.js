@@ -249,6 +249,7 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     ontoRef: plan.ontoRef,
     ontoHead: plan.ontoHead,
     ontoTree: plan.ontoTree,
+    quarantinedFacts: plan.quarantinedFacts ?? [],
     targetWorktree: context.root,
     scope: "committed-heads",
     ignoredCallerDirtyFiles: ignoredDirtyFiles(before.status),

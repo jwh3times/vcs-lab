@@ -267,15 +267,45 @@ function releaseNotesLock(lockPath) {
 }
 
 /**
- * Append one record to a commit's note container, under the notes lock so a
- * second publisher's append between the read and the write cannot be lost.
- * Replacing the whole blob requires refusing to rewrite a
- * note it could not fully read: a container of another version, or one over
- * a published resource bound, would otherwise be destroyed by the rewrite
- * (ADR-0020). Publishing a receipt fails closed instead, leaving the existing
- * note byte-for-byte intact.
+ * Append one record to a commit's note container. `rewriteNote` below states
+ * the locking and fail-closed rules every write to a container follows.
  */
 export function appendNote(commit, record, cwd = process.cwd(), options = {}) {
+  return rewriteNote(commit, (records) => [...records, record], [record], cwd, options);
+}
+
+/**
+ * Replace the record `recordId` names on `commit` with `replacement`, leaving
+ * every other record in the container untouched. This is the `replace-local`
+ * half of a conflict disposition (ADR-0030): the only case in which vcs-lab
+ * rewrites the content of a record it already published, and only because a
+ * person has explicitly decided that the peer's copy is the true one.
+ */
+export function replaceNoteRecord(commit, recordId, replacement, cwd = process.cwd(), options = {}) {
+  return rewriteNote(commit, (records) => {
+    const index = records.findIndex((record) => record.id === recordId);
+    if (index === -1) {
+      throw new CliError(`The note on '${commit}' holds no record '${recordId}'.`,
+        { code: "not-found" });
+    }
+    const next = [...records];
+    next[index] = replacement;
+    return next;
+  }, [replacement], cwd, options);
+}
+
+/**
+ * The one path that rewrites a note container, under the notes lock so a
+ * second publisher's write between the read and the update cannot be lost.
+ * Replacing the whole blob requires refusing to rewrite a note it could not
+ * fully read: a container of another version, or one over a published resource
+ * bound, would otherwise be destroyed by the rewrite (ADR-0020). Publishing
+ * fails closed instead, leaving the existing note byte-for-byte intact.
+ *
+ * `transform` maps the container's records to their replacement; `retain` names
+ * the records whose referenced objects this write must keep reachable.
+ */
+function rewriteNote(commit, transform, retain, cwd, options = {}) {
   return withNotesLock(cwd, () => {
     const previousNotes = refTarget(`refs/notes/${NOTES_REF}`, cwd);
     const previousRetention = refTarget(RETENTION_REF, cwd);
@@ -303,7 +333,7 @@ export function appendNote(commit, record, cwd = process.cwd(), options = {}) {
         },
       );
     }
-    note.records.push(record);
+    note.records = transform(note.records);
     if (!withinBound("noteContainerRecords", note.records.length)) {
       throw new CliError(
         `The note on '${commit}' would exceed the noteContainerRecords bound of ` +
@@ -313,7 +343,10 @@ export function appendNote(commit, record, cwd = process.cwd(), options = {}) {
     if (!withinBound("noteContainerBytes", Buffer.byteLength(`${JSON.stringify(note, null, 2)}\n`))) {
       throw new CliError("The resulting note exceeds the noteContainerBytes bound.", { code: "resource-bound-exceeded" });
     }
-    const dependencies = recordDependencies([{ attachment: commit, record }], cwd);
+    const dependencies = recordDependencies(
+      retain.map((item) => ({ attachment: commit, record: item })),
+      cwd,
+    );
     // The window between the read and the write, where a second publisher's
     // append would be lost without the lock; the failure-boundary suite parks
     // a process here to prove the lock closes it.

@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- Implement the ADR-0030 conflict policy (issue #102). Identity is the only
+  conflict key, and every reader now applies the same one: `readCausalRecordCatalog`
+  builds its conflict set from both an identifier duplicated inside the notes tree
+  and an identifier a parked incoming copy disputes, so the planner, the resolution
+  catalog, and `vlab metadata status` cannot disagree about which facts exist. A
+  conflicted fact contributes nothing on either side, and the plan, the stored
+  forecast, and the published receipt carry a `quarantinedFacts` list naming the
+  reachable identifiers that were excluded, so a reviewer can see that coverage
+  rested on reduced evidence. It is deliberately outside every plan fingerprint: a
+  quarantine that changes a classification already changes `changes`, and hashing
+  it would invalidate stored forecasts for no behavioral reason. Nothing blocks.
+
+  `vlab metadata import --apply --park-conflicts` applies the non-conflicting
+  records and refs atomically and writes each conflicting incoming record, with
+  its envelope hash and source lineage, as the blob of one ref under
+  `refs/vcs-lab/quarantine/<lineage>/<record id>`. The default import keeps its
+  refuse-whole-envelope behavior; park mode is the only mode an automatic
+  transport may use. Parked records are inspectable with `git cat-file -p`, listed
+  by `vlab metadata status` beside the local digests they dispute, and excluded
+  from every reader and from export. The namespace is local, so nothing fetches or
+  pushes it.
+
+  `vlab metadata dispose <record id> --keep-local|--replace-local [--reason]`
+  resolves one dispute: keep-local removes the parked copy, replace-local rewrites
+  the local record to the parked content under the notes lock, and both record a
+  `vcs-lab.disposition/v1` entry naming the digest kept and the digests rejected.
+  A later exchange carrying a rejected digest is reported as already disposed
+  rather than parked again. The registry is shared-local on purpose: two clones
+  may dispose the same conflict differently, and that disagreement is real.
+
+  New families `vcs-lab.quarantined-record/v1`, `vcs-lab.dispositions/v1`, and
+  `vcs-lab.disposition/v1` are registered in `RECORD_FAMILIES` and published in
+  the schema catalog and the compatibility table in the same commit, all
+  shared-local and all refused on an unknown version; `noteContainerBytes` now
+  also bounds a parked-record blob. `vcs-lab.metadata-disposition/v1` is the new
+  command output. The `disposition` logical-ID namespace is added, which
+  `docs/identity/` already permits inside v1; that table also regains `prov`,
+  which had been missing from it. Every addition to an existing document is an
+  optional member, so no version moves.
+
 - Accept ADR-0028 through ADR-0033 (owner decisions, 2026-09-17). Target
   overlays (#26), declared lineage bridges with local-only acceptance built
   with envelope v2 (#43), the conflict policy with park-and-dispose (#44), proof

@@ -56,6 +56,9 @@ version in `also read` is migrated forward as section 3 describes.
 | `vcs-lab.rebase-forecast` | private | v1 | — | refuse | `<git dir>/vcs-lab/forecasts/<id>.json` |
 | `vcs-lab.workspaces` | shared-local | v1 | — | refuse | `<common dir>/vcs-lab/workspaces.json` |
 | `vcs-lab.workspace` | shared-local | v1 | — | refuse | entries of `<common dir>/vcs-lab/workspaces.json` |
+| `vcs-lab.quarantined-record` | shared-local | v1 | — | refuse | refs/vcs-lab/quarantine/<lineage>/<record id> blobs |
+| `vcs-lab.dispositions` | shared-local | v1 | — | refuse | `<common dir>/vcs-lab/dispositions.json` |
+| `vcs-lab.disposition` | shared-local | v1 | — | refuse | entries of `<common dir>/vcs-lab/dispositions.json` |
 | `vcs-lab.spec-manifest` | tracked | v4 | v1, v2, v3 | refuse | `.vcs-lab/specs/**` |
 | `vcs-lab.metadata-envelope` | envelope | v1 | — | refuse | `manifest.json` of a metadata export directory |
 
@@ -93,6 +96,15 @@ The rule follows from who wrote the record and what is lost by guessing.
   which worktrees vcs-lab materialized, and every mutation rewrites the whole
   file, so consuming a version we do not understand would silently drop its
   members.
+- **The disposition registry is refused, and so is a parked record.** Both are
+  shared-local, both are written only by this build, and both carry a decision a
+  person made: the registry says which digest of a disputed fact was kept, and a
+  parked record is the copy that lost. Interpreting either from a version we do
+  not understand could return the wrong copy of a causal fact to service, so the
+  command refuses and says which build to read it with. `vlab metadata status`
+  is the exception its scope already allows: it reports an unreadable parked
+  record as a diagnostic and keeps scanning, exactly as it does for a
+  workspace registry it cannot parse (ADR-0030).
 - **Tracked spec manifests are refused forward and migrated backward.** They are
   committed, derived, and rebuildable, so an unreadable one is repaired by
   re-indexing rather than guessed at.
@@ -159,7 +171,7 @@ tracked, or imported input refuses the command.
 
 | Bound | Bytes or count | Applies to | On excess |
 | --- | --- | --- | --- |
-| `noteContainerBytes` | 8388608 | One `refs/notes/vcs-lab` note blob | Quarantine: no records, `oversize-record` warning from `vlab metadata status`, and `appendNote` refuses to rewrite it |
+| `noteContainerBytes` | 8388608 | One `refs/notes/vcs-lab` note blob, and one `refs/vcs-lab/quarantine/**` parked-record blob | Quarantine: no records, `oversize-record` warning from `vlab metadata status`, and `appendNote` refuses to rewrite it. A parked blob over the bound is reported by `vlab metadata status` and refused by `vlab metadata dispose`; parking a record that would cross it is refused |
 | `noteContainerRecords` | 4096 | Records in one note container | Quarantine, as above; an append that would cross the bound is refused |
 | `localStateBytes` | 67108864 | One `vcs-lab/**` JSON file in the git or common directory | Refuse before reading the file |
 | `specManifestBytes` | 8388608 | One `.vcs-lab/specs/**` manifest, in the working tree or at a revision | Refuse |
