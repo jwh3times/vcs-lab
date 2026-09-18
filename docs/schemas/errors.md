@@ -132,6 +132,7 @@ code is a defect, not a category.
 | --- | --- |
 | `unsupported-feature` | The prototype does not implement this case. The message names the supported set. |
 | `unsupported-repository-shape` | The repository's history or object format is outside what this operation supports. |
+| `unsupported-range` | The named commit range is not one this operation can execute. The message says which rule it broke; name a range from an ancestor up to a branch tip. |
 
 ### Defects
 

@@ -99,12 +99,18 @@ on reduced evidence, only when the list is non-empty — an empty list is the
 ordinary case, and a line reading `quarantined  0` in every plan would be noise
 a reader learns to skip past.
 
-It is therefore declared in neither `required` nor `jsonOnly`: the fixtures run
-against a clean repository, where an `exact` or `count` rule would be satisfied
-by any stray `0` in the summary line rather than by the member. What pins the
-rendering instead is `test/conflict-policy.test.js`, which parks a conflict and
-asserts the line appears. If the plan ever prints the empty case too, move the
-member into `required` here and drop this paragraph.
+`range` and `excludedByRange` on the rebase plan and receipt are the same shape:
+the range line prints only when a caller named one, and the excluded list only
+when something is excluded, because every plan carrying `range 0 commits excluded`
+would be noise in the ordinary case.
+
+These are therefore declared in neither `required` nor `jsonOnly`: the fixtures
+run against a clean repository, where an `exact` or `count` rule would be
+satisfied by any stray `0` in the summary line rather than by the member. What
+pins the rendering instead is `test/conflict-policy.test.js`, which parks a
+conflict and asserts the line appears, and `test/rebase-ranges.test.js`, which
+names a range and asserts the same. If either renderer ever prints the empty case
+too, move the member into `required` here and drop this paragraph.
 
 ### Fixed rather than declared
 

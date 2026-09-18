@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- Generalize causal rebase to explicit linear ranges (issue #27; ADR-0032).
+  `--from <base>` names the exclusive lower bound of the source set on
+  `rebase-plan`, `rebase-forecast`, and `rebase`. Without it the base is the
+  physical merge base, so a v1 plan is unchanged — the suite builds the same plan
+  both ways and compares it, fingerprint included, because the generalization is
+  only safe if it leaves v1 alone.
+
+  A range moves only where the change list starts. `physicalBase` keeps its
+  meaning and the effective-base and candidate logic still read it, so a commit
+  below the range base is *absent* from `changes` rather than filtered out of it
+  afterwards: there is no member left for it to linger in and nothing that could
+  classify, absorb, or cover it. What the caller leaves behind is declared
+  instead — the plan and the summary receipt carry `excludedByRange` with commit,
+  `Change-Id`, and subject for each one. Nothing is dropped silently, and nothing
+  is proven about it either.
+
+  Three shapes are refused with the new `unsupported-range` code: a base that is
+  not an ancestor of the tip, a base that is the tip, and a tip that is not a
+  branch tip. The last would need the commits after it re-parented, which is
+  interactive editing (#30) rather than something a linear range does quietly.
+
+  The forecast pins `range.base` beside the heads and trees it already pinned, and
+  the plan fingerprint covers the base, so an approval for one range refuses to
+  authorize another and says which two ranges disagreed. `range.explicit` is
+  deliberately outside the fingerprint: naming the same base is the same range.
+  Per-commit origin/result mapping, unexpected-empty blocking, and abort are
+  unchanged.
+
 - Bind a proof bundle to Git's own objects, so a verifier without the repository
   can check it (issue #36, FR-PLAN-08; ADR-0031). `vcs-lab.proof-bundle/v2` is a
   strict superset of v1: the v1 members and the repository-backed comparison are

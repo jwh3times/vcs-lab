@@ -111,7 +111,7 @@ function chooseEffectiveBase(physicalBase, receipts, sourceHead, cwd) {
   return { commit: effective, reason };
 }
 
-function buildMergePlanInSession(targetRef, sourceRef, cwd) {
+function buildMergePlanInSession(targetRef, sourceRef, cwd, options = {}) {
   const [targetHead, sourceHead] = resolveObjectIds(
     [`${targetRef}^{commit}`, `${sourceRef}^{commit}`],
     cwd,
@@ -126,7 +126,11 @@ function buildMergePlanInSession(targetRef, sourceRef, cwd) {
   const direct = directChangeCoverage(targetHead, cwd);
   const receipt = receiptCoverage(direct.commits, cwd);
   const candidates = patchCandidates(targetHead, sourceHead, physicalBase, cwd);
-  const sourceHistory = sourceChanges(physicalBase, sourceHead, cwd);
+  // The lower bound of the source set. Without an explicit range this is the
+  // physical merge base, so a v1 plan is unchanged; with one, the commits below
+  // it are the caller's declared omission and never enter the plan at all.
+  const rangeBase = options.rangeBase ?? physicalBase;
+  const sourceHistory = sourceChanges(rangeBase, sourceHead, cwd);
   const effectiveBase = chooseEffectiveBase(
     physicalBase,
     receipt.receipts,
@@ -189,6 +193,7 @@ function buildMergePlanInSession(targetRef, sourceRef, cwd) {
     effectiveBase,
     reachableReceipts: [...new Set(receipt.receipts.map((item) => item.id))],
     quarantinedFacts: receipt.quarantined,
+    rangeBase,
     counts,
     changes,
   };
@@ -237,9 +242,9 @@ export function coverageEvidence(sourceRef, cwd = process.cwd()) {
   });
 }
 
-export function buildMergePlanBetween(targetRef, sourceRef, cwd = process.cwd()) {
+export function buildMergePlanBetween(targetRef, sourceRef, cwd = process.cwd(), options = {}) {
   return withGitObjectSession(cwd, () =>
-    buildMergePlanInSession(targetRef, sourceRef, cwd),
+    buildMergePlanInSession(targetRef, sourceRef, cwd, options),
   );
 }
 
