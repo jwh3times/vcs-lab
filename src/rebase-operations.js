@@ -506,6 +506,7 @@ function finalizeRebase(operation, cwd) {
     physicalBase: operation.plan.physicalBase,
     effectiveBase: operation.plan.effectiveBase,
     planFingerprint: operation.plan.fingerprint,
+    quarantinedFacts: operation.plan.quarantinedFacts ?? [],
     acceptCandidates: operation.acceptCandidates,
     candidatePolicy: operation.candidatePolicy,
     omitted: operation.plan.omitted,

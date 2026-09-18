@@ -428,7 +428,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-PROTO-02 | P1 | Unknown newer schemas shall fail safely instead of being treated as trusted coverage. | Implemented for portable causal facts | Unknown or unsupported records are diagnosed and quarantined from coverage, resolution lookup, and export. |
 | FR-PROTO-03 | P1 | A metadata inventory shall enumerate notes, hidden refs, sidecars, worktree-private state, and required object reachability. | Implemented | `vlab metadata status --json` explains scope, completeness, and damage with stable codes. |
 | FR-PROTO-04 | P1 | Export/import shall preserve causal records and retained objects without requiring users to know internal refspecs. | Implemented experimentally | Deterministic Git-bundle envelopes round-trip between clones idempotently. |
-| FR-PROTO-05 | P1 | Imported metadata shall be validated for schema, referenced object existence, attachment reachability, and conflicting IDs. | Implemented | Corrupt, tampered, unrelated, dangling, and conflicting fixtures fail or are quarantined before mutation. |
+| FR-PROTO-05 | P1 | Imported metadata shall be validated for schema, referenced object existence, attachment reachability, and conflicting IDs. | Implemented | Corrupt, tampered, unrelated, dangling, and conflicting fixtures fail or are quarantined before mutation. An identifier naming different content is the conflict key of [ADR-0030](adr/0030-define-conflict-policy-for-competing-causal-facts.md), built in #102: one conflict set feeds every reader, plans and receipts carry `quarantinedFacts`, `--park-conflicts` parks the incoming copy under `refs/vcs-lab/quarantine/<lineage>/<record id>` while the default still refuses the whole envelope, and `vlab metadata dispose` records the human decision once. `test/conflict-policy.test.js` covers each row of the ADR's per-family table. |
 | FR-PROTO-06 | P2 | Remote synchronization shall advertise capabilities and negotiate schema versions. | Deferred | Requires a protocol gateway or cooperating server. |
 | FR-TRUST-01 | P0 | Local receipt presence shall never be described as cryptographic proof or authorization. | Implemented principle | User-facing docs distinguish causal evidence from trust. |
 | FR-TRUST-02 | P2 | Records may later be signed by actors whose keys and authorization scope are explicit. | Deferred | Signature envelope, key rotation, replay protection, and policy model are specified and tested. |
@@ -1003,7 +1003,16 @@ recorded in an ADR when it changes a durable decision.
    sources disagree?
    ([#44](https://github.com/jwh3times/vcs-lab/issues/44)). A per-family
    conflict policy is accepted in
-   [ADR-0030](adr/0030-define-conflict-policy-for-competing-causal-facts.md).
+   [ADR-0030](adr/0030-define-conflict-policy-for-competing-causal-facts.md)
+   and built in [#102](https://github.com/jwh3times/vcs-lab/issues/102): none
+   are merged when identities collide. A record identifier naming different
+   content is used by no reader on either side, the conclusion drawn without it
+   says so, the conflicting incoming copy parks under
+   `refs/vcs-lab/quarantine`, and a person disposes of it once. What remains
+   open is the transport that would run in park mode
+   ([#37](https://github.com/jwh3times/vcs-lab/issues/37),
+   [#40](https://github.com/jwh3times/vcs-lab/issues/40)) and which copy is
+   *true*, which is question 4.
 3. Should logical Change IDs be repository-scoped, globally namespaced, or
    issuer-qualified? **Answered in v0.12.0** by the frozen
    `vcs-lab.logical-id/v1` protocol ([docs/identity](identity/README.md)):

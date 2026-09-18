@@ -15,6 +15,12 @@ import { sha256 } from "./ids.js";
 import { canonicalJson as profileCanonicalJson } from "./canonical-json.js";
 import { normalizeMarkdown } from "./specs.js";
 import {
+  listParkedRecords,
+  parkedRecordIds,
+  QUARANTINE_REFS,
+  readDispositions,
+} from "./quarantine.js";
+import {
   METADATA_LINEAGE_ALGORITHM,
   METADATA_STATUS_SCHEMA,
   METADATA_VALIDATION_SCHEMA,
@@ -294,7 +300,13 @@ function validatePortableNotes(context, diagnostics, options) {
     };
   });
 
-  const conflictingIds = duplicatedRecordIds(structural.map((entry) => entry.record));
+  // Identity is the only conflict key, and it is one key with two sources: the
+  // same id twice in this tree, or the same id disputed by a parked incoming
+  // copy. A conflicted fact contributes nothing on either side (ADR-0030), so
+  // both sources quarantine the local record.
+  const parked = options.parkedRecordIds ?? new Set();
+  const duplicated = duplicatedRecordIds(structural.map((entry) => entry.record));
+  const conflictingIds = new Set([...duplicated, ...parked]);
 
   const references = structural
     .filter((entry) => entry.structurallyValid)
@@ -393,19 +405,24 @@ function validatePortableNotes(context, diagnostics, options) {
 
     const digest = entry.digest;
     if (typeof record.id === "string" && conflictingIds.has(record.id)) {
+      const code = duplicated.has(record.id)
+        ? "record-id-conflict"
+        : "parked-record-conflict";
       if (!diagnosedConflicts.has(record.id)) {
         addDiagnostic(
           diagnostics,
-          "record-id-conflict",
+          code,
           "error",
           "shared-portable",
           record.id,
-          "The same record ID names different metadata facts.",
+          code === "record-id-conflict"
+            ? "The same record ID names different metadata facts."
+            : "A parked incoming copy disputes this record; neither copy is used until it is disposed of.",
           { attachment: entry.attachment },
         );
         diagnosedConflicts.add(record.id);
       }
-      codes.push("record-id-conflict");
+      codes.push(code);
       valid = false;
     }
 
@@ -546,7 +563,7 @@ function validateSpecs(context, diagnostics) {
   };
 }
 
-function validateSharedLocal(context, diagnostics) {
+function validateSharedLocal(context, diagnostics, localDigests) {
   const runtime = path.join(context.commonDir, "vcs-lab");
   const workspacePath = path.join(runtime, "workspaces.json");
   let registry = { present: false, schema: null, count: 0, workspaces: [] };
@@ -633,6 +650,79 @@ function validateSharedLocal(context, diagnostics) {
       historyRefs: checkpointHistoryRefs,
       totalRefCount: allCheckpointRefs.length,
     },
+    quarantine: inspectQuarantine(context, diagnostics, localDigests),
+    dispositions: inspectDispositions(context, diagnostics),
+  };
+}
+
+/**
+ * The parked conflicts, each listed beside every local digest it disputes
+ * (ADR-0030). This is the only place a person sees both sides of a disagreement
+ * at once, which is what the disposition commands act on.
+ */
+function inspectQuarantine(context, diagnostics, localDigests) {
+  const records = listParkedRecords(context.root).map((entry) => {
+    if (!entry.readable) {
+      addDiagnostic(
+        diagnostics,
+        entry.reason === "oversize-record" ? "oversize-record" : "malformed-record",
+        "error",
+        "shared-local",
+        entry.ref,
+        `The parked record at '${entry.ref}' is not readable: ${entry.reason}.`,
+      );
+    }
+    return {
+      ref: entry.ref,
+      recordId: entry.recordId,
+      sourceLineage: entry.sourceLineage,
+      readable: entry.readable,
+      digest: entry.payload?.digest ?? null,
+      attachment: entry.payload?.attachment ?? null,
+      schema: entry.payload?.record?.schema ?? null,
+      type: entry.payload?.record?.type ?? null,
+      envelopeHash: entry.payload?.envelopeHash ?? null,
+      parkedAt: entry.payload?.parkedAt ?? null,
+      // Every local digest that carries this id, so a parked dispute against a
+      // record that is itself duplicated locally shows all of the sides.
+      localDigests: [...(localDigests.get(entry.recordId) ?? [])].sort(),
+    };
+  });
+  return {
+    namespace: `${QUARANTINE_REFS}/*`,
+    refCount: records.length,
+    records,
+  };
+}
+
+function inspectDispositions(context, diagnostics) {
+  let registry;
+  try {
+    registry = readDispositions(context.root);
+  } catch (error) {
+    addDiagnostic(
+      diagnostics,
+      error?.code === "unknown-schema-version" ? "unknown-schema" : "malformed-record",
+      "error",
+      "shared-local",
+      path.join(context.commonDir, "vcs-lab", "dispositions.json"),
+      error?.message ?? "The disposition registry could not be read.",
+    );
+    return { present: false, schema: null, count: 0, dispositions: [] };
+  }
+  return {
+    present: registry.dispositions.length > 0,
+    schema: registry.schema ?? null,
+    count: registry.dispositions.length,
+    dispositions: registry.dispositions.map((entry) => ({
+      id: entry.id ?? null,
+      recordId: entry.recordId ?? null,
+      outcome: entry.outcome ?? null,
+      keptDigest: entry.keptDigest ?? null,
+      rejectedDigests: [...(entry.rejectedDigests ?? [])].sort(),
+      reason: entry.reason ?? null,
+      decidedAt: entry.decidedAt ?? null,
+    })),
   };
 }
 
@@ -747,7 +837,14 @@ export function metadataSnapshot(options = {}) {
 
 function takeSnapshot(context, options) {
   const diagnostics = [];
-  const portable = validatePortableNotes(context, diagnostics, options);
+  // One `for-each-ref` over the quarantine namespace, before the notes are
+  // classified: what is parked decides which local records may be used, and
+  // the identifiers are readable from the ref names without touching a blob.
+  const parked = options.parkedRecordIds ?? parkedRecordIds(context.root);
+  const portable = validatePortableNotes(context, diagnostics, {
+    ...options,
+    parkedRecordIds: parked,
+  });
   const trackedPortable = options.portableOnly ? {
     manifestCount: 0,
     bySchema: {},
@@ -763,7 +860,17 @@ function takeSnapshot(context, options) {
       historyRefs: [],
       totalRefCount: 0,
     },
-  } : validateSharedLocal(context, diagnostics);
+    quarantine: { namespace: `${QUARANTINE_REFS}/*`, refCount: 0, records: [] },
+    dispositions: { present: false, schema: null, count: 0, dispositions: [] },
+  } : validateSharedLocal(
+    context,
+    diagnostics,
+    portable.notes.records.reduce((byId, record) => {
+      if (typeof record.id !== "string") return byId;
+      byId.set(record.id, [...(byId.get(record.id) ?? []), record.digest]);
+      return byId;
+    }, new Map()),
+  );
   const worktreePrivate = options.portableOnly ? {
     worktreeCount: 0,
     pendingOperationCount: 0,
@@ -837,7 +944,17 @@ export function readCausalRecordCatalog(cwd = process.cwd()) {
       records.push({ ...record, attachedTo: entry.target });
     }
   }
-  return { records, conflictingIds: duplicatedRecordIds(records) };
+  // Both sources of an identity conflict, in one set: a duplicated id in this
+  // tree and an id a parked incoming copy disputes (ADR-0030). A reader that
+  // saw only the first would keep proving coverage from a fact this repository
+  // has already been told is disputed.
+  return {
+    records,
+    conflictingIds: new Set([
+      ...duplicatedRecordIds(records),
+      ...parkedRecordIds(context.root),
+    ]),
+  };
 }
 
 /**

@@ -292,6 +292,14 @@
     },
     "attachedTo": {
       "$ref": "#/$defs/oid"
+    },
+    "quarantinedFacts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Identifiers reachable from the target that the conflict rule excluded, so a reviewer can see that coverage was computed on reduced evidence (ADR-0030). Absent in records written before v0.15.0; an empty array means nothing was excluded. Deliberately outside every plan fingerprint."
     }
   },
   "$defs": {

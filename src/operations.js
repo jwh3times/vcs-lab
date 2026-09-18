@@ -361,6 +361,7 @@ function finalizeReconciliation(operation, cwd) {
     absorbedChanges: covered.map((change) => change.changeId),
     applied,
     forkedSourceCommits: [...forkedOrigins],
+    quarantinedFacts: operation.plan.quarantinedFacts ?? [],
     targetTreeBefore: operation.plan.targetTree,
     sourceTree: operation.plan.sourceTree,
     resultTree,

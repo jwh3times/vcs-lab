@@ -96,6 +96,7 @@ import {
 import { metadataStatus, validateMetadata } from "./metadata.js";
 import { retainMetadata, formatRetention } from "./retention.js";
 import { exportMetadata, importMetadata } from "./metadata-transfer.js";
+import { disposeConflict } from "./dispositions.js";
 import { benchmarkRepositoryScale } from "./scale-benchmark.js";
 
 const HELP = `vcs-lab — Git-backed experiments for causal source control
@@ -136,8 +137,9 @@ Usage:
   vlab metadata validate [--strict] [--json]
   vlab metadata retain --dry-run|--apply [--json]
   vlab metadata export <directory> [--json]
-  vlab metadata import <directory> --dry-run [--json]
-  vlab metadata import <directory> --apply [--json]
+  vlab metadata import <directory> --dry-run [--park-conflicts] [--json]
+  vlab metadata import <directory> --apply [--park-conflicts] [--json]
+  vlab metadata dispose <record-id> --keep-local|--replace-local [--reason <text>] [--json]
   vlab metadata benchmark [--history <n>] [--workspaces <n>] [--notes <n>] [--resolutions <n>] [--areas <n>] [--files-per-area <n>] [--samples <n>] [--budget-ms <n>] [--json]
   vlab workspace create <name> [--from <ref>] [--path <directory>] [--owner <name>] [--focus <text>] [--cone <dir,dir>] [--json]
   vlab workspace list
@@ -181,7 +183,7 @@ function parseArgs(args) {
   // Declared provenance can name several actors on one commit (FR-ID-08), so
   // these accumulate instead of the last one winning.
   const repeatableFlags = new Set(["--authored-by", "--generated-by", "--reviewed-by"]);
-  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--cone", "--label", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks", "--history", "--workspaces", "--notes", "--resolutions", "--budget-ms", "--areas", "--files-per-area"]);
+  const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--cone", "--label", "--reason", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks", "--history", "--workspaces", "--notes", "--resolutions", "--budget-ms", "--areas", "--files-per-area"]);
   for (let index = 0; index < args.length; index += 1) {
     const item = args[index];
     if (valueFlags.has(item) || repeatableFlags.has(item)) {
@@ -306,10 +308,16 @@ function formatMetadataStatus(result, title = "Metadata status") {
     `resolutions  ${result.scopes.sharedPortable.resolutions.acceptedRefCount}/${result.scopes.sharedPortable.resolutions.refCount} refs accepted`,
     `specs        ${result.scopes.trackedPortable.consistentCount}/${result.scopes.trackedPortable.manifestCount} manifests consistent`,
     `local        ${result.scopes.sharedLocal.checkpoints.totalRefCount ?? result.scopes.sharedLocal.checkpoints.refCount} checkpoint refs; ${result.scopes.sharedLocal.workspaceRegistry.count} workspaces`,
+    `quarantine   ${result.scopes.sharedLocal.quarantine?.refCount ?? 0} parked records; ${result.scopes.sharedLocal.dispositions?.count ?? 0} dispositions`,
     `private      ${result.scopes.worktreePrivate.pendingOperationCount} operations; ${result.scopes.worktreePrivate.forecastCount} forecasts`,
     `diagnostics  ${result.summary.errors} errors, ${result.summary.warnings} warnings`,
     `integrity    ${result.summary.valid ? "valid" : "invalid"}; ${formatTrustState(result.trust)}`,
   ];
+  for (const parked of result.scopes.sharedLocal.quarantine?.records ?? []) {
+    lines.push(
+      `  # parked ${parked.recordId} from ${parked.sourceLineage.slice(0, 16)} disputes ${parked.localDigests.length} local cop${parked.localDigests.length === 1 ? "y" : "ies"}`,
+    );
+  }
   for (const diagnostic of result.diagnostics) {
     lines.push(`  ${diagnostic.severity === "error" ? "!" : "?"} ${diagnostic.code}: ${diagnostic.subject}`);
   }
@@ -328,15 +336,48 @@ function formatMetadataTransfer(result) {
       `trust        integrity only; ${formatTrustState(result.trust)}`,
     ].join("\n");
   }
-  return [
+  const lines = [
     result.applied ? "Metadata import applied" : "Metadata import preview",
     `path         ${result.path}`,
+    `mode         ${result.mode ?? "refuse-conflicts"}`,
     `lineage      ${result.repository.lineageRelation}`,
     `records      ${result.summary.addRecords} add, ${result.summary.noopRecords} unchanged`,
     `refs         ${result.summary.createRefs} create, ${result.summary.mergeRefs} merge, ${result.summary.noopRefs} unchanged`,
     `conflicts    ${result.summary.conflicts}`,
+  ];
+  if (result.summary.parkRecords) {
+    lines.push(
+      `parked       ${result.summary.parkRecords} conflicting record${result.summary.parkRecords === 1 ? "" : "s"} under refs/vcs-lab/quarantine`,
+    );
+    for (const entry of result.records.filter((item) => item.action === "park")) {
+      lines.push(`  ! ${entry.id} disputes the local copy; resolve it with vlab metadata dispose`);
+    }
+  }
+  if (result.summary.disposedRecords) {
+    lines.push(
+      `disposed     ${result.summary.disposedRecords} record${result.summary.disposedRecords === 1 ? "" : "s"} already rejected here; not parked again`,
+    );
+  }
+  lines.push(
     `applicable   ${result.summary.applicable ? "yes" : "no"}`,
     `trust        integrity only; ${formatTrustState(result.trust)}`,
+  );
+  return lines.join("\n");
+}
+
+function formatDisposition(result) {
+  const entry = result.disposition;
+  return [
+    `Conflict disposed: ${entry.outcome}`,
+    `record       ${entry.recordId} (${result.record.schema ?? "unknown schema"})`,
+    `attachment   ${entry.attachment}`,
+    `kept         ${entry.keptDigest}`,
+    `rejected     ${entry.rejectedDigests.join(", ")}`,
+    `parked ref   ${result.parkedRef} (${result.parkedRemoved ? "removed" : "still present"})`,
+    `reason       ${entry.reason ?? "(none given)"}`,
+    result.record.inService
+      ? "The record is in service again; the decision is local and is never exported."
+      : `The dispute is resolved, but the record is still quarantined: ${result.record.diagnostics.join(", ") || "see vlab metadata status"}.`,
   ].join("\n");
 }
 
@@ -1405,9 +1446,28 @@ export async function main(rawArgs) {
         const result = importMetadata(source, {
           dryRun: options.dryRun,
           apply: options.apply,
+          parkConflicts: options.parkConflicts,
         });
         print(options.json ? result : formatMetadataTransfer(result), options.json);
         if (!result.summary.applicable) process.exitCode = 1;
+        return;
+      }
+      if (subcommand === "dispose") {
+        const recordId = requireValue(
+          positionals[1],
+          "vlab metadata dispose <record-id> --keep-local|--replace-local",
+        );
+        if (Boolean(options.keepLocal) === Boolean(options.replaceLocal)) {
+          throw new CliError(
+            "Choose exactly one of --keep-local or --replace-local for a disposition.",
+            { code: "usage-conflicting-options" },
+          );
+        }
+        const result = disposeConflict(recordId, {
+          outcome: options.keepLocal ? "keep-local" : "replace-local",
+          reason: options.reason,
+        });
+        print(options.json ? result : formatDisposition(result), options.json);
         return;
       }
       if (subcommand === "benchmark") {
@@ -1424,7 +1484,7 @@ export async function main(rawArgs) {
         print(options.json ? result : formatScaleBenchmark(result), options.json);
         return;
       }
-      throw new CliError("Unknown metadata command. Use status, validate, retain, export, import, or benchmark.",
+      throw new CliError("Unknown metadata command. Use status, validate, retain, export, import, dispose, or benchmark.",
         { code: "usage-unknown-command" });
     }
     case "workspace": {

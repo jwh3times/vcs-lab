@@ -719,6 +719,9 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
     acceptCandidates: Boolean(options.acceptCandidates),
     candidateDecisionRequired,
     planFingerprint: planFingerprint(plan),
+    // Lifted out of the embedded plan so a reader of the forecast alone sees
+    // that coverage rested on reduced evidence (ADR-0030).
+    quarantinedFacts: plan.quarantinedFacts ?? [],
     plan,
     ...simulationResult,
     engine,

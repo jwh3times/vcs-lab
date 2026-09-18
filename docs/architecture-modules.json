@@ -71,6 +71,14 @@
     "responsibility": "Sanitized bundle export, dry-run inspection, conflict planning, staging, and atomic ref import",
     "dependencies": "Metadata, envelope, Git"
   },
+  "src/quarantine.js": {
+    "responsibility": "The conflict policy's two local stores: parked conflicting records as one blob-bearing ref each under `refs/vcs-lab/quarantine/<lineage>/<record id>`, and the shared-local disposition registry (ADR-0030)",
+    "dependencies": "`src/engine.js`, `src/git.js`, `src/store.js`, `src/schemas.js`"
+  },
+  "src/dispositions.js": {
+    "responsibility": "Resolving one parked conflict: keep-local or replace-local, the note rewrite it implies, and the recorded decision that stops the same disagreement being reported twice (ADR-0030)",
+    "dependencies": "`src/quarantine.js`, `src/metadata.js`, `src/notes.js`"
+  },
   "src/git-carriers.js": {
     "responsibility": "Copy-on-write notes trees, typed dependency closure, bounded carrier parents, and checked ref commands",
     "dependencies": "Engine, Git writes, schemas"

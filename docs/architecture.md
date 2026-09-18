@@ -123,6 +123,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `bin/vlab.js` | Minimal executable entry point and error/exit boundary | `src/cli.js` |
 | `src/canonical-json.js` | The frozen `vcs-lab.canonical-json/v1` profile: RFC 8785 restricted to UTF-16-code-unit-sorted members and safe integers, refusing what it cannot serialize byte-identically | None |
 | `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
+| `src/dispositions.js` | Resolving one parked conflict: keep-local or replace-local, the note rewrite it implies, and the recorded decision that stops the same disagreement being reported twice (ADR-0030) | `src/quarantine.js`, `src/metadata.js`, `src/notes.js` |
 | `src/engine.js` | The read-side engine seam: the catalog of 40 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison | `src/git.js`, `src/native-engine.js` |
 | `src/errors.js` | Expected CLI error type carrying a classification code from the closed `ERROR_CODES` vocabulary of the `vcs-lab.error/v1` failure envelope (ADR-0021) | None |
 | `src/faults.js` | Test-only deterministic fault injection: `VLAB_TEST_FAULT` turns one named point on a mutating path into a hard `process.exit`; `VLAB_TEST_GATE` holds a process at a named point until a test releases it | None |
@@ -144,6 +145,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/pending-operation.js` | Safe reconciliation/rebase journal routing for shared conflict tools | Reconciliation and rebase state |
 | `src/proof-bundle.js` | Portable coverage proof bundles and their independent verifier, which applies its own copy of the lattice (`PROOF_RULES`) and compares the evidence with the repository | Merge plan, canonical JSON, metadata, engine |
 | `src/provenance.js` | Declared authorship provenance (`vcs-lab.provenance/v1`): the closed role vocabulary, `VLAB_AGENT`, declaration at commit time, and exact carry onto rewritten commits | Notes, IDs, schemas |
+| `src/quarantine.js` | The conflict policy's two local stores: parked conflicting records as one blob-bearing ref each under `refs/vcs-lab/quarantine/<lineage>/<record id>`, and the shared-local disposition registry (ADR-0030) | `src/engine.js`, `src/git.js`, `src/store.js`, `src/schemas.js` |
 | `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation | Rebase plan, forecast simulator, semantic version guards, Git adapter |
 | `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts | Rebase plan/forecast, Git, notes, specs, resolutions |
 | `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
@@ -253,6 +255,8 @@ identity belongs in tracked files.
 | Published object retention | Shared repository | `refs/vcs-lab/retention` | Monotonic derived carrier; envelopes rebuild from selected accepted facts |
 | Resolution result objects | Shared repository | `refs/vcs-lab/resolutions/<signature>/<result-blob>` | Hidden ref prevents GC; envelope transports accepted refs |
 | Workspace registry | Shared repository installation | `<common-git-dir>/vcs-lab/workspaces.json` | Local; not automatically remote-portable |
+| Parked conflicting records | Shared repository installation | `refs/vcs-lab/quarantine/<source-lineage>/<record-id>`, one blob per dispute | Local; nothing fetches or pushes the namespace. Removed by a disposition (ADR-0030) |
+| Conflict dispositions | Shared repository installation | `<common-git-dir>/vcs-lab/dispositions.json` | Local on purpose: two clones may dispose the same conflict differently, and the disagreement is real |
 | Checkpoints | Shared repository | Latest under `refs/vcs-lab/checkpoints/<workspace-id>`; prior snapshots under `refs/vcs-lab/checkpoint-history/<workspace-id>/<oid>` | Local immutable snapshots retained across materialization changes |
 | Pending reconciliation | One linked worktree | `<worktree-git-dir>/vcs-lab/reconciliation.json` | Cleared on complete/abort |
 | Pending causal rebase | One linked worktree | `<worktree-git-dir>/vcs-lab/rebase.json` | Cleared on complete/abort |
@@ -276,11 +280,14 @@ use at the current development baseline:
 | Family | Readable versions | Written versions | Store | Scope |
 | --- | --- | --- | --- | --- |
 | `vcs-lab.application` | v1, v4 | v1, v4 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.disposition` | v1 | v1 | `entries of <common dir>/vcs-lab/dispositions.json` | `shared-local` |
+| `vcs-lab.dispositions` | v1 | v1 | `<common dir>/vcs-lab/dispositions.json` | `shared-local` |
 | `vcs-lab.forecast` | v1, v2 | v2 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
 | `vcs-lab.landing` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.metadata-envelope` | v1 | v1 | `manifest.json of a metadata export directory` | `envelope` |
 | `vcs-lab.note` | v1 | v1 | `refs/notes/vcs-lab note blobs` | `note-container` |
 | `vcs-lab.provenance` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.quarantined-record` | v1 | v1 | `refs/vcs-lab/quarantine/<lineage>/<record id> blobs` | `shared-local` |
 | `vcs-lab.rebase` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.rebase-application` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.rebase-forecast` | v1 | v1 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
@@ -1125,6 +1132,57 @@ from branches, tags, and remote-tracking refs. Equal roots identify the same
 lineage; any shared root identifies an ordinary fork. Unrelated and
 history-filtered histories fail closed.
 
+### 15.2.0 Competing causal facts
+
+Two clones can hold different content under one record identifier. The policy is
+[ADR-0030](adr/0030-define-conflict-policy-for-competing-causal-facts.md), and
+identity is its only conflict key: a record id with a different digest, or a
+resolution ref with a different target. Two records with distinct identifiers
+never conflict, whatever they claim — two receipts of one family on one
+attachment commit are independent facts, because an ordinary re-run of
+`vlab reconcile` with everything already covered legitimately writes a second
+one.
+
+Four behaviours follow, and every reader implements the same one rule so the
+planner, the resolution catalog, and `vlab metadata status` cannot disagree
+about which facts exist:
+
+1. **A conflicted fact contributes nothing, on both sides.** Neither copy proves
+   coverage, serves as a resolution candidate, is displayed as provenance, or is
+   exported. `readCausalRecordCatalog` builds one conflict set from two sources:
+   an identifier duplicated inside the notes tree, and an identifier a parked
+   incoming copy disputes.
+2. **Evidence reduces; nothing blocks.** The affected change is classified from
+   what remains, so it moves down the ADR-0004 lattice to
+   `candidate-equivalent` or `new`, never up, and the plan, the forecast, and the
+   receipt carry a `quarantinedFacts` list naming what was excluded. A single
+   disputed record from a peer must never stop local work (NFR-SEC-03), and
+   replaying a change that was in fact landed is recoverable while omitting one
+   that was not is data loss.
+3. **Conflicts park.** `vlab metadata import` keeps its refuse-whole-envelope
+   default; `--park-conflicts` applies the non-conflicting records and refs
+   atomically and writes each conflicting incoming record, with its envelope hash
+   and source lineage, as the blob of one ref under
+   `refs/vcs-lab/quarantine/<lineage>/<record id>`. Park mode is the only mode an
+   automatic transport may use. Git's own `git notes merge` stays forbidden on
+   `refs/notes/vcs-lab`: the manual strategy stops in a conflicted worktree and
+   `-s union` concatenates the containers into something
+   `vlab metadata status` reads as `malformed-record`, dropping every record on
+   that attachment.
+4. **A person disposes, once.** `vlab metadata dispose <record id>
+   --keep-local|--replace-local` removes the parked copy and records a
+   `vcs-lab.disposition/v1` entry naming the digest kept and the digests
+   rejected, so a later exchange carrying a rejected digest is reported as
+   already disposed rather than parked again. The registry is shared-local and
+   never travels, because two clones may decide differently and that
+   disagreement is real.
+
+The parked blob's referenced objects are retained by the ordinary import
+retention commit, so a later `--replace-local` still has the objects its record
+names. Nothing here authenticates a claim: which copy is true remains the trust
+question of §15.3, and this policy only guarantees that neither copy is used
+until someone decides.
+
 ### 15.2.1 Logical identity is not authentication
 
 Logical identifiers are specified by `vcs-lab.logical-id/v1`
@@ -1235,6 +1293,10 @@ lock without rewriting history.
 | A record identifier names more than one fact | Report `record-id-conflict` and exclude every copy from coverage, the resolution catalog, proof evidence, and export; the planner reads the whole notes tree so it applies the same rule as the validator (issue #87). |
 | Envelope payload or inventory mismatch | Reject before destination mutation. |
 | Import ID/ref conflict | Report exact conflict during dry-run; never overwrite silently. |
+| Import ID conflict under `--park-conflicts` | Apply the rest atomically; write the incoming copy under `refs/vcs-lab/quarantine/<lineage>/<record id>`; report `parked-record-conflict` against the local copy so neither side proves coverage (ADR-0030). |
+| Import resolution-ref conflict under `--park-conflicts` | Leave the destination ref exactly where it pointed, park the incoming records that name it, and keep the rest of the exchange applicable. |
+| An arriving digest a disposition already rejected | Report it as `disposed` and neither apply nor park it again. |
+| A parked record this build cannot read | `vlab metadata status` reports it and keeps scanning; `vlab metadata dispose` refuses with the code its reason names. |
 | Import publication race/failure | Checked atomic ref transaction fails; existing destination facts remain intact. |
 | Two publishers write the notes ref at once | Serialized on the notes lock (§15.4); a lock whose holder is gone is abandoned, a running holder's is waited for and then refused with `notes-locked`. |
 | Temporary forecast worktree cleanup encounters in-progress Git state | Abort it best-effort, remove worktree, prune metadata. |
