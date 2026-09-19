@@ -302,6 +302,34 @@ disposition rather than requiring a caller to match English. One test pins the
 boundary: a global flag consumed before the argument parse keeps prose, because
 no output mode is known yet, while an unknown command is enveloped.
 
+`test/target-overlay.test.js` covers target-checkpoint forecasts
+([ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md)). Two of its
+ten cases carry the contract's central claim, that an overlay is context rather
+than a draft commit: one compares an overlaid forecast with a bare one and
+requires the plan, the fingerprint, and the committed predicted tree to be
+identical, and one requires the draft identity to appear in no plan entry and no
+receipt. If either fails, an overlay has become a causal fact, which is the thing
+the ADR exists to prevent.
+
+The suite is also where the second predicted tree earns its place. A checkpoint
+captures the *whole* worktree at its base, so re-materializing by writing that
+tree back would restore the pre-application version of every path the application
+touched — and during development it did exactly that, caught immediately by the
+prediction check rather than by a reader noticing lost work later. The test that
+applies an overlay asserts both trees: the committed history is what a
+committed-heads application would produce, and the worktree afterwards holds the
+draft, untracked file included.
+
+Reaching an abortable state with an overlay needs the repository's own fault
+injection. Without an approved overlay a dirty worktree is refused as it always
+was, so the only way in is a complete forecast — which would otherwise finish.
+`reconcile:before-journal-advance` stops it with a pick committed and the overlay
+still reduced away; `before-publish` would be too late, because the contract puts
+the overlay back before publishing. The last case deletes the checkpoint and
+garbage-collects underneath a paused operation, because "the tip is restored, the
+draft is reported lost, and the worktree is clean" is a promise worth testing
+rather than assuming.
+
 `test/rebase-ranges.test.js` covers explicit linear rebase ranges
 ([ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md)). Its
 first test is the one the rest depends on: a plan built with `--from` at the

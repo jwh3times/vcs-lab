@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- Implement target-checkpoint forecasts (issue #26; ADR-0028).
+  `--target-checkpoint` on `vlab forecast` and `vlab workspace forecast` pins one
+  checkpoint of the target workspace as an overlay: uncommitted work carried
+  through an application and put back afterwards.
+
+  An overlay is context, never a committed draft. It changes no coverage
+  decision — the plan, its fingerprint, and the committed predicted tree are
+  exactly what they are without one — its draft identity is display and audit
+  only, and no receipt mentions it. What the forecast adds is a second predicted
+  tree: the worktree after the overlay is re-materialized, computed as a
+  three-way merge of the target tree before application, the committed result,
+  and the overlay tree.
+
+  That merge is the definition of re-materialization, not an optimization. A
+  checkpoint captures the whole worktree at its base, so writing that tree back
+  over an applied result would restore the pre-application version of every path
+  the application touched and silently undo the work; the merge keeps the applied
+  changes and re-applies only the draft.
+
+  Nothing is captured on a user's behalf: uncommitted work with no checkpoint is
+  refused. Once approved, the live tree must still equal the overlay tree, or the
+  run refuses with the new `stale-overlay` code before touching anything — a
+  drifted worktree means the capture is behind, and the newer work is left alone.
+  A moved base head or a missing checkpoint object is `stale-forecast`.
+
+  Applying reduces the worktree to the committed head with the overlay safe in its
+  checkpoint, replays the changes, verifies the committed result tree, then
+  re-materializes the overlay and verifies it against the prediction; only then are
+  receipts published. A mismatch leaves `forecast-mismatch` with abort as the
+  recovery and publishes nothing. Abort restores the committed tip first and
+  unconditionally, then the captured worktree including untracked files; an overlay
+  whose object is gone is reported unrecoverable and the worktree left clean rather
+  than half-written.
+
 - Generalize causal rebase to explicit linear ranges (issue #27; ADR-0032).
   `--from <base>` names the exclusive lower bound of the source set on
   `rebase-plan`, `rebase-forecast`, and `rebase`. Without it the base is the

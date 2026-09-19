@@ -36,6 +36,7 @@ import {
   latestWorkspaceCheckpoint,
   listWorkspaces,
 } from "./workspaces.js";
+import { predictOverlayTree, resolveTargetOverlay } from "./target-overlay.js";
 import { CliError } from "./errors.js";
 import { assertReadableSchema } from "./schemas.js";
 import {
@@ -646,6 +647,9 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
         { code: "operation-in-progress" },
     );
   }
+  // Resolved before any planning, so a worktree that cannot supply an overlay
+  // refuses without having simulated anything.
+  const targetOverlay = options.targetCheckpoint ? resolveTargetOverlay(cwd) : null;
   const startedAt = new Date().toISOString();
   const started = performance.now();
   const gitMetrics = beginGitMetrics("forecast");
@@ -674,6 +678,27 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
     simulation.blockedReason = "heuristic-candidate-decision-required";
     simulation.predictedResultTree = null;
     simulation.exactStateEqualityAfter = null;
+  }
+  // The overlay prediction runs on trees, never on live bytes, so it cannot
+  // disturb the worktree the invariant check below is about to compare.
+  let overlayPrediction = null;
+  if (targetOverlay) {
+    overlayPrediction = simulation.predictedResultTree
+      ? predictOverlayTree({
+          baseTree: before.tree,
+          resultTree: simulation.predictedResultTree,
+          overlayTree: targetOverlay.tree,
+        }, cwd)
+      : { tree: null, conflict: null };
+    if (overlayPrediction.conflict) {
+      // An overlay that cannot be re-materialized is not an approval. The plan
+      // itself is untouched and still readable; what is withheld is the
+      // prediction an application would verify against.
+      simulation.status = "blocked-target-overlay";
+      simulation.blockedReason = overlayPrediction.conflict.reason;
+      simulation.predictedResultTree = null;
+      simulation.exactStateEqualityAfter = null;
+    }
   }
   const invariantStarted = performance.now();
   const [afterHead, afterTree] = resolveObjectIds(
@@ -712,7 +737,14 @@ function forecastReconciliationInSession(sourceRef, options, cwd) {
     sourceHead: plan.sourceHead,
     targetHead: plan.targetHead,
     targetWorktree: context.root,
-    scope: options.scope ?? "committed-heads",
+    // A distinct scope per overlay combination, so an approval cannot be read as
+    // covering a combination it was not made for (ADR-0028).
+    scope: options.scope ?? (targetOverlay ? "target-checkpoint" : "committed-heads"),
+    targetOverlay: targetOverlay
+      ? { ...targetOverlay, rematerialized: "uncommitted" }
+      : null,
+    predictedOverlayTree: overlayPrediction?.tree ?? null,
+    targetOverlayConflict: overlayPrediction?.conflict ?? null,
     ignoredTargetDirtyFiles: before.status
       ? before.status.split(/\r?\n/).filter(Boolean).length
       : 0,

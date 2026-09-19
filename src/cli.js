@@ -119,7 +119,7 @@ Usage:
   vlab rebase --status [--json]
   vlab rebase --continue [--fork] [--json]
   vlab rebase --abort [--json]
-  vlab forecast <source> [--accept-candidates] [--json]
+  vlab forecast <source> [--target-checkpoint] [--accept-candidates] [--json]
   vlab reconcile <source> [--accept-candidates] [--use-forecast <id>] [--json]
   vlab reconcile --status [--json]
   vlab reconcile --continue [--fork] [--json]
@@ -153,7 +153,7 @@ Usage:
   vlab workspace restore <name> [--path <directory>] [--json]
   vlab workspace repair <name> --path <directory> [--json]
   vlab workspace prune [--dry-run|--apply] [--json]
-  vlab workspace forecast <target> <source> [--source-checkpoint] [--accept-candidates] [--json]
+  vlab workspace forecast <target> <source> [--source-checkpoint] [--target-checkpoint] [--accept-candidates] [--json]
   vlab spec index <markdown-file> [--force] [--json]
   vlab spec index --all [--force] [--json]
   vlab spec show <markdown-file>
@@ -855,9 +855,11 @@ function formatRebaseResult(result) {
 
 function formatForecast(forecast) {
   const counts = forecast.counts;
-  const scope = forecast.scope === "source-checkpoint"
-    ? "immutable source checkpoint"
-    : "committed heads only";
+  const scope = {
+    "source-checkpoint": "immutable source checkpoint",
+    "target-checkpoint": "committed heads plus a target overlay",
+    "source-and-target-checkpoint": "immutable source checkpoint plus a target overlay",
+  }[forecast.scope] ?? "committed heads only";
   const lines = [
     "Reconciliation forecast",
     `forecast     ${forecast.id}`,
@@ -876,6 +878,20 @@ function formatForecast(forecast) {
       : null,
     ...formatForecastEngine(forecast),
   ].filter(Boolean);
+  if (forecast.targetOverlay) {
+    const overlay = forecast.targetOverlay;
+    lines.push(
+      `overlay      checkpoint ${short(overlay.checkpoint)} of workspace ${overlay.workspaceName}`,
+      `overlay tree ${overlay.tree}`,
+      `overlay base ${short(overlay.baseHead)}; draft ${overlay.draftChangeId.slice(0, 18)}`,
+      forecast.predictedOverlayTree
+        ? `overlay after ${forecast.predictedOverlayTree} (re-materialized uncommitted; never committed)`
+        : "overlay after BLOCKED: the overlay does not merge with the committed result",
+    );
+    if (forecast.targetOverlayConflict) {
+      lines.push(`  ! ${forecast.targetOverlayConflict.reason}`);
+    }
+  }
   if (forecast.ignoredTargetDirtyFiles) {
     lines.push(`target dirty ${forecast.ignoredTargetDirtyFiles} files ignored`);
   }
@@ -1409,6 +1425,7 @@ export async function main(rawArgs) {
     case "forecast": {
       const source = requireValue(positionals[0], "vlab forecast <source>");
       const forecast = forecastReconciliation(source, {
+        targetCheckpoint: options.targetCheckpoint,
         acceptCandidates: options.acceptCandidates,
       });
       print(options.json ? forecast : formatForecast(forecast), options.json);
@@ -1672,6 +1689,7 @@ export async function main(rawArgs) {
         const forecast = forecastWorkspaces(target, source, {
           acceptCandidates: options.acceptCandidates,
           sourceCheckpoint: options.sourceCheckpoint,
+          targetCheckpoint: options.targetCheckpoint,
         });
         print(options.json ? forecast : formatForecast(forecast), options.json);
         return;

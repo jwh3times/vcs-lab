@@ -552,6 +552,7 @@ Compare two workspace branches without disturbing either worktree:
 ```bash
 vlab workspace forecast agent-auth agent-payments
 vlab workspace forecast agent-auth agent-payments --source-checkpoint
+vlab workspace forecast agent-auth agent-payments --target-checkpoint
 ```
 
 The ordering is `target <= source`: this previews applying the committed head
@@ -560,6 +561,33 @@ the latest immutable checkpoint whose base still matches the source head. Live
 dirty bytes after that checkpoint remain excluded. The target is always its
 committed head. The forecast is stored privately in the target worktree, where
 its printed reconciliation command should be run.
+
+### Carrying the target's own uncommitted work
+
+`--target-checkpoint` carries the *target's* draft through the application and
+puts it back afterwards. It is available on `vlab forecast` too, with identical
+semantics.
+
+An overlay is uncommitted context, never a committed draft. It changes no
+coverage decision: the plan, its fingerprint, and the committed predicted tree
+are exactly what they would be without it, and no receipt mentions it. What the
+forecast adds is a second prediction — the worktree after the draft is put back —
+which the application verifies before publishing anything.
+
+Nothing is ever captured for you. Uncommitted work with no checkpoint is refused,
+because an overlay is state you approved. Once approved, the live tree must still
+match the checkpoint exactly; if you kept typing, the run refuses with
+`stale-overlay` before touching anything, and the remedy is a new checkpoint.
+Your newer work is left exactly where it is.
+
+Applying reduces the worktree to the committed head, replays the changes, and then
+re-materializes the draft by merging it onto the result — not by writing the
+checkpoint's tree back, which would undo the very changes that were just applied.
+If the re-materialized tree does not match the prediction, nothing is published
+and abort is the recovery. Abort restores the committed tip first and
+unconditionally, then the captured worktree including its untracked files; an
+overlay it cannot read is reported as unrecoverable rather than guessed at. See
+[ADR-0028](docs/adr/0028-define-target-checkpoint-forecast-semantics.md).
 
 The checkpoint captures tracked, modified, and untracked non-ignored files in
 an immutable Git commit referenced under `refs/vcs-lab/checkpoints/...`. When a

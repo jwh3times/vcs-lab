@@ -49,6 +49,7 @@ const GIT_OPERATIONS = Object.freeze({
   patchEquivalentCommits: git.patchEquivalentCommits,
   historyGraph: git.historyGraph,
   ancestryPath: git.ancestryPath,
+  treePaths: git.treePaths,
   remoteRefs: git.remoteRefs,
   // Refs and notes
   refExists: git.refExists,
@@ -155,6 +156,7 @@ export function findCommitsByChangeId(...args) { return dispatch("findCommitsByC
 export function patchEquivalentCommits(...args) { return dispatch("patchEquivalentCommits", args); }
 export function historyGraph(...args) { return dispatch("historyGraph", args); }
 export function ancestryPath(...args) { return dispatch("ancestryPath", args); }
+export function treePaths(...args) { return dispatch("treePaths", args); }
 export function remoteRefs(...args) { return dispatch("remoteRefs", args); }
 // Refs and notes
 export function refExists(...args) { return dispatch("refExists", args); }
@@ -293,6 +295,7 @@ function differentialProbes(cwd) {
     },
     { operation: "historyGraph", ...needsHead(() => historyGraph(cwd)) },
     { operation: "ancestryPath", ...needsHead(() => ancestryPath(head, root, cwd)) },
+    { operation: "treePaths", ...needsHead(() => treePaths(`${head}^{tree}`, cwd)) },
     {
       // The one catalog read that leaves the machine, so the probe asks this
       // repository about itself rather than reaching for a network: the

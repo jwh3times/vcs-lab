@@ -20,6 +20,7 @@ import {
   resolveObjectIds,
   resolveRevision,
   symbolicRef,
+  treeId,
 } from "./engine.js";
 import { newId } from "./ids.js";
 import {
@@ -45,12 +46,18 @@ import {
 } from "./reconcile-state.js";
 import { readRebaseState } from "./rebase-state.js";
 import {
+  assertOverlayCurrent,
+  materializeOverlay,
+  reduceToCommittedHead,
+  restoreOverlayAfterAbort,
+} from "./target-overlay.js";
+import {
   captureConflictDescriptors,
   captureResolutionOutcomes,
   materializeResolutionCandidate,
   publishResolution,
 } from "./resolutions.js";
-import { forecastForPlan } from "./forecasts.js";
+import { forecastForPlan, readForecast } from "./forecasts.js";
 import {
   captureSpecMergeOutcomes,
   assertCurrentSpecDecisions,
@@ -328,6 +335,54 @@ function finalizeReconciliation(operation, cwd) {
       },
     );
   }
+  // The overlay goes back only after the committed result has verified, and its
+  // own prediction is checked before anything is published: a mismatch must
+  // leave the operation recoverable by abort rather than half-published.
+  let overlayResult = null;
+  if (operation.targetOverlay) {
+    const restored = materializeOverlay(
+      operation.targetOverlay,
+      { baseTree: treeId(operation.targetBefore, cwd), resultTree },
+      cwd,
+    );
+    if (restored.conflict) {
+      operation.state = "forecast-mismatch";
+      writeReconciliationState(operation, cwd);
+      throw new CliError(
+        "The target overlay no longer merges with the committed result.",
+        {
+          code: "stale-forecast",
+          details: [
+            restored.conflict.details,
+            "Nothing was published. Run 'vlab reconcile --abort' and forecast again.",
+          ].join("\n"),
+        },
+      );
+    }
+    const actual = restored.tree;
+    const predicted = operation.forecastApproval?.predictedOverlayTree ?? null;
+    if (predicted && predicted !== actual) {
+      operation.state = "forecast-mismatch";
+      writeReconciliationState(operation, cwd);
+      throw new CliError(
+        `Re-materializing the target overlay did not match forecast '${operation.forecastId}'.`,
+        {
+          code: "stale-forecast",
+          details: [
+            `Forecast overlay tree: ${predicted}`,
+            `Actual overlay tree:   ${actual}`,
+            "Nothing was published. Run 'vlab reconcile --abort' and forecast again.",
+          ].join("\n"),
+        },
+      );
+    }
+    overlayResult = {
+      checkpoint: operation.targetOverlay.checkpoint,
+      tree: actual,
+      predicted,
+      rematerialized: true,
+    };
+  }
   const forkedOrigins = new Set(
     operation.applied
       .filter((application) => application.relation === "contextual-fork")
@@ -398,7 +453,14 @@ function finalizeReconciliation(operation, cwd) {
   appendNote(attachedTo, receipt, cwd);
   faultPoint("reconcile:before-clear");
   clearReconciliationState(cwd);
-  return { operationId: operation.id, plan: operation.plan, receipt };
+  return {
+    operationId: operation.id,
+    plan: operation.plan,
+    receipt,
+    // Reported, never published: the overlay is uncommitted context, so it
+    // belongs in the command's answer and in no receipt (ADR-0028).
+    targetOverlay: overlayResult,
+  };
 }
 
 function conflictError(operation, result, cwd) {
@@ -708,8 +770,12 @@ function startOperation(sourceRef, plan, options, cwd) {
           approvedSpecMerges: options.forecast.approvedSpecMerges ?? [],
           status: options.forecast.status,
           predictedResultTree: options.forecast.predictedResultTree,
+          predictedOverlayTree: options.forecast.predictedOverlayTree ?? null,
         }
       : null,
+    // Recorded so an abort can put the captured worktree back, and so a resumed
+    // operation in a new process knows an overlay is in play (ADR-0028).
+    targetOverlay: options.forecast?.targetOverlay ?? null,
     plan,
     queue: plan.changes.filter((change) => change.status === "new"),
     nextIndex: 0,
@@ -739,11 +805,23 @@ function reconcileInSession(sourceRef, options, cwd) {
       { code: "operation-in-progress", details: "Inspect the active reconciliation or rebase before starting another operation." },
     );
   }
-  assertClean(cwd);
+  // A forecast carrying a target overlay expects a dirty worktree: the overlay
+  // *is* the uncommitted work. The clean check is replaced by a stricter one —
+  // the live tree must equal the overlay tree exactly — so "dirty" can never
+  // mean "whatever happens to be there" (ADR-0028).
+  const approvedOverlay = options.forecastId
+    ? readForecast(options.forecastId, cwd)?.targetOverlay ?? null
+    : null;
+  if (!approvedOverlay) assertClean(cwd);
   const plan = buildMergePlan(sourceRef, cwd);
   const forecast = options.forecastId
     ? forecastForPlan(options.forecastId, plan, cwd)
     : null;
+  if (approvedOverlay) {
+    // Refuses before anything moves: a drifted worktree is `stale-overlay` and
+    // a moved head or missing checkpoint is `stale-forecast`.
+    assertOverlayCurrent(approvedOverlay, cwd);
+  }
   const acceptCandidates = Boolean(
     options.acceptCandidates || forecast?.acceptCandidates,
   );
@@ -768,6 +846,15 @@ function reconcileInSession(sourceRef, options, cwd) {
     cwd,
   );
   writeReconciliationState(operation, cwd);
+  if (approvedOverlay) {
+    // The overlay is safe in its checkpoint, so the worktree can be reduced to
+    // the committed head and the queue runs exactly as it does without one.
+    operation.state = "reducing-overlay";
+    writeReconciliationState(operation, cwd);
+    reduceToCommittedHead(approvedOverlay, cwd);
+    operation.state = "running";
+    writeReconciliationState(operation, cwd);
+  }
   return runReconciliationQueue(operation, cwd, performance.now());
 }
 
@@ -933,12 +1020,19 @@ export function abortReconciliation(options = {}) {
     throw new CliError("Reconciliation abort did not restore the target's original tip.",
       { code: "internal-invariant" });
   }
+  // The committed tip is restored first and unconditionally; the overlay is put
+  // back afterwards, so a draft that cannot be recovered never costs the tip
+  // (ADR-0028).
+  const overlay = operation.targetOverlay
+    ? restoreOverlayAfterAbort(operation.targetOverlay, cwd)
+    : null;
   faultPoint("reconcile:abort-before-clear");
   clearReconciliationState(cwd);
   return {
     aborted: true,
     operationId: operation.id,
     restoredHead: currentHead(cwd),
+    overlay,
   };
 }
 
