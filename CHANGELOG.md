@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.0
 
 - Implement target-checkpoint forecasts (issue #26; ADR-0028).
   `--target-checkpoint` on `vlab forecast` and `vlab workspace forecast` pins one
