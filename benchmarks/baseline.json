@@ -36,101 +36,101 @@
           "VLAB_FORECAST_ENGINE": null
         }
       },
-      "recordedAt": "2026-09-09",
+      "recordedAt": "2026-09-19",
       "git": "git version 2.55.0.windows.3",
       "node": "v26.4.0",
       "phases": {
         "history": {
-          "medianMs": 40.58,
-          "p95Ms": 42.01,
+          "medianMs": 37.4,
+          "p95Ms": 54.1,
           "medianProcesses": 1,
           "floor": {
             "equivalent": "git rev-list --count refs/heads/main",
-            "medianMs": 39.75,
-            "p95Ms": 42.61,
+            "medianMs": 36.26,
+            "p95Ms": 37.53,
             "medianProcesses": 1
           }
         },
         "gitWorktrees": {
-          "medianMs": 35.87,
-          "p95Ms": 38.08,
+          "medianMs": 32.73,
+          "p95Ms": 33.6,
           "medianProcesses": 1,
           "floor": {
             "equivalent": "git worktree list --porcelain",
-            "medianMs": 39.77,
-            "p95Ms": 45.35,
+            "medianMs": 36.51,
+            "p95Ms": 37,
             "medianProcesses": 1
           }
         },
         "workspaceRegistry": {
-          "medianMs": 0.3,
+          "medianMs": 0.33,
           "p95Ms": 0.49,
           "medianProcesses": 0,
           "floor": null
         },
         "workspaceStatus": {
-          "medianMs": 149.76,
-          "p95Ms": 313.13,
+          "medianMs": 187.01,
+          "p95Ms": 248.23,
           "medianProcesses": 4,
           "floor": {
             "equivalent": "git status --porcelain in each registered workspace worktree",
-            "medianMs": 146.47,
-            "p95Ms": 150.33,
+            "medianMs": 138.41,
+            "p95Ms": 146.03,
             "medianProcesses": 4
           }
         },
         "noteCatalog": {
-          "medianMs": 84.01,
-          "p95Ms": 90.67,
+          "medianMs": 68.81,
+          "p95Ms": 76.94,
           "medianProcesses": 2,
           "floor": {
             "equivalent": "git notes --ref=vcs-lab list, then git cat-file --batch over the note blobs",
-            "medianMs": 77.79,
-            "p95Ms": 82.39,
+            "medianMs": 66.69,
+            "p95Ms": 68.14,
             "medianProcesses": 2
           }
         },
         "resolutionCatalog": {
-          "medianMs": 138.59,
-          "p95Ms": 147.1,
-          "medianProcesses": 3,
+          "medianMs": 101.57,
+          "p95Ms": 123.94,
+          "medianProcesses": 2,
           "floor": {
             "equivalent": "git for-each-ref refs/vcs-lab/resolutions/, then git cat-file --batch over the result blobs",
-            "medianMs": 67.89,
-            "p95Ms": 70.27,
+            "medianMs": 61.91,
+            "p95Ms": 75.88,
             "medianProcesses": 2
           }
         },
         "metadataStatus": {
-          "medianMs": 346.53,
-          "p95Ms": 466.11,
-          "medianProcesses": 8,
+          "medianMs": 348.67,
+          "p95Ms": 454.55,
+          "medianProcesses": 9,
           "floor": {
             "equivalent": "git rev-parse --git-dir and git worktree list, then the note and resolution reads above",
-            "medianMs": 215.66,
-            "p95Ms": 222.78,
+            "medianMs": 192.63,
+            "p95Ms": 195.35,
             "medianProcesses": 6
           }
         },
         "workspaceCreate": {
-          "medianMs": 423.28,
-          "p95Ms": 442.58,
+          "medianMs": 428.69,
+          "p95Ms": 439.88,
           "medianProcesses": 2,
           "floor": {
             "equivalent": "git worktree add --detach <path> main",
-            "medianMs": 356.14,
-            "p95Ms": 366.6,
+            "medianMs": 367.41,
+            "p95Ms": 367.42,
             "medianProcesses": 1
           }
         },
         "workspaceCreateCone": {
-          "medianMs": 237.12,
-          "p95Ms": 248.7,
+          "medianMs": 225.82,
+          "p95Ms": 235.34,
           "medianProcesses": 4,
           "floor": {
             "equivalent": "git worktree add --no-checkout --detach <path> main, git sparse-checkout set --cone <dir>, git checkout",
-            "medianMs": 169.19,
-            "p95Ms": 177.37,
+            "medianMs": 163.25,
+            "p95Ms": 180.91,
             "medianProcesses": 3
           }
         }
@@ -149,30 +149,30 @@
         "worktree-ordinary": {
           "engine": "worktree",
           "fallbacks": 0,
-          "processes": 62,
-          "queries": 62,
-          "forecastMs": 2347.5
+          "processes": 63,
+          "queries": 63,
+          "forecastMs": 2226.48
         },
         "worktree-session": {
           "engine": "worktree",
           "fallbacks": 0,
           "processes": 23,
-          "queries": 62,
-          "forecastMs": 1126.44
+          "queries": 63,
+          "forecastMs": 1081.24
         },
         "merge-tree-session": {
           "engine": "merge-tree",
           "fallbacks": 0,
           "processes": 9,
-          "queries": 24,
-          "forecastMs": 431.43
+          "queries": 25,
+          "forecastMs": 432.47
         }
       },
       "publication": {
         "changes": 6,
-        "processes": 140,
+        "processes": 139,
         "records": 19,
-        "elapsedMs": 345
+        "elapsedMs": 364
       }
     }
   },

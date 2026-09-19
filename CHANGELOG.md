@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.15.0
+
+- Refresh the `lab-windows-a` benchmark baseline for the conflict-policy ref
+  scan. ADR-0030 requires every metadata read to know which records are parked,
+  and `parkedRecordIds` answers that with one `for-each-ref` over
+  `refs/vcs-lab/quarantine/*/*` reading ref names only. That is one added Git
+  process on the metadata read path: `metadataStatus` moves 8 -> 9 processes and
+  `forecast:worktree-ordinary`, which reads metadata once, 62 -> 63. Latency
+  stayed inside the tolerated ratio on every phase, `resolutionCatalog` fell
+  3 -> 2 processes, and `publication` fell 140 -> 139. Folding this scan into an
+  existing ref enumeration is tracked on
+  [issue #100](https://github.com/jwh3times/vcs-lab/issues/100).
 
 - Implement target-checkpoint forecasts (issue #26; ADR-0028).
   `--target-checkpoint` on `vlab forecast` and `vlab workspace forecast` pins one
