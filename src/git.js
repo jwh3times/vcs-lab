@@ -1337,6 +1337,21 @@ export function findCommitsByChangeId(changeId, cwd = process.cwd()) {
 
 /** The decorated `git log --graph` text of every ref, for `vlab graph`. */
 /**
+ * Every path a tree holds, recursively. A tree listing is a repository read like
+ * any other, so it belongs in the catalog rather than in a domain module's own
+ * `runGit` call; `-z` keeps paths with unusual bytes intact.
+ */
+export function treePaths(tree, cwd = process.cwd()) {
+  validateObjectExpressions([tree]);
+  const listed = readGit(["ls-tree", "-r", "--name-only", "-z", tree], {
+    cwd,
+    allowFailure: true,
+  });
+  if (!listed.ok) return [];
+  return listed.stdout.split("\u0000").filter(Boolean);
+}
+
+/**
  * The commits that lie on a path from `from` down to `to`, each with the parents
  * of it that also lie on such a path, so a caller can walk one concrete chain.
  * `--ancestry-path` is what restricts the set to commits that are genuinely

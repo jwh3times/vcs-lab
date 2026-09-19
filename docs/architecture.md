@@ -125,7 +125,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/capabilities.js` | The `vcs-lab.capabilities/v1` document projected from the runtime registries, and negotiation as a pure function of two such documents (ADR-0033) | `src/schemas.js`, `src/metadata.js`, `src/metadata-envelope.js`, `src/canonical-json.js` |
 | `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
 | `src/dispositions.js` | Resolving one parked conflict: keep-local or replace-local, the note rewrite it implies, and the recorded decision that stops the same disagreement being reported twice (ADR-0030) | `src/quarantine.js`, `src/metadata.js`, `src/notes.js` |
-| `src/engine.js` | The read-side engine seam: the catalog of 42 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison | `src/git.js`, `src/native-engine.js` |
+| `src/engine.js` | The read-side engine seam: the catalog of 43 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison | `src/git.js`, `src/native-engine.js` |
 | `src/errors.js` | Expected CLI error type carrying a classification code from the closed `ERROR_CODES` vocabulary of the `vcs-lab.error/v1` failure envelope (ADR-0021) | None |
 | `src/faults.js` | Test-only deterministic fault injection: `VLAB_TEST_FAULT` turns one named point on a mutating path into a hard `process.exit`; `VLAB_TEST_GATE` holds a process at a named point until a test releases it | None |
 | `src/forecasts.js` | Plan fingerprint, merge-tree and temporary-worktree simulation engines with recorded fallback, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
@@ -159,6 +159,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/schemas.js` | Supported schema registry, structural record validation, object-reference and resolution-signature rules | IDs |
 | `src/specs.js` | Markdown parsing, sparse manifest migration/indexing, deterministic merge, semantic resolution, benchmark | Git adapter, IDs, reconciliation state |
 | `src/store.js` | Common runtime directory and atomic JSON read/write | `src/git.js` |
+| `src/target-overlay.js` | Target overlays: resolving the checkpoint a `--target-checkpoint` forecast is about, predicting the tree the worktree holds after one is put back, and reducing, re-materializing, and restoring it without ever committing it (ADR-0028) | `src/engine.js`, `src/git.js`, `src/workspaces.js`, `src/store.js` |
 | `src/version.js` | Runtime version constant | None |
 | `src/workspace-lock.js` | Exclusive shared-local registry transaction lock, bounded refusal, and ownership-checked release | Store, errors, fault gates |
 | `src/workspaces.js` | Workspace registry/lifecycle, linked-worktree materialization, temporary-index checkpoints/history | Git adapter, store, workspace lock |
@@ -1187,6 +1188,52 @@ names. Nothing here authenticates a claim: which copy is true remains the trust
 question of §15.3, and this policy only guarantees that neither copy is used
 until someone decides.
 
+### 15.2.5 A target overlay is context, not a draft commit
+
+[ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md) settles what
+a target checkpoint contributes to a forecast. The answer that shapes everything
+else: an overlay is **uncommitted context**. It is not a plan entry, not a
+coverage input, and not a receipt subject, so nothing it contains can change what
+a plan concludes or what a receipt claims — the plan, its fingerprint, and the
+committed predicted tree are computed against the committed target head exactly
+as without one.
+
+An overlay is one checkpoint commit whose recorded base equals the committed
+head, identified by that commit rather than by the checkpoint ref, which moves
+when the next checkpoint is captured. Nothing is ever captured on a user's
+behalf: `--target-checkpoint` on `vlab forecast` and `vlab workspace forecast`
+selects an existing checkpoint, and uncommitted work without one is refused
+rather than quietly promoted into approved state.
+
+The forecast carries a **second** predicted tree: the worktree after the overlay
+is put back, computed as a three-way merge of the target tree before application,
+the committed result tree, and the overlay tree. That merge is not an
+implementation detail but the definition of re-materialization. A checkpoint
+captures the *whole* worktree at its base, so writing that tree back over an
+applied result would restore the pre-application version of every path the
+application touched and silently undo the work; the merge keeps the applied
+changes and re-applies only the draft. An overlay that does not merge blocks the
+forecast, and live bytes are never merged.
+
+Application is ordered so that nothing is published on a guess:
+
+1. the live tree must equal the overlay tree exactly, or the run refuses with
+   `stale-overlay` before anything moves — a drifted worktree means the *capture*
+   is behind, and the remedy is a new checkpoint, never a silent re-capture;
+2. the worktree is reduced to the committed head, the overlay already safe in its
+   checkpoint;
+3. the picks run and the committed result tree is verified as usual;
+4. the overlay is re-materialized and its tree verified against the prediction;
+5. only then are receipts published.
+
+A mismatch at step 4 leaves the operation in `forecast-mismatch` with abort as the
+recovery and publishes nothing. Abort restores the committed tip first and
+unconditionally, then puts the captured worktree back — including its untracked
+files, since that is the state the user asked to keep. An overlay whose object is
+gone is reported as unrecoverable and the worktree left clean, because the tip is
+already correct and inventing bytes for a draft would be worse than saying it was
+lost.
+
 ### 15.2.4 A rebase range is a declaration, not a discovery
 
 [ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md)
@@ -1420,6 +1467,10 @@ lock without rewriting history.
 | A peer reads no version of a family this build writes | Filter those records out of the exchange and name them; the rest still moves (ADR-0033). |
 | A peer disagrees about a profile, algorithm, object format, or lineage | Refuse with `no-common-version` or `repository-mismatch` before any transfer; there is nothing both sides would read alike. |
 | A capability document of an unknown version, or over its bound | Refuse with `unknown-schema-version` or `resource-bound-exceeded`; the bound is checked before the document is parsed. |
+| A target overlay whose live tree drifted from its checkpoint | Refuse with `stale-overlay` before any mutation; the capture is behind, so the remedy is a new checkpoint and nothing is re-captured automatically (ADR-0028). |
+| A target overlay whose base head moved, or whose checkpoint object is gone | Refuse with `stale-forecast` before any mutation. |
+| A re-materialized overlay that does not match its prediction | Leave the operation in `forecast-mismatch`, publish nothing, and recover by abort. |
+| An overlay an abort cannot read | Restore the committed tip anyway, report the overlay unrecoverable, and leave the worktree clean rather than inventing bytes. |
 | A rebase range whose base is not an ancestor of the tip, is the tip, or whose tip is not a branch tip | Refuse with `unsupported-range` before anything moves; re-parenting the commits after a mid-branch tip is interactive editing, not a linear range (ADR-0032). |
 | A rebase forecast approved for a different range base | Refuse as `stale-forecast`, naming both ranges; the fingerprint covers the base, so the refusal cannot be bypassed. |
 | A proof bundle whose carried objects do not hash to the ids they claim | Fail verification and name each object; the bundle does not reach the bound tier (ADR-0031). |
@@ -1673,7 +1724,7 @@ delivered as `workspace create --cone` (§12), and
 closed phase 0a by measuring and rejecting Git's read-side maintenance
 caches. The read-side engine seam of phase 0b is implemented
 ([ADR-0019](adr/0019-route-every-git-read-through-one-engine-seam.md), §14.4):
-every repository read is one of 42 cataloged operations, the native engine
+every repository read is one of 43 cataloged operations, the native engine
 is selectable with per-operation Git fallback, and the suite's `VLAB_ENGINE=native`
 mode refuses any read outside the seam.
 The schema catalog, canonical-JSON profile, compatibility contract
