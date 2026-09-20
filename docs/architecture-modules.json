@@ -120,12 +120,12 @@
     "dependencies": "Merge plan, Git adapter, IDs"
   },
   "src/rebase-forecast.js": {
-    "responsibility": "Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation",
-    "dependencies": "Rebase plan, forecast simulator, semantic version guards, Git adapter"
+    "responsibility": "Rebase simulation orchestration, caller invariants, candidate pinning, the carried caller overlay and its second predicted tree, and private forecast presentation",
+    "dependencies": "Rebase plan, forecast simulator, target overlays, semantic version guards, Git adapter"
   },
   "src/rebase-operations.js": {
-    "responsibility": "Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts",
-    "dependencies": "Rebase plan/forecast, Git, notes, specs, resolutions"
+    "responsibility": "Current-branch rebase replay, forecast enforcement, overlay reduction and re-materialization, conflict recovery, identity, and final receipts",
+    "dependencies": "Rebase plan/forecast, target overlays, Git, notes, specs, resolutions"
   },
   "src/rebase-state.js": {
     "responsibility": "Worktree-private rebase journal path and atomic persistence",

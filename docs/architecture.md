@@ -148,8 +148,8 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/proof-bundle.js` | Portable coverage proof bundles and their independent verifier, which applies its own copy of the lattice (`PROOF_RULES`) and compares the evidence with the repository | Merge plan, canonical JSON, metadata, engine |
 | `src/provenance.js` | Declared authorship provenance (`vcs-lab.provenance/v1`): the closed role vocabulary, `VLAB_AGENT`, declaration at commit time, and exact carry onto rewritten commits | Notes, IDs, schemas |
 | `src/quarantine.js` | The conflict policy's two local stores: parked conflicting records as one blob-bearing ref each under `refs/vcs-lab/quarantine/<lineage>/<record id>`, and the shared-local disposition registry (ADR-0030) | `src/engine.js`, `src/git.js`, `src/store.js`, `src/schemas.js` |
-| `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, and private forecast presentation | Rebase plan, forecast simulator, semantic version guards, Git adapter |
-| `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, conflict recovery, identity, and final receipts | Rebase plan/forecast, Git, notes, specs, resolutions |
+| `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, the carried caller overlay and its second predicted tree, and private forecast presentation | Rebase plan, forecast simulator, target overlays, semantic version guards, Git adapter |
+| `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, overlay reduction and re-materialization, conflict recovery, identity, and final receipts | Rebase plan/forecast, target overlays, Git, notes, specs, resolutions |
 | `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
 | `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
@@ -1201,9 +1201,9 @@ as without one.
 An overlay is one checkpoint commit whose recorded base equals the committed
 head, identified by that commit rather than by the checkpoint ref, which moves
 when the next checkpoint is captured. Nothing is ever captured on a user's
-behalf: `--target-checkpoint` on `vlab forecast` and `vlab workspace forecast`
-selects an existing checkpoint, and uncommitted work without one is refused
-rather than quietly promoted into approved state.
+behalf: `--target-checkpoint` on `vlab forecast`, `vlab workspace forecast`, and
+`vlab rebase-forecast` selects an existing checkpoint, and uncommitted work
+without one is refused rather than quietly promoted into approved state.
 
 The forecast carries a **second** predicted tree: the worktree after the overlay
 is put back, computed as a three-way merge of the target tree before application,
@@ -1233,6 +1233,17 @@ files, since that is the state the user asked to keep. An overlay whose object i
 gone is reported as unrecoverable and the worktree left clean, because the tip is
 already correct and inventing bytes for a draft would be worse than saying it was
 lost.
+
+A causal rebase carries an overlay by the same contract and the same module
+(issue #28). The worktree it overlays is the source branch's own, because a rebase
+rewrites the branch the caller is standing on, and two consequences follow. The
+merge's `ours` side is the rewritten tip and its base is the tree the branch held
+before the rebase started, so the prediction is pinned once per run rather than
+once per pick. And the reduction at step 2 must precede the reset onto the new
+base: that reset would discard the overlay's tracked edits and strand its
+untracked files in a worktree they no longer belong to. Everything else —
+selection, staleness, the second predicted tree, the mismatch state, abort — is
+the reconciliation contract unchanged.
 
 ### 15.2.4 A rebase range is a declaration, not a discovery
 
@@ -1469,7 +1480,7 @@ lock without rewriting history.
 | A capability document of an unknown version, or over its bound | Refuse with `unknown-schema-version` or `resource-bound-exceeded`; the bound is checked before the document is parsed. |
 | A target overlay whose live tree drifted from its checkpoint | Refuse with `stale-overlay` before any mutation; the capture is behind, so the remedy is a new checkpoint and nothing is re-captured automatically (ADR-0028). |
 | A target overlay whose base head moved, or whose checkpoint object is gone | Refuse with `stale-forecast` before any mutation. |
-| A re-materialized overlay that does not match its prediction | Leave the operation in `forecast-mismatch`, publish nothing, and recover by abort. |
+| A re-materialized overlay that does not match its prediction | Leave the operation in `forecast-mismatch`, publish nothing, and recover by abort. The draft is already back in the worktree by then, so the journal records `overlayRematerialized` and abort skips its clean check in exactly that state; a pending operation the user has edited by hand still refuses. |
 | An overlay an abort cannot read | Restore the committed tip anyway, report the overlay unrecoverable, and leave the worktree clean rather than inventing bytes. |
 | A rebase range whose base is not an ancestor of the tip, is the tip, or whose tip is not a branch tip | Refuse with `unsupported-range` before anything moves; re-parenting the commits after a mid-branch tip is interactive editing, not a linear range (ADR-0032). |
 | A rebase forecast approved for a different range base | Refuse as `stale-forecast`, naming both ranges; the fingerprint covers the base, so the refusal cannot be bypassed. |
@@ -1673,11 +1684,12 @@ New capabilities should enter through versioned contracts:
 - Workspace registry stores local absolute paths, and status still costs one
   `git status` process per materialized worktree because Git has no
   cross-worktree status query.
-- Forecasts can consume one immutable source checkpoint, but not a target
-  checkpoint, live dirty bytes, or a native private draft stack.
+- Forecasts can consume one immutable source checkpoint and one immutable target
+  checkpoint, but never live dirty bytes or a native private draft stack.
 - Causal rebase v1 is deliberately linear and current-branch-only; it does not
-  preserve merge topology or provide interactive edit/reword/squash, arbitrary
-  range selection, or dirty/checkpoint overlays.
+  preserve merge topology or provide interactive edit/reword/squash. Explicit
+  linear ranges and checkpoint overlays are supported; live dirty overlays are
+  not, and a range whose tip is mid-branch is refused.
 - Notes lookup still scales with the notes namespace and reachable history, but
   the note, resolution, and metadata catalog scans are batched into a bounded
   number of processes. Large-repository indexes are not implemented because no

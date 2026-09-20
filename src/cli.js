@@ -114,7 +114,7 @@ Usage:
   vlab proof-bundle <source>
   vlab verify-proof <file> [--offline] [--anchors-from <remote>] [--json]
   vlab rebase-plan <onto> [<source>] [--from <base>] [--json]
-  vlab rebase-forecast <onto> [<source>] [--from <base>] [--accept-candidates] [--json]
+  vlab rebase-forecast <onto> [<source>] [--from <base>] [--target-checkpoint] [--accept-candidates] [--json]
   vlab rebase <onto> [--from <base>] [--accept-candidates] [--use-forecast <id>] [--json]
   vlab rebase --status [--json]
   vlab rebase --continue [--fork] [--json]
@@ -809,6 +809,7 @@ function formatReconciliationResult(result) {
     `contextual   ${contextual.length}`,
     `same state   ${receipt.exactStateEqualityAfter ? "yes" : "no"}`,
     receipt.forecastId ? `forecast     ${receipt.forecastId}` : null,
+    formatOverlayOutcome(result.targetOverlay),
     receipt.timings
       ? `active time  ${receipt.timings.activeApplicationMs.toFixed(2)} ms`
       : null,
@@ -842,6 +843,7 @@ function formatRebaseResult(result) {
     `forked       ${forked}`,
     `same state   ${receipt.exactStateEqualityAfter ? "yes" : "no"}`,
     receipt.forecastId ? `forecast     ${receipt.forecastId}` : null,
+    formatOverlayOutcome(result.targetOverlay),
     receipt.timings
       ? `active time  ${receipt.timings.activeApplicationMs.toFixed(2)} ms`
       : null,
@@ -851,6 +853,16 @@ function formatRebaseResult(result) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * What became of a carried overlay, for the human result of an application that
+ * had one. It is reported and never published, so this is the only place the
+ * outcome is stated (ADR-0028); without an overlay it prints nothing.
+ */
+function formatOverlayOutcome(overlay) {
+  if (!overlay) return null;
+  return `overlay      checkpoint ${short(overlay.checkpoint)} re-materialized uncommitted as ${short(overlay.tree)}`;
 }
 
 function formatForecast(forecast) {
@@ -1380,6 +1392,7 @@ export async function main(rawArgs) {
       }
       const forecast = forecastRebase(onto, positionals[1], {
         acceptCandidates: options.acceptCandidates,
+        targetCheckpoint: options.targetCheckpoint,
         from: options.from,
       });
       print(

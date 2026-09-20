@@ -1,5 +1,59 @@
 # Changelog
 
+## Unreleased
+
+- Allow a checkpoint to be an input to a causal rebase (issue #28; ADR-0028
+  decision 5). `--target-checkpoint` on `vlab rebase-forecast` pins one checkpoint
+  of the caller's workspace as an overlay, and `vlab rebase --use-forecast` carries
+  it through the rewrite instead of refusing the dirty worktree.
+
+  The contract is the one #26 shipped, inherited unchanged: the overlay is
+  uncommitted context, it changes no coverage decision — the plan, its
+  fingerprint, and the committed predicted tree are identical with and without it
+  — no receipt mentions it, a drifted worktree refuses with `stale-overlay` before
+  anything moves, and abort restores the original tip first and the captured
+  worktree second. The same `vcs-lab.checkpoint/v1` commit, the same
+  `stale-overlay` code, the same second predicted tree.
+
+  Two things a rebase decides that reconciliation did not. The overlay merges onto
+  the *rewritten tip*, with the tree the branch held before the rebase as the
+  merge base, and that prediction is pinned once per run rather than once per
+  pick. And the reduction to the committed head has to happen before the reset
+  onto the new base, because that reset would discard the overlay's tracked edits
+  and strand its untracked files.
+
+  The merge is again what keeps the rebase: writing the checkpoint's tree back
+  would restore the pre-rebase content of every path the new base changed. The
+  suite pins that with a scenario in which all four trees differ — source,
+  rewritten result, overlay, and re-materialized — so the identical-tree shortcut
+  cannot hide the mistake, and confirms that the prediction check refuses and
+  publishes nothing when re-materialization is done as a tree write.
+
+  `vcs-lab.rebase-forecast/v1` and `vcs-lab.rebase-operation/v1` gain the overlay
+  members as optional supersets, so a record written without an overlay is
+  unchanged. The `scope` member of a rebase forecast, previously fixed at
+  `committed-heads`, now also takes `target-checkpoint`.
+
+  The human result of `vlab rebase` and `vlab reconcile` now states what became of
+  a carried overlay. The member was already in the reconciliation result and only
+  the rendering was missing.
+
+- Make abort reachable from a re-materialization mismatch, on both applications.
+  ADR-0028 names abort as the recovery for that state and the refusal says so in
+  as many words, but abort was refusing it with `dirty-worktree`: by the time the
+  re-materialized tree is compared with the prediction, the merged draft is
+  already in the worktree and there is no pending cherry-pick, so abort's clean
+  check ran and stopped the very recovery it was told to run. Reproduced on both
+  `vlab reconcile --abort` and `vlab rebase --abort`; the reconciliation half
+  arrived with #26 in v0.15.0 and had not been exercised.
+
+  The journals now record `overlayRematerialized` at the moment the draft goes
+  back, and abort skips the clean check only when that flag is set. The check
+  exists to protect the user's own edits, and in that one state the dirt is the
+  merged draft the operation itself wrote — which abort replaces with the
+  captured version anyway. A pending operation with a hand-edited worktree still
+  refuses, which the regression test asserts alongside both recoveries.
+
 ## 0.15.0
 
 - Refresh the `lab-windows-a` benchmark baseline for the conflict-policy ref

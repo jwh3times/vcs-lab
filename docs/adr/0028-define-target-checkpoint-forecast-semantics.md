@@ -5,8 +5,9 @@
 - **Date:** 2026-09-14
 - **Owners:** Repository maintainers
 - **Implementation:** [#26](https://github.com/jwh3times/vcs-lab/issues/26)
-- **Related:** [#28](https://github.com/jwh3times/vcs-lab/issues/28),
-  [ADR-0006](0006-forecast-and-pin-automated-reconciliation-decisions.md),
+  (reconciliation), [#28](https://github.com/jwh3times/vcs-lab/issues/28)
+  (causal rebase, decision 5)
+- **Related:** [ADR-0006](0006-forecast-and-pin-automated-reconciliation-decisions.md),
   [ADR-0011](0011-model-causal-rebase-as-a-forecasted-application-sequence.md),
   [ADR-0012](0012-treat-workspace-lifecycle-as-reversible-materialization-and-drafts-as-checkpoint-inputs.md)
 

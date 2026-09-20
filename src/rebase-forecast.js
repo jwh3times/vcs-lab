@@ -22,6 +22,7 @@ import { readRebaseState } from "./rebase-state.js";
 import { buildRebasePlan } from "./rebase-plan.js";
 import { readJson, writeJson } from "./store.js";
 import { assertCurrentSpecDecisions } from "./specs.js";
+import { predictOverlayTree, resolveTargetOverlay } from "./target-overlay.js";
 
 function rebaseForecastPath(id, cwd) {
   if (!/^rebase_forecast_[a-z0-9]+$/.test(String(id ?? ""))) {
@@ -189,6 +190,12 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     );
   }
 
+  // Resolved before any planning, so a worktree that cannot supply an overlay
+  // refuses without having simulated anything. The overlaid worktree here is the
+  // source branch's own, because a rebase rewrites the branch you are standing
+  // on; ADR-0028's `targetOverlay` vocabulary is kept because the contract is
+  // the same one, and "target" in it means the worktree the command mutates.
+  const targetOverlay = options.targetCheckpoint ? resolveTargetOverlay(cwd) : null;
   const startedAt = new Date().toISOString();
   const started = performance.now();
   const gitMetrics = beginGitMetrics("rebase-forecast");
@@ -220,6 +227,32 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     simulation.blockedReason = "heuristic-candidate-decision-required";
     simulation.predictedResultTree = null;
     simulation.exactStateEqualityAfter = null;
+  }
+
+  // The overlay prediction runs on trees, never on live bytes, so it cannot
+  // disturb the caller worktree the invariant check below is about to compare.
+  //
+  // The base is the tree the source branch held before the rebase started, and
+  // `ours` is the rewritten tip: a rebase moves the branch you are standing on,
+  // so the prediction is pinned once per run rather than once per pick.
+  let overlayPrediction = null;
+  if (targetOverlay) {
+    overlayPrediction = simulation.predictedResultTree
+      ? predictOverlayTree({
+          baseTree: plan.sourceTree,
+          resultTree: simulation.predictedResultTree,
+          overlayTree: targetOverlay.tree,
+        }, cwd)
+      : { tree: null, conflict: null };
+    if (overlayPrediction.conflict) {
+      // An overlay that cannot be re-materialized is not an approval. The plan
+      // itself is untouched and still readable; what is withheld is the
+      // prediction an application would verify against.
+      simulation.status = "blocked-target-overlay";
+      simulation.blockedReason = overlayPrediction.conflict.reason;
+      simulation.predictedResultTree = null;
+      simulation.exactStateEqualityAfter = null;
+    }
   }
 
   const invariantStarted = performance.now();
@@ -258,7 +291,14 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     range: plan.range,
     excludedByRange: plan.excludedByRange,
     targetWorktree: context.root,
-    scope: "committed-heads",
+    // A distinct scope per overlay combination, so an approval cannot be read as
+    // covering a combination it was not made for (ADR-0028).
+    scope: targetOverlay ? "target-checkpoint" : "committed-heads",
+    targetOverlay: targetOverlay
+      ? { ...targetOverlay, rematerialized: "uncommitted" }
+      : null,
+    predictedOverlayTree: overlayPrediction?.tree ?? null,
+    targetOverlayConflict: overlayPrediction?.conflict ?? null,
     ignoredCallerDirtyFiles: ignoredDirtyFiles(before.status),
     acceptCandidates,
     candidateDecisionRequired,
@@ -328,13 +368,16 @@ export function formatForecastEngine(forecast) {
 }
 
 export function formatRebaseForecast(forecast) {
+  const scope = {
+    "target-checkpoint": "committed heads plus a caller overlay",
+  }[forecast.scope] ?? "committed heads only";
   const lines = [
     "Causal rebase forecast",
     `forecast     ${forecast.id}`,
     `status       ${forecast.status}`,
     `onto         ${forecast.ontoRef} @ ${short(forecast.ontoHead)}`,
     `source       ${forecast.sourceRef} @ ${short(forecast.sourceHead)}`,
-    `scope        ${forecast.scope === "source-checkpoint" ? "immutable source checkpoint" : "committed heads only"}`,
+    `scope        ${scope}`,
     `plan         ${forecast.plan.counts.covered} omit, ${forecast.plan.counts["candidate-equivalent"]} review, ${forecast.plan.counts.new} replay`,
     `simulation   ${forecast.counts.clean} clean, ${forecast.counts.exactResolution} exact-resolved, ${forecast.counts.semanticSpec} spec-merged, ${forecast.counts.blocked} blocked`,
     `predicted    ${short(forecast.predictedResultTree)}`,
@@ -344,9 +387,28 @@ export function formatRebaseForecast(forecast) {
     ...formatForecastEngine(forecast),
   ];
 
-  if (forecast.ignoredCallerDirtyFiles) {
+  if (forecast.targetOverlay) {
+    const overlay = forecast.targetOverlay;
     lines.push(
-      `caller dirty ${forecast.ignoredCallerDirtyFiles} file${forecast.ignoredCallerDirtyFiles === 1 ? "" : "s"} ignored`,
+      `overlay      checkpoint ${short(overlay.checkpoint)} of workspace ${overlay.workspaceName}`,
+      `overlay tree ${overlay.tree}`,
+      `overlay base ${short(overlay.baseHead)}; draft ${overlay.draftChangeId.slice(0, 18)}`,
+      forecast.predictedOverlayTree
+        ? `overlay after ${forecast.predictedOverlayTree} (re-materialized uncommitted; never committed)`
+        : "overlay after BLOCKED: the overlay does not merge with the rewritten tip",
+    );
+    if (forecast.targetOverlayConflict) {
+      lines.push(`  ! ${forecast.targetOverlayConflict.reason}`);
+    }
+  }
+  // With an overlay the caller's dirty files *are* the pinned draft, so calling
+  // them ignored would say the opposite of what happens to them.
+  if (forecast.ignoredCallerDirtyFiles) {
+    const plural = forecast.ignoredCallerDirtyFiles === 1 ? "" : "s";
+    lines.push(
+      forecast.targetOverlay
+        ? `caller draft ${forecast.ignoredCallerDirtyFiles} file${plural} carried as the overlay`
+        : `caller dirty ${forecast.ignoredCallerDirtyFiles} file${plural} ignored`,
     );
   }
   lines.push("");

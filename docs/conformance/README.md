@@ -99,15 +99,18 @@ on reduced evidence, only when the list is non-empty — an empty list is the
 ordinary case, and a line reading `quarantined  0` in every plan would be noise
 a reader learns to skip past.
 
-`targetOverlay`, `predictedOverlayTree`, and `targetOverlayConflict` on a
-forecast are the same again: the overlay block prints only when a caller asked for
-one with `--target-checkpoint`. `vlab forecast` has no fixture of its own here at
-all — a pre-existing gap, since it is a paired command — and the fixture stage has
-no registered workspace or checkpoint, so an overlay could not be exercised in it
-even if one were added. What pins the rendering is
-`test/target-overlay.test.js`, which asserts the human forecast states the
-overlay, its tree, and that it will be re-materialized uncommitted, because that
-is what makes the approval which follows an informed one.
+`targetOverlay`, `predictedOverlayTree`, and `targetOverlayConflict` on either
+forecast family are the same again: the overlay block prints only when a caller
+asked for one with `--target-checkpoint`. Neither `vlab forecast` nor
+`vlab rebase-forecast` has a fixture of its own here at all — a pre-existing gap,
+since both are paired commands — and the fixture stage has no registered workspace
+or checkpoint, so an overlay could not be exercised in it even if one were added.
+What pins the rendering is `test/target-overlay.test.js`, which asserts that both
+human forecasts state the overlay, its tree, and that it will be re-materialized
+uncommitted, because that is what makes the approval which follows an informed
+one. The same suite pins the one overlay line the *result* renderers print, on
+`vlab reconcile` and `vlab rebase` alike, naming the checkpoint and the tree the
+worktree was left holding.
 
 `range` and `excludedByRange` on the rebase plan and receipt are the same shape:
 the range line prints only when a caller named one, and the excluded list only
