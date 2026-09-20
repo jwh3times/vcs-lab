@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
 
 - Allow a checkpoint to be an input to a causal rebase (issue #28; ADR-0028
   decision 5). `--target-checkpoint` on `vlab rebase-forecast` pins one checkpoint
