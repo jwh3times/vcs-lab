@@ -33,7 +33,9 @@ test("host labels select two independent latency baselines on the same operating
 test("unknown and unselected hosts skip latency while retaining deterministic regression checks", () => {
   for (const id of [null, "unknown", "linux", "constructor"]) {
     const selected = selectBaseline(baseline(), host(id));
-    assert.equal(selected.reference, "legacyHosts.linux");
+    // Deterministic counts come from a maintained identified entry recorded on
+    // this platform, not from the frozen OS-keyed one (#100).
+    assert.equal(selected.reference, "hosts.alpha");
     assert.equal(selected.latencySkipped, true);
     const current = entry(id);
     current.phases.history.medianMs = 1000000;
@@ -47,6 +49,54 @@ test("unknown and unselected hosts skip latency while retaining deterministic re
   }
   assert.equal(selectBaseline(baseline(), { ...host("unknown"), platform: "darwin" }).entry, null);
   assert.equal(selectBaseline(null, host("alpha")).entry, null);
+});
+
+test("a stale OS entry cannot report a regression an identified entry contradicts", () => {
+  // Issue #100. legacyHosts.* entries are frozen at whatever the code did when
+  // they were captured and are never refreshed, so a later deliberate change
+  // makes them report a regression that is not one. On Windows this was exactly
+  // publication: 41 recorded, ~139 current, and every unidentified run failed.
+  const saved = baseline();
+  saved.legacyHosts.linux.publication.processes = 41;
+  saved.hosts.alpha.publication.processes = 139;
+  saved.hosts.beta.publication.processes = 139;
+
+  const selected = selectBaseline(saved, host(null));
+  assert.equal(selected.reference, "hosts.alpha", "the maintained entry wins over the frozen one");
+  assert.equal(selected.latencySkipped, true, "latency still cannot travel between machines");
+
+  const current = entry(null);
+  current.publication.processes = 139;
+  const findings = compare(selected.entry, current, TOLERANCE, { latency: false });
+  assert.deepEqual(
+    findings.filter((finding) => finding.status === "regressed"),
+    [],
+    "matching the current code must not report a regression",
+  );
+
+  // The check keeps its teeth: a genuine growth past the maintained entry fails.
+  current.publication.processes = 140;
+  assert.equal(
+    compare(selected.entry, current, TOLERANCE, { latency: false })
+      .filter((finding) => finding.status === "regressed").length,
+    1,
+  );
+});
+
+test("the frozen OS entry is still used when no identified entry shares the platform", () => {
+  // The fallback is what keeps a fresh clone on an unrecorded machine useful,
+  // so preferring identified entries must not delete it.
+  const saved = baseline();
+  saved.hosts = {};
+  const selected = selectBaseline(saved, host(null));
+  assert.equal(selected.reference, "legacyHosts.linux");
+  assert.equal(selected.latencySkipped, true);
+  assert.ok(selected.entry);
+
+  // An identified entry on a different platform does not qualify either.
+  const other = baseline();
+  other.hosts = { alpha: { ...entry("alpha"), host: { ...host("alpha"), platform: "win32" } } };
+  assert.equal(selectBaseline(other, host(null)).reference, "legacyHosts.linux");
 });
 
 test("reused labels cannot borrow latency after hardware or benchmark settings change", () => {

@@ -44,7 +44,8 @@ or build step.
   per-host baseline in `benchmarks/baseline.json`; `npm run benchmark:record -- --host <label>`
   refreshes an explicitly identified machine's entry on a quiet machine. Use the
   same `-- --host <label>` for checks, or set `VLAB_BENCHMARK_HOST`; otherwise
-  latency comparison is skipped.
+  latency comparison is skipped and the deterministic counts compare against the
+  most recent identified entry for the same platform.
 - `npm run sync:agents` regenerates `.claude/skills/` from `.agents/skills/`;
   it also generates `.codex/agents/*.toml` from `.claude/agents/*.md`.
   `npm run sync:agents -- --check` reports drift without writing.
