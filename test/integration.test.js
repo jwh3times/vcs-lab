@@ -2981,12 +2981,20 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     status: git(repo, "status", "--porcelain=v1"),
     worktrees: git(repo, "worktree", "list", "--porcelain"),
   };
-  const scaleFixtureDirectoriesBefore = fs.readdirSync(os.tmpdir())
-    .filter((entry) => entry.startsWith("vcs-lab-scale-benchmark-"))
-    .sort();
-  const scale = JSON.parse(
-    vlab(
-      repo,
+  // A private temp directory for the benchmark child processes, so the
+  // fixture-hygiene assertion below measures only what these runs created.
+  // Reading the shared os.tmpdir() raced test/schema-catalog.test.js, which runs
+  // its own bounded benchmark while node --test executes files concurrently
+  // (issue #114); the snapshot could see that suite's fixture and the later
+  // comparison could not.
+  const scaleFixtureRoot = fs.realpathSync.native(
+    fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-fixture-root-")),
+  );
+  t.after(() => fs.rmSync(scaleFixtureRoot, { recursive: true, force: true }));
+  const benchmark = (...args) => JSON.parse(exec(process.execPath, [cli, ...args], repo, {
+    env: testEnv({ TMPDIR: scaleFixtureRoot, TMP: scaleFixtureRoot, TEMP: scaleFixtureRoot }),
+  }));
+  const scale = benchmark(
       "metadata",
       "benchmark",
       "--history",
@@ -3009,7 +3017,6 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
       "--files-per-area",
       "3",
       "--json",
-    ),
   );
   assert.equal(scale.schema, "vcs-lab.repository-scale-benchmark/v1");
   assert.deepEqual(scale.fixture, {
@@ -3088,9 +3095,7 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
   // A tiny custom fixture cannot dilute the catalog's fixed batch cost, so
   // the analysis asks for more volume instead of misreporting that cost as
   // per-entity amplification.
-  const tiny = JSON.parse(
-    vlab(
-      repo,
+  const tiny = benchmark(
       "metadata",
       "benchmark",
       "--history",
@@ -3110,7 +3115,6 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
       "--files-per-area",
       "3",
       "--json",
-    ),
   );
   assert.equal(tiny.measurements.resolutionCatalog.result.resolutions, 2);
   assert.equal(
@@ -3132,12 +3136,10 @@ test("doctor and repository-scale benchmarks expose process costs without reposi
     ],
   );
   assertBenchmarkLatencyAnalysis(tiny);
-  assert.deepEqual(
-    fs.readdirSync(os.tmpdir())
-      .filter((entry) => entry.startsWith("vcs-lab-scale-benchmark-"))
-      .sort(),
-    scaleFixtureDirectoriesBefore,
-  );
+  // The benchmark removes its own fixture. Asserting the private root is empty
+  // states that exactly, and catches any other scratch directory the run leaves
+  // behind, which reading a shared directory could never do.
+  assert.deepEqual(fs.readdirSync(scaleFixtureRoot), []);
   assert.deepEqual({
     head: git(repo, "rev-parse", "HEAD"),
     status: git(repo, "status", "--porcelain=v1"),

@@ -602,10 +602,23 @@ intentional re-record. Review provenance before committing an entry.
 
 The previous Linux and Windows entries are preserved unchanged in `legacyHosts`;
 their original machines cannot be identified from the old data. Those entries
-never supply latency limits. On an unknown or unselected host, compatible
-legacy OS entries still supply deterministic process, record, and materialization
-counts when no benchmark overrides are set. Forecast semantic equality checks
-always run. With no compatible reference, all baseline comparisons are skipped.
+never supply latency limits.
+
+On an unknown or unselected host, deterministic process, record, and
+materialization counts still compare, because those are properties of the code
+rather than of the machine. The reference is the most recently recorded
+identified entry for the same platform, and only a `legacyHosts` entry when no
+identified entry shares it. That order matters: a `legacyHosts` entry is frozen
+at whatever the code did when it was captured and is never refreshed, so a later
+deliberate change makes it report a regression that is not one — on Windows it
+recorded 41 publication processes against a current ~139, and every unidentified
+run failed on it ([issue #100](https://github.com/jwh3times/vcs-lab/issues/100)).
+An identified entry moves with the code, because every re-record commits its
+reason. Either way latency stays skipped, since latency cannot travel between
+machines. Both paths require that no benchmark overrides are set.
+
+Forecast semantic equality checks always run. With no compatible reference, all
+baseline comparisons are skipped.
 Human output explains the scope; JSON reports `latencySkipped` and `reference`,
 and skipped latency findings have no baseline or limit. `passed: true` on a
 deterministic-only check does **not** qualify host latency for release.
@@ -639,12 +652,9 @@ containers on the Windows host cannot supply that qualification. Real-repository
 multi-host evidence and budget ratification remain in
 [issue #42](https://github.com/jwh3times/vcs-lab/issues/42).
 
-A known failure worth recognizing before it costs an hour: on Windows,
-`npm run test:benchmark` with no `--host` and no `VLAB_BENCHMARK_HOST` fails
-rather than skipping. It falls back to the committed `legacyHosts.win32` entry,
-which records 41 publication processes against today's ~139. Always name the
-host. Folding the legacy entry into the host-keyed comparison, or removing it,
-is [issue #100](https://github.com/jwh3times/vcs-lab/issues/100).
+Name the host anyway whenever you can. Without one the check is
+deterministic-only, and `passed: true` from such a run does not qualify host
+latency for a release.
 
 ## Static checks
 
@@ -672,7 +682,7 @@ because a suite no document names is a suite nobody maintains.
 | Suite | What it fails on |
 | --- | --- |
 | `test/native-engine.test.js` | The optional binding disagreeing with Git, or a build that loads but answers differently. It skips when no prebuild is present, so a green run does not by itself mean the binding was exercised — `VLAB_ENGINE=native` is what proves that. |
-| `test/benchmark-host.test.js` | The baseline file's schema, host keying, and the v2 migration. It reads the committed `legacyHosts` as fixture material, which is why a baseline re-record must touch `hosts.<label>` and nothing else. |
+| `test/benchmark-host.test.js` | The baseline file's schema, host keying, reference selection, and the v2 migration. It reads the committed `legacyHosts` as fixture material, which is why a baseline re-record must touch `hosts.<label>` and nothing else. |
 | `test/scale-benchmark-analysis.test.js` | The repository-scale benchmark's own arithmetic — per-entity amplification and the phase summary — without running the benchmark. |
 | `test/ci-plan.test.js` | The change classifier in `scripts/ci-plan.mjs` choosing the wrong job set, which is how a documentation-only change would silently skip a suite it needed. |
 | `test/doc-links.test.js` | A local Markdown link with no target. The same check `npm run test:docs` runs, wired into the suite so a broken link fails a plain `npm test`. |

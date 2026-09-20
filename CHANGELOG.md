@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- Stop the benchmark check failing on every unidentified host (issue #100).
+  Without `--host`, reference selection fell back to `legacyHosts.<platform>`,
+  which is frozen at whatever the code did when it was captured and is never
+  refreshed. The Windows entry records 41 publication processes against a current
+  ~139, so an unidentified run reported a regression that had not happened.
+
+  Deterministic process, record, and materialization counts are properties of the
+  code; latency is a property of the machine. That distinction is why latency is
+  skipped without an identified host, and it means any default-mode entry
+  recorded on this platform can supply the counts. Selection now prefers the most
+  recent identified entry for the platform — identified entries move with the
+  code, because every re-record commits its reason — and falls back to the frozen
+  OS entry only when none shares the platform. Latency stays skipped either way,
+  and the check keeps its teeth: a genuine growth past the maintained count still
+  fails.
+
+- Stop a fixture-hygiene assertion racing a concurrent suite (issue #114). The
+  scale-benchmark test snapshotted the shared `os.tmpdir()`, which
+  `test/schema-catalog.test.js` writes to as well when `node --test` runs files
+  concurrently; it failed once in the v0.16.0 release dispatch on one platform
+  and mode. The test now gives its benchmark child processes a private temporary
+  directory and asserts that it is left empty, which no interleaving can affect
+  and which also catches any other scratch directory a run leaves behind. No
+  product behavior changed.
+
 ## 0.16.0
 
 - Allow a checkpoint to be an input to a causal rebase (issue #28; ADR-0028

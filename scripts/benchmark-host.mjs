@@ -66,11 +66,31 @@ export function selectBaseline(baseline, host) {
   const reason = identified
     ? `Host '${host.id}' does not match its recorded hardware or benchmark settings.`
     : host.id ? `No identified baseline for host '${host.id}'.` : "No host identity selected; use --host <label> or VLAB_BENCHMARK_HOST.";
+  // Deterministic metrics — process, record, and materialization counts — are
+  // properties of the code rather than of the machine, so any default-mode entry
+  // recorded on this platform can supply them. Latency cannot travel between
+  // machines and stays skipped either way.
+  if (!matchingOverrides({}, host.overrides)) {
+    return { entry: null, reference: null, latencySkipped: true, reason };
+  }
+  // Prefer a maintained identified entry over the frozen OS-keyed one. A
+  // `legacyHosts.*` entry records counts from whenever it was captured and is
+  // never refreshed, so a later deliberate change to the code makes it report a
+  // regression that is not one; the identified entries move with the code
+  // because every re-record commits its reason (issue #100).
+  const sameplatform = Object.entries(baseline?.hosts ?? {})
+    .filter(([, candidate]) =>
+      candidate?.host?.platform === host.platform &&
+      matchingOverrides(candidate.host.overrides, {}))
+    .sort(([leftKey, left], [rightKey, right]) =>
+      String(right.recordedAt ?? "").localeCompare(String(left.recordedAt ?? "")) ||
+      leftKey.localeCompare(rightKey));
+  if (sameplatform.length) {
+    const [key, entry] = sameplatform[0];
+    return { entry, reference: `hosts.${key}`, latencySkipped: true, reason };
+  }
   const legacy = baseline?.legacyHosts?.[host.platform];
-  // OS-only entries are historical latency evidence, but their default-mode
-  // process/materialization counts remain useful independently of hardware.
-  const entry = matchingOverrides({}, host.overrides) ? legacy : null;
-  return { entry: entry ?? null, reference: entry ? `legacyHosts.${host.platform}` : null, latencySkipped: true, reason };
+  return { entry: legacy ?? null, reference: legacy ? `legacyHosts.${host.platform}` : null, latencySkipped: true, reason };
 }
 
 export function recordBaseline(baseline, current, profile, tolerance) {
