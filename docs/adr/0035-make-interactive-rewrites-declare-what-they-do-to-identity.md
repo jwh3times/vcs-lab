@@ -1,6 +1,7 @@
 # ADR-0035: Make interactive rewrites declare what they do to identity
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Decided:** 2026-09-20
 - **Date:** 2026-09-20
 - **Owners:** Repository maintainers
 - **Implementation:** [#30](https://github.com/jwh3times/vcs-lab/issues/30)
@@ -165,3 +166,24 @@ shape a conflicted pick already uses.
    would lose or duplicate it, rather than trusting the caller's editor.
 5. Decide whether `edit` should be offered at all in a first version, given that
    it is the only one of the four whose result a forecast cannot predict.
+
+## Owner decision (2026-09-20)
+
+Accepted, including the consequence that matters most: `edit` retains identity
+and publishes an amendment fact, and a bare Change-Id match for an amended
+identity degrades from `covered` to `candidate-equivalent`.
+
+That is a deliberate weakening of ADR-0004's exact-evidence list, accepted
+because the alternative is worse. Leaving `edit` to retain identity silently
+would let a local rewrite invalidate a receipt held in another clone with no
+signal anywhere; making `edit` fork would turn every typo fix into a new logical
+change. The amendment keeps the identity useful and pays for it with a
+downgrade that is narrow, visible, and only ever weakens a conclusion.
+
+`reword` composing its own trailer, and `squash`/`fixup` reusing the landing
+absorption model with exactly one surviving trailer, are accepted as written.
+
+Decision 5, whether `edit` is offered in a first version, is left to
+implementation. The other three actions are fully predictable and can ship
+without it; `edit` is the only one whose result a forecast cannot predict, so
+deferring it costs nothing that the other three provide.
