@@ -303,9 +303,10 @@ boundary: a global flag consumed before the argument parse keeps prose, because
 no output mode is known yet, while an unknown command is enveloped.
 
 `test/target-overlay.test.js` covers target-checkpoint forecasts
-([ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md)). Two of its
-ten cases carry the contract's central claim, that an overlay is context rather
-than a draft commit: one compares an overlaid forecast with a bare one and
+([ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md)) on both the
+reconciliation and the causal-rebase path. Two of its sixteen cases carry the
+contract's central claim, that an overlay is context rather than a draft commit:
+one compares an overlaid forecast with a bare one and
 requires the plan, the fingerprint, and the committed predicted tree to be
 identical, and one requires the draft identity to appear in no plan entry and no
 receipt. If either fails, an overlay has become a causal fact, which is the thing
@@ -329,6 +330,22 @@ the overlay back before publishing. The last case deletes the checkpoint and
 garbage-collects underneath a paused operation, because "the tip is restored, the
 draft is reported lost, and the worktree is clean" is a promise worth testing
 rather than assuming.
+
+Five rebase cases repeat that structure against `vlab rebase-forecast` and
+`vlab rebase`, with `rebase:before-journal-advance` as the interruption, and add
+the one property a rebase has that a reconciliation does not. The scenario is
+built so that all four trees differ — the source tree before the rebase, the
+rewritten result, the overlay, and the re-materialized worktree — and asserts it.
+That is what keeps the case honest: with equal trees `predictOverlayTree` takes
+its identical-tree shortcut and the merge under test never runs. Re-materializing
+by writing the checkpoint tree back was confirmed to fail this suite, refused by
+the prediction check before anything was published.
+
+A sixteenth case covers both applications together: the human result of
+`vlab reconcile` and of `vlab rebase` must state what became of a carried
+overlay, and must say nothing about overlays when there was none. An overlay is
+reported and never published, so that line is the only place a reader learns the
+draft is back.
 
 `test/rebase-ranges.test.js` covers explicit linear rebase ranges
 ([ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md)). Its

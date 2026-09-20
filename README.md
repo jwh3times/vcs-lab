@@ -349,9 +349,35 @@ another with `stale-forecast`. Abort is unaffected: the range decides what is
 replayed, never what is restored. See
 [ADR-0032](docs/adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md).
 
-Linear rebase operates only on the current named branch. Merge-preserving,
-interactive edit/reword/squash, and dirty-overlay rebases remain ordinary Git
-workflows.
+### Carrying your own uncommitted work through the rebase
+
+A rebase rewrites the branch you are standing on, so the draft in that worktree is
+normally in the way: `vlab rebase` refuses a dirty worktree. `--target-checkpoint`
+on the forecast carries it instead:
+
+```bash
+vlab workspace checkpoint --label "mid-refactor"
+vlab rebase-forecast main --target-checkpoint
+vlab rebase main --use-forecast <id>
+```
+
+This is the same overlay contract the reconciliation side uses, applied to the
+rebase journal, so [carrying the target's own uncommitted
+work](#carrying-the-targets-own-uncommitted-work) is the full description and
+nothing about it differs here. Two details are specific to a rebase. The
+re-materialization merges the draft onto the *rewritten tip*, with the tree the
+branch held before the rebase as the base, and that prediction is pinned once per
+run rather than once per pick. And the merge is what keeps the new base: writing
+the checkpoint's tree back would restore the pre-rebase content of every file the
+new base changed, silently undoing what you rebased onto.
+
+The worktree must be a registered workspace, because a checkpoint belongs to one.
+Everything else is unchanged — a drifted worktree refuses with `stale-overlay`
+before anything moves, no receipt mentions the draft, and abort restores the
+original tip first and the captured worktree second.
+
+Linear rebase operates only on the current named branch. Merge-preserving and
+interactive edit/reword/squash rebases remain ordinary Git workflows.
 
 ## Forecasting reconciliation
 
@@ -566,7 +592,8 @@ its printed reconciliation command should be run.
 
 `--target-checkpoint` carries the *target's* draft through the application and
 puts it back afterwards. It is available on `vlab forecast` too, with identical
-semantics.
+semantics, and on [`vlab rebase-forecast`](#carrying-your-own-uncommitted-work-through-the-rebase),
+where the overlaid worktree is the branch being rewritten.
 
 An overlay is uncommitted context, never a committed draft. It changes no
 coverage decision: the plan, its fingerprint, and the committed predicted tree

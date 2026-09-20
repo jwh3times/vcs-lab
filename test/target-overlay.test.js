@@ -373,3 +373,302 @@ test("abort never invents bytes for an overlay it cannot read", (t) => {
   // could not be read.
   assert.equal(git(workspace, "status", "--porcelain"), "");
 });
+
+// ---------------------------------------------------------------------------
+// Carrying an overlay through a causal rebase (ADR-0028 decision 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * A repository whose `main` has moved on, and a registered workspace holding one
+ * commit of its own to rebase onto it.
+ *
+ * The onto side deliberately edits a file the workspace's commit does not touch,
+ * so the rebase changes the committed tree. That is what makes re-materialization
+ * observable: writing the checkpoint tree back over the rewritten tip would
+ * restore the pre-rebase content of exactly that file.
+ */
+function rebasable(t) {
+  const parent = fs.realpathSync.native(
+    fs.mkdtempSync(path.join(os.tmpdir(), "vcs-lab-overlay-rb-")),
+  );
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const repo = path.join(parent, "repo");
+  fs.mkdirSync(repo);
+  git(repo, "init", "-b", "main");
+  git(repo, "config", "core.autocrlf", "false");
+  git(repo, "config", "core.eol", "lf");
+  git(repo, "config", "user.name", "VCS Lab Overlay Test");
+  git(repo, "config", "user.email", "vcs-lab-overlay@example.invalid");
+  vlab(repo, "init");
+  write(repo, "shared.txt", "base\n");
+  git(repo, "add", "-A");
+  vlab(repo, "commit", "-m", "base");
+
+  // The branch to be rebased, in its own registered workspace.
+  const workspace = path.join(parent, "feature-ws");
+  vlab(repo, "workspace", "create", "feature", "--from", "main", "--path", workspace);
+  write(workspace, "feature-only.txt", "feature work\n");
+  git(workspace, "add", "-A");
+  vlab(workspace, "commit", "-m", "feature work");
+
+  // `main` moves on, touching a file the feature commit leaves alone.
+  write(repo, "shared.txt", "advanced by main\n");
+  git(repo, "add", "-A");
+  vlab(repo, "commit", "-m", "main advances");
+  return { parent, repo, workspace };
+}
+
+/**
+ * The draft a rebase carries: a tracked edit to the branch's own file plus one
+ * untracked file, captured as a checkpoint. `shared.txt` is deliberately left
+ * alone, so the draft and the incoming base do not contend for it.
+ */
+function rebaseDraft(workspace, tracked = "feature work, still drafting\n") {
+  write(workspace, "feature-only.txt", tracked);
+  write(workspace, "scratch.txt", "scratch\n");
+  return JSON.parse(
+    exec(process.execPath, [cli, "workspace", "checkpoint", "--label", "draft", "--json"], workspace),
+  );
+}
+
+test("a rebase forecast carries a caller checkpoint as an overlay", (t) => {
+  const { workspace } = rebasable(t);
+  // No draft at all, for comparison.
+  const bare = vlabJson(workspace, "rebase-forecast", "main");
+  assert.equal(bare.scope, "committed-heads");
+  assert.equal(bare.targetOverlay ?? null, null);
+
+  const checkpoint = rebaseDraft(workspace);
+  const forecast = vlabJson(workspace, "rebase-forecast", "main", "--target-checkpoint");
+  assert.equal(forecast.status, "complete");
+  assert.equal(forecast.scope, "target-checkpoint");
+
+  // An overlay is uncommitted context: it changes no coverage decision, and the
+  // committed prediction is the committed one.
+  assert.equal(forecast.planFingerprint, bare.planFingerprint,
+    "an overlay changes no coverage decision");
+  assert.equal(forecast.predictedResultTree, bare.predictedResultTree);
+  assert.deepEqual(forecast.plan.changes, bare.plan.changes);
+
+  // The overlay is pinned by the checkpoint commit, and a second tree is
+  // predicted: the worktree after the draft is put back on the rewritten tip.
+  assert.equal(forecast.targetOverlay.checkpoint, checkpoint.id);
+  assert.equal(forecast.targetOverlay.tree, checkpoint.tree);
+  assert.equal(forecast.targetOverlay.baseHead, git(workspace, "rev-parse", "HEAD"));
+  assert.equal(forecast.targetOverlay.rematerialized, "uncommitted");
+  assert.match(forecast.predictedOverlayTree, /^[0-9a-f]{40}$/);
+  assert.notEqual(forecast.predictedOverlayTree, forecast.predictedResultTree,
+    "the draft is still in the worktree afterwards, so the trees differ");
+  // Four distinct trees, which is what keeps this scenario honest: the rebase
+  // moves the committed tree, so the identical-tree shortcut cannot fire and the
+  // predicted overlay really is the product of a three-way merge.
+  assert.equal(
+    new Set([
+      forecast.sourceTree,
+      forecast.predictedResultTree,
+      forecast.targetOverlay.tree,
+      forecast.predictedOverlayTree,
+    ]).size,
+    4,
+  );
+
+  // Repeating the forecast reproduces both predictions and the fingerprint,
+  // which is what makes an approval about the repository rather than about the
+  // moment it was taken (ADR-0028 acceptance evidence).
+  const again = vlabJson(workspace, "rebase-forecast", "main", "--target-checkpoint");
+  assert.equal(again.planFingerprint, forecast.planFingerprint);
+  assert.equal(again.predictedResultTree, forecast.predictedResultTree);
+  assert.equal(again.predictedOverlayTree, forecast.predictedOverlayTree);
+  assert.equal(again.targetOverlay.checkpoint, forecast.targetOverlay.checkpoint);
+
+  // The draft identity is display and audit only.
+  assert.equal(JSON.stringify(forecast.plan).includes(checkpoint.draftChangeId), false,
+    "the draft identity is not part of the plan");
+
+  // And the human forecast states the overlay, its tree, and what becomes of it,
+  // so the approval that follows is informed.
+  const text = vlab(workspace, "rebase-forecast", "main", "--target-checkpoint");
+  assert.match(text, /overlay/i);
+  assert.match(text, new RegExp(forecast.targetOverlay.tree.slice(0, 12)));
+  assert.match(text, /uncommitted/i);
+  assert.match(text, /carried as the overlay/,
+    "with an overlay the dirty files are the pinned draft, not ignored bytes");
+
+  // Forecasting changed nothing on disk.
+  assert.equal(readText(workspace, "feature-only.txt"), "feature work, still drafting\n");
+  assert.equal(fs.existsSync(path.join(workspace, "scratch.txt")), true);
+});
+
+test("a rebase re-materializes the overlay without undoing the rebase", (t) => {
+  const { workspace } = rebasable(t);
+  rebaseDraft(workspace);
+  const forecast = vlabJson(workspace, "rebase-forecast", "main", "--target-checkpoint");
+  assert.equal(forecast.status, "complete");
+  const mainHead = git(workspace, "rev-parse", "main");
+
+  const result = vlabJson(workspace, "rebase", "main", "--use-forecast", forecast.id);
+
+  // The committed history is exactly what a committed-heads rebase would
+  // produce: the branch sits on the new base and the overlay is not in it.
+  assert.equal(git(workspace, "rev-parse", "HEAD^"), mainHead);
+  assert.equal(git(workspace, "rev-parse", "HEAD^{tree}"), forecast.predictedResultTree);
+  assert.equal(git(workspace, "show", "HEAD:shared.txt"), "advanced by main");
+
+  // This is the assertion the whole contract turns on. A checkpoint captures the
+  // *whole* worktree at its base, so writing that tree back would restore the
+  // pre-rebase `shared.txt` and silently undo what the rebase replayed onto.
+  assert.equal(readText(workspace, "shared.txt"), "advanced by main\n",
+    "re-materialization is a three-way merge, not a tree write");
+
+  // The draft is back, uncommitted, untracked file included.
+  assert.equal(readText(workspace, "feature-only.txt"), "feature work, still drafting\n");
+  assert.equal(fs.existsSync(path.join(workspace, "scratch.txt")), true);
+  const status = git(workspace, "status", "--porcelain");
+  assert.match(status, /feature-only\.txt/);
+  assert.match(status, /scratch\.txt/);
+
+  // The command reports what became of the overlay, and verified it against the
+  // prediction before publishing anything.
+  assert.equal(result.targetOverlay.checkpoint, forecast.targetOverlay.checkpoint);
+  assert.equal(result.targetOverlay.rematerialized, true);
+  assert.equal(result.targetOverlay.tree, forecast.predictedOverlayTree);
+
+  // No receipt claims the overlay.
+  const receipts = JSON.stringify(vlabJson(workspace, "receipts"));
+  assert.equal(receipts.includes(forecast.targetOverlay.draftChangeId), false,
+    "a receipt claims nothing about an uncommitted state");
+  assert.equal(receipts.includes(forecast.targetOverlay.checkpoint), false);
+  assert.equal(vlabJson(workspace, "rebase", "--status").active, false);
+});
+
+test("a rebase refuses a drifted overlay before any mutation", (t) => {
+  const { workspace } = rebasable(t);
+  rebaseDraft(workspace);
+  const forecast = vlabJson(workspace, "rebase-forecast", "main", "--target-checkpoint");
+  const before = git(workspace, "rev-parse", "HEAD");
+
+  // The user keeps typing after capturing the checkpoint.
+  write(workspace, "feature-only.txt", "feature work, still drafting, and more\n");
+
+  const refused = refusal(workspace, "rebase", "main", "--use-forecast", forecast.id);
+  assert.equal(refused.code, "stale-overlay");
+  assert.equal(git(workspace, "rev-parse", "HEAD"), before, "nothing moved");
+  assert.equal(readText(workspace, "feature-only.txt"),
+    "feature work, still drafting, and more\n",
+    "and the newer work is still there, uncaptured but intact");
+  assert.equal(vlabJson(workspace, "rebase", "--status").active, false,
+    "the refusal starts no operation");
+
+  // A dirty caller with no approved overlay is refused exactly as it always was.
+  const plain = refusal(workspace, "rebase", "main");
+  assert.equal(plain.code, "dirty-worktree");
+});
+
+test("aborting a rebase restores the original tip and the captured worktree", (t) => {
+  const { workspace } = rebasable(t);
+  rebaseDraft(workspace);
+  const forecast = vlabJson(workspace, "rebase-forecast", "main", "--target-checkpoint");
+  assert.equal(forecast.status, "complete");
+  const tip = git(workspace, "rev-parse", "HEAD");
+
+  // A complete forecast means the rebase would otherwise finish, so the only way
+  // to a pending operation with the overlay still reduced away is the
+  // repository's own fault injection. A later point would not do: by
+  // `before-publish` the overlay has already been put back, which is the
+  // contract's own ordering, so nothing would be left to restore.
+  const interrupted = spawnSync(
+    process.execPath,
+    [cli, "rebase", "main", "--use-forecast", forecast.id, "--json"],
+    {
+      cwd: workspace,
+      encoding: "utf8",
+      env: testEnv({ VLAB_TEST_FAULT: "rebase:before-journal-advance" }),
+    },
+  );
+  assert.notEqual(interrupted.status, 0, "the fault must stop the operation");
+  assert.match(interrupted.stderr, /fault injected at rebase:before-journal-advance/);
+  assert.equal(vlabJson(workspace, "rebase", "--status").active, true);
+  assert.equal(fs.existsSync(path.join(workspace, "scratch.txt")), false,
+    "the overlay was reduced away before the picks, which is what makes the abort meaningful");
+
+  const aborted = vlabJson(workspace, "rebase", "--abort");
+  assert.equal(aborted.aborted, true);
+  assert.equal(aborted.restoredHead, tip, "the exact original tip returns");
+  assert.equal(git(workspace, "rev-parse", "HEAD"), tip);
+  assert.equal(aborted.overlay.restored, true);
+  assert.equal(aborted.overlay.checkpoint, forecast.targetOverlay.checkpoint);
+
+  // The captured draft returns, untracked file included, and nothing was
+  // published.
+  assert.equal(readText(workspace, "feature-only.txt"), "feature work, still drafting\n");
+  assert.equal(fs.existsSync(path.join(workspace, "scratch.txt")), true);
+  assert.match(git(workspace, "status", "--porcelain"), /scratch\.txt/);
+  assert.equal(
+    vlabJson(workspace, "receipts").some((receipt) => receipt.type === "rebase"),
+    false,
+    "an interrupted rebase leaves no summary receipt behind",
+  );
+});
+
+test("an overlay that does not merge with the rewritten tip blocks the rebase forecast", (t) => {
+  const { workspace } = rebasable(t);
+  // The draft edits the same file `main` advanced, in the same place.
+  write(workspace, "shared.txt", "the draft edits the shared file\n");
+  exec(process.execPath, [cli, "workspace", "checkpoint", "--label", "conflicting", "--json"], workspace);
+
+  const blocked = run(workspace, "rebase-forecast", "main", "--target-checkpoint", "--json");
+  const forecast = JSON.parse(blocked.stdout);
+  assert.equal(forecast.status, "blocked-target-overlay",
+    "an overlay that cannot be re-materialized is not a complete approval");
+  assert.equal(forecast.blockedReason, "target-overlay-conflict");
+  assert.equal(forecast.predictedOverlayTree ?? null, null);
+  assert.equal(forecast.predictedResultTree ?? null, null);
+  assert.ok(forecast.targetOverlayConflict);
+
+  // Live bytes are never merged: the worktree is untouched by forecasting.
+  assert.equal(readText(workspace, "shared.txt"), "the draft edits the shared file\n");
+
+  // And an incomplete forecast is not an approval.
+  const refused = refusal(workspace, "rebase", "main", "--use-forecast", forecast.id);
+  assert.equal(refused.code, "operation-state-invalid");
+  assert.equal(vlabJson(workspace, "rebase", "--status").active, false);
+});
+
+test("the human result of an application states what became of the overlay", (t) => {
+  // An overlay is reported and never published, so the command's own answer is
+  // the only place a reader learns the draft is back. Both applications that can
+  // carry one say it, in the same words.
+  const reconciled = overlaid(t);
+  draftAndCheckpoint(reconciled.workspace);
+  const reconcileForecast = vlabJson(
+    reconciled.workspace, "forecast", "feature", "--target-checkpoint",
+  );
+  const reconcileText = vlab(
+    reconciled.workspace, "reconcile", "feature", "--use-forecast", reconcileForecast.id,
+  );
+  assert.match(
+    reconcileText,
+    new RegExp(`overlay\\s+checkpoint ${reconcileForecast.targetOverlay.checkpoint.slice(0, 12)} re-materialized uncommitted`),
+  );
+
+  const rebased = rebasable(t);
+  rebaseDraft(rebased.workspace);
+  const rebaseForecast = vlabJson(
+    rebased.workspace, "rebase-forecast", "main", "--target-checkpoint",
+  );
+  const rebaseText = vlab(
+    rebased.workspace, "rebase", "main", "--use-forecast", rebaseForecast.id,
+  );
+  assert.match(
+    rebaseText,
+    new RegExp(`overlay\\s+checkpoint ${rebaseForecast.targetOverlay.checkpoint.slice(0, 12)} re-materialized uncommitted`),
+  );
+
+  // And an application without one says nothing about overlays at all.
+  const plain = overlaid(t);
+  const plainForecast = vlabJson(plain.workspace, "forecast", "feature");
+  const plainText = vlab(
+    plain.workspace, "reconcile", "feature", "--use-forecast", plainForecast.id,
+  );
+  assert.equal(/overlay/i.test(plainText), false);
+});

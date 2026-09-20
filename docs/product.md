@@ -384,7 +384,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-WS-05 | P1 | A checkpoint shall capture tracked and non-ignored untracked files without changing the real `HEAD`, index, or worktree. | Implemented | Temporary-index checkpoint test verifies invariants. |
 | FR-WS-06 | P1 | Two workspace heads shall be forecastable without switching either worktree. | Implemented | `workspace forecast` compares committed heads. |
 | FR-WS-07 | P2 | Workspace lifecycle shall support archive, restore, move, prune, and stale-path repair. | Implemented for conservative v1 lifecycle | Commands preserve workspace/branch/checkpoint identity; archive refuses dirty or ignored files and prune requires `--apply`. |
-| FR-WS-10 | P2 | A target workspace's captured uncommitted work shall be forecastable and shall survive an application or an abort without being committed. | Implemented | [ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md), built in #26. `--target-checkpoint` on `vlab forecast` and `vlab workspace forecast` pins one checkpoint as an overlay; the plan, its fingerprint, and the committed predicted tree are unchanged by it, no receipt mentions it, and a second predicted tree is verified after re-materialization before anything is published. A drifted worktree refuses with `stale-overlay` before any mutation, and abort restores the committed tip first and the captured worktree second. |
+| FR-WS-10 | P2 | A target workspace's captured uncommitted work shall be forecastable and shall survive an application or an abort without being committed. | Implemented | [ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md), built in #26. `--target-checkpoint` on `vlab forecast` and `vlab workspace forecast` pins one checkpoint as an overlay; the plan, its fingerprint, and the committed predicted tree are unchanged by it, no receipt mentions it, and a second predicted tree is verified after re-materialization before anything is published. A drifted worktree refuses with `stale-overlay` before any mutation, and abort restores the committed tip first and the captured worktree second. #28 extended the same contract to `vlab rebase-forecast`, where the overlaid worktree is the branch being rewritten and the overlay merges onto the rewritten tip. |
 | FR-WS-08 | P2 | A native workspace model shall support private draft stacks without requiring a public compatibility branch. | Deferred | Requires a later storage/protocol layer; Git branch remains v0.x compatibility mechanism. |
 | FR-WS-09 | P2 | Workspace creation and status shall scale to many parallel agents without serial scans of unrelated worktrees. | Implemented for batched status | Complete status uses one worktree-scoped Git query per materialized workspace; the repository-scale rerun measures one process per registered workspace with unchanged semantics, and larger multi-host evidence is the next gate. |
 
@@ -771,17 +771,18 @@ Each links to the issue that carries it; the board is where its status lives.
 - Native private draft stacks beyond the conservative worktree-backed
   implementation ([#40](https://github.com/jwh3times/vcs-lab/issues/40),
   Gate B). Target-checkpoint forecasts
-  ([#26](https://github.com/jwh3times/vcs-lab/issues/26)) landed in v0.15.0;
-  carrying a draft through a causal *rebase* the same way is
-  [#28](https://github.com/jwh3times/vcs-lab/issues/28), which ADR-0028 says
-  inherits the contract unchanged.
+  ([#26](https://github.com/jwh3times/vcs-lab/issues/26)) landed in v0.15.0, and
+  carrying a draft through a causal *rebase* the same way
+  ([#28](https://github.com/jwh3times/vcs-lab/issues/28)) followed it, inheriting
+  the ADR-0028 contract unchanged.
 - Broader causal rebase forms beyond explicit linear ranges: merge preservation
   ([#29](https://github.com/jwh3times/vcs-lab/issues/29)), interactive editing
-  ([#30](https://github.com/jwh3times/vcs-lab/issues/30)), and checkpoint/draft
-  overlays ([#28](https://github.com/jwh3times/vcs-lab/issues/28)). Explicit
-  linear ranges ([#27](https://github.com/jwh3times/vcs-lab/issues/27)) landed in
-  v0.15.0; a range whose tip is mid-branch is still refused, because re-parenting
-  what follows it belongs to #30.
+  ([#30](https://github.com/jwh3times/vcs-lab/issues/30)). Explicit linear
+  ranges ([#27](https://github.com/jwh3times/vcs-lab/issues/27)) landed in
+  v0.15.0 and checkpoint/draft overlays
+  ([#28](https://github.com/jwh3times/vcs-lab/issues/28)) after it; a range whose
+  tip is mid-branch is still refused, because re-parenting what follows it
+  belongs to #30.
 - Rerun the accepted repository-scale schema on larger fixtures and real
   repositories now that workspace-status and resolution-catalog scans are
   batched (the Windows rerun is recorded in ADR-0013); consider incremental
@@ -1038,7 +1039,11 @@ recorded in an ADR when it changes a durable decision.
    target overlay, and what approval/application semantics should that require?
    ([#26](https://github.com/jwh3times/vcs-lab/issues/26)). A target overlay
    carried as pinned uncommitted context is accepted in
-   [ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md).
+   [ADR-0028](adr/0028-define-target-checkpoint-forecast-semantics.md), built for
+   reconciliation in #26 and for causal rebase in
+   [#28](https://github.com/jwh3times/vcs-lab/issues/28). What is still open is
+   only the live-bytes half the ADR rejected, which needs no further answer
+   unless the rejection is reopened.
 7. At what measured thresholds does a long-lived repository service outperform
    invocation-scoped Git plumbing enough to justify lifecycle and security
    costs? (§15 decision rows;

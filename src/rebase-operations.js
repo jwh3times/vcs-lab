@@ -36,7 +36,13 @@ import {
   writeRebaseState,
 } from "./rebase-state.js";
 import { buildRebasePlan } from "./rebase-plan.js";
-import { rebaseForecastForPlan } from "./rebase-forecast.js";
+import { readRebaseForecast, rebaseForecastForPlan } from "./rebase-forecast.js";
+import {
+  assertOverlayCurrent,
+  materializeOverlay,
+  reduceToCommittedHead,
+  restoreOverlayAfterAbort,
+} from "./target-overlay.js";
 import {
   captureConflictDescriptors,
   captureResolutionOutcomes,
@@ -470,6 +476,52 @@ function finalizeRebase(operation, cwd) {
     );
   }
 
+  // The overlay goes back only after the committed result has verified, and its
+  // own prediction is checked before anything is published: a mismatch must
+  // leave the operation recoverable by abort rather than half-published.
+  //
+  // The base of the merge is the tree the source branch held before the rebase
+  // started, which the plan already carries, so re-materialization costs no
+  // extra repository read. `ours` is the rewritten tip.
+  let overlayResult = null;
+  if (operation.targetOverlay) {
+    const restored = materializeOverlay(
+      operation.targetOverlay,
+      { baseTree: operation.plan.sourceTree, resultTree },
+      cwd,
+    );
+    if (restored.conflict) {
+      markMismatch(
+        operation,
+        "The caller overlay no longer merges with the rewritten branch.",
+        cwd,
+        [
+          restored.conflict.details,
+          "Nothing was published. Run 'vlab rebase --abort' and forecast again.",
+        ].join("\n"),
+      );
+    }
+    const predicted = operation.forecastApproval?.predictedOverlayTree ?? null;
+    if (predicted && predicted !== restored.tree) {
+      markMismatch(
+        operation,
+        `Re-materializing the caller overlay did not match forecast '${operation.forecastId}'.`,
+        cwd,
+        [
+          `Forecast overlay tree: ${predicted}`,
+          `Actual overlay tree:   ${restored.tree}`,
+          "Nothing was published. Run 'vlab rebase --abort' and forecast again.",
+        ].join("\n"),
+      );
+    }
+    overlayResult = {
+      checkpoint: operation.targetOverlay.checkpoint,
+      tree: restored.tree,
+      predicted,
+      rematerialized: true,
+    };
+  }
+
   const forkedOrigins = new Set(
     operation.applied
       .filter((application) => application.relation === "contextual-fork")
@@ -559,7 +611,14 @@ function finalizeRebase(operation, cwd) {
   appendNote(resultCommit, receipt, cwd);
   faultPoint("rebase:before-clear");
   clearRebaseState(cwd);
-  return { operationId: operation.id, plan: operation.plan, receipt };
+  return {
+    operationId: operation.id,
+    plan: operation.plan,
+    receipt,
+    // Reported, never published: the overlay is uncommitted context, so it
+    // belongs in the command's answer and in no receipt (ADR-0028).
+    targetOverlay: overlayResult,
+  };
 }
 
 function runRebaseQueue(operation, cwd, phaseStarted = performance.now()) {
@@ -682,8 +741,12 @@ function startOperation(branch, ontoRef, plan, options, cwd) {
           approvedSpecMerges: forecast.approvedSpecMerges ?? [],
           acceptedCandidates: forecast.acceptedCandidates ?? [],
           predictedResultTree: forecast.predictedResultTree,
+          predictedOverlayTree: forecast.predictedOverlayTree ?? null,
         }
       : null,
+    // Recorded so an abort can put the captured worktree back, and so a resumed
+    // operation in a new process knows an overlay is in play (ADR-0028).
+    targetOverlay: forecast?.targetOverlay ?? null,
     plan,
     queue: plan.changes.filter((change) => change.action === "replay"),
     nextIndex: 0,
@@ -713,7 +776,14 @@ function startRebaseInSession(ontoRef, options, cwd) {
         { code: "operation-in-progress" },
     );
   }
-  assertClean(cwd);
+  // A forecast carrying an overlay expects a dirty worktree: the overlay *is* the
+  // uncommitted work. The clean check is replaced by a stricter one — the live
+  // tree must equal the overlay tree exactly — so "dirty" can never mean
+  // "whatever happens to be there" (ADR-0028).
+  const approvedOverlay = options.forecastId
+    ? readRebaseForecast(options.forecastId, cwd)?.targetOverlay ?? null
+    : null;
+  if (!approvedOverlay) assertClean(cwd);
   assertNoGitReplay(cwd);
   const branch = currentBranch(cwd);
   const plan = buildRebasePlan(ontoRef, branch.name, cwd, { from: options.from });
@@ -726,6 +796,11 @@ function startRebaseInSession(ontoRef, options, cwd) {
   const forecast = options.forecastId
     ? rebaseForecastForPlan(options.forecastId, plan, cwd)
     : null;
+  if (approvedOverlay) {
+    // Refuses before anything moves: a drifted worktree is `stale-overlay` and a
+    // moved base head or missing checkpoint is `stale-forecast`.
+    assertOverlayCurrent(approvedOverlay, cwd);
+  }
   const acceptCandidates = Boolean(
     options.acceptCandidates || forecast?.acceptCandidates,
   );
@@ -748,6 +823,16 @@ function startRebaseInSession(ontoRef, options, cwd) {
     cwd,
   );
   writeRebaseState(operation, cwd);
+  if (approvedOverlay) {
+    // The overlay is safe in its checkpoint, so the worktree can be reduced to
+    // the committed head and the queue runs exactly as it does without one. This
+    // has to happen before the reset onto the new base: that reset would discard
+    // the overlay's tracked edits and leave its untracked files stranded in a
+    // worktree they no longer belong to.
+    operation.state = "reducing-overlay";
+    writeRebaseState(operation, cwd);
+    reduceToCommittedHead(approvedOverlay, cwd);
+  }
   operation.state = "resetting";
   writeRebaseState(operation, cwd);
   runGit(["reset", "--hard", plan.ontoHead], { cwd });
@@ -911,6 +996,12 @@ export function abortRebase(options = {}) {
     throw new CliError("Causal rebase abort did not restore the original tip.",
       { code: "internal-invariant" });
   }
+  // The committed tip is restored first and unconditionally; the overlay is put
+  // back afterwards, so a draft that cannot be recovered never costs the tip
+  // (ADR-0028).
+  const overlay = operation.targetOverlay
+    ? restoreOverlayAfterAbort(operation.targetOverlay, cwd)
+    : null;
   faultPoint("rebase:abort-before-clear");
   clearRebaseState(cwd);
   return {
@@ -918,5 +1009,6 @@ export function abortRebase(options = {}) {
     operationId: operation.id,
     sourceRef: operation.sourceRef,
     restoredHead,
+    overlay,
   };
 }
