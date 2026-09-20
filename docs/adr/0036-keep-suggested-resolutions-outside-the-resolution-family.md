@@ -1,6 +1,7 @@
 # ADR-0036: Keep suggested resolutions outside the resolution family entirely
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Decided:** 2026-09-20
 - **Date:** 2026-09-20
 - **Owners:** Repository maintainers
 - **Implementation:** [#35](https://github.com/jwh3times/vcs-lab/issues/35)
@@ -163,3 +164,18 @@ anything, and a blocked conflict with a suggestion attached is still blocked.
    plan or proof bundle.
 5. Decide whether to build the tier at all. FR-RES-07 is P2 and Planned; this
    ADR makes it safe to build, not urgent.
+
+## Owner decision (2026-09-20)
+
+Accepted as the shape the tier must take if it is built. The guarantee is
+structural — a separate worktree-private family that the exact-reuse path cannot
+read — rather than a confidence field on `vcs-lab.resolution/v1` that every
+future reader would have to honour. Suggestions never travel between clones,
+acceptance is a person editing the file with no apply option, and a suggestion
+contributes to no coverage class and appears in no plan or proof bundle.
+
+Decision 5, whether to build the tier at all, is **not** settled by this
+acceptance and remains open. FR-RES-07 stays Planned, and
+[#35](https://github.com/jwh3times/vcs-lab/issues/35) keeps an owner-decision
+gate. What has changed is that the question can now be decided on whether the
+tier is worth having, rather than on whether it can be made safe.

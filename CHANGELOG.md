@@ -2,15 +2,17 @@
 
 ## Unreleased
 
-- Propose contracts for the three board items whose gate is a written decision:
+- Settle the three board items whose gate was a written decision:
   merge-preserving causal rebase (issue #29,
   [ADR-0034](docs/adr/0034-recreate-merges-as-joins-that-claim-nothing.md)),
   interactive identity decisions (issue #30,
   [ADR-0035](docs/adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md)),
   and the lower-confidence resolution tier (issue #35, FR-RES-07,
   [ADR-0036](docs/adr/0036-keep-suggested-resolutions-outside-the-resolution-family.md)).
-  All three are Proposed and change no behavior; each ends with what the owner
-  must decide.
+  All three are **Accepted** and change no behavior yet; each names the record
+  versions its implementation will need, so the cost is visible before anyone
+  commits to it. `docs/CONTEXT.md` gains the four terms the decisions settled:
+  recreated merge, amendment, interactive absorption, and suggested resolution.
 
   ADR-0034 answers the question #29 was opened for — what a receipt for a
   recreated merge may claim. A merge contributes nothing of its own except the
@@ -34,6 +36,13 @@
   confidence field every future reader would have to honour; acceptance is a
   person editing the file, after which the existing capture path records an
   ordinary exact resolution.
+
+  Three sub-decisions are deliberately left open rather than settled by
+  acceptance: what the flattening rebase form is called once a preserving form
+  exists, whether `edit` ships in the first interactive version, and whether the
+  suggestion tier is built at all. The first two are implementation-time scope;
+  the third keeps FR-RES-07 Planned, because ADR-0036 establishes that the tier
+  *can* be made safe without arguing that it is worth having.
 
 - Stop the benchmark check failing on every unidentified host (issue #100).
   Without `--host`, reference selection fell back to `legacyHosts.<platform>`,

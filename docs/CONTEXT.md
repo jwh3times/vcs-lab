@@ -17,6 +17,25 @@ A commit between a branch's physical merge base and an explicitly named range
 base; it is listed and recorded but neither replayed, absorbed, nor covered.
 _Avoid_: skipped commit, dropped commit
 
+## Rebase and rewriting
+
+**Recreated merge**:
+A merge commit a merge-preserving rebase creates to join rewritten parents. It
+claims nothing about the changes beneath it and carries only the resolutions
+that made the join.
+_Avoid_: replayed merge, preserved merge
+
+**Amendment**:
+A recorded divergence between what a logical change contained before an
+interactive edit and what it contains after, under the same identity. It is what
+stops a bare identity match proving content nobody reviewed.
+_Avoid_: rewrite, fixup
+
+**Interactive absorption**:
+A squash or fixup that folds one change into another, leaving one surviving
+identity and naming the absorbed ones in a record, as a landing does.
+_Avoid_: merge, collapse
+
 ## Lineage and exchange
 
 **Lineage bridge**:
@@ -68,6 +87,14 @@ _Avoid_: change list digest
 An identity a proof bundle's carried proofs end at (target head, source head,
 notes tip, lineage roots), which the bundle states but cannot prove.
 _Avoid_: trust root, checkpoint
+
+**Suggested resolution**:
+Proposed text for a conflicted path, addressed to a person and produced with
+lower confidence than an exact or deterministic result. It is never a decision:
+it lives outside the resolution family, never travels between clones, and
+becomes evidence only once a person has resolved and the ordinary capture path
+records what they left.
+_Avoid_: resolution candidate, inferred resolution
 
 **Verification tier**:
 How far a verifier's conclusion reaches: self-consistent with the bundle, bound

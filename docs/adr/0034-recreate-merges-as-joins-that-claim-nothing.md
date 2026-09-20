@@ -1,6 +1,7 @@
 # ADR-0034: Recreate merges as joins that claim nothing, carrying only their resolutions
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Decided:** 2026-09-20
 - **Date:** 2026-09-20
 - **Owners:** Repository maintainers
 - **Implementation:** [#29](https://github.com/jwh3times/vcs-lab/issues/29)
@@ -175,3 +176,17 @@ overlay does under ADR-0028.
 5. Decide whether the flattening form available today should keep its current
    name once a preserving form exists, or whether the preserving form should be
    the default for a source containing merges.
+
+## Owner decision (2026-09-20)
+
+Accepted. A recreated merge is a join that claims nothing about the changes
+beneath it; it takes a new identity recording the merge it came from, and
+carries forward only its resolutions through the existing exact rules. Coverage
+continues to come from per-change applications alone. The v1 topology scope —
+two parents, both in range or ancestors of the new base, with octopus merges and
+out-of-range parents refused by name — is accepted as written.
+
+Decision 5, whether the flattening form available today keeps its current name
+once a preserving form exists, is deliberately left to implementation. It is a
+naming choice with no effect on the contract above, and it is better made
+against a working preserving form than in advance.
