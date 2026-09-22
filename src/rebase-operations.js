@@ -330,18 +330,26 @@ function recordSuccessfulApplication(operation, relation, cwd) {
   const application = applicationRecord(operation, change, relation, cwd);
   operation.applied.push(application);
   if (operation.current?.absorption) {
+    const outcome = absorptionOutcome(operation);
     operation.absorptions.push({
       schema: "vcs-lab.interactive-absorption/v1",
       type: "interactive-absorption",
       id: newId("absorb"),
-      action: operation.current.absorption.action,
+      action: outcome.action,
       survivingCommit: application.appliedCommit,
       survivingChangeId: application.appliedChangeId,
-      absorbedCommits: operation.current.absorption.absorbedCommits,
-      absorbedChanges: operation.current.absorption.absorbedChanges,
+      absorbedCommits: outcome.absorbedCommits,
+      absorbedChanges: outcome.absorbedChanges,
       rebaseOperation: operation.id,
       createdAt: new Date().toISOString(),
     });
+    // A resolution decided or reused while absorbing is an ordinary resolution,
+    // so it travels with the application that carries it and publishes through
+    // the same path as any other.
+    application.resolutions = [
+      ...(application.resolutions ?? []),
+      ...outcome.resolutions,
+    ];
   }
   anchorRewritten(operation, change.commit, application.appliedCommit, cwd);
   operation.nextIndex += 1;
@@ -578,30 +586,89 @@ function commitRecreatedMerge(operation, change, cwd) {
  * The same shape the forecast simulated, so an approved forecast and the real
  * run produce the same commit rather than merely the same tree.
  */
-function absorbChanges(operation, absorbs, message, cwd) {
-  for (const item of absorbs) {
+/**
+ * Meld the absorbed changes still outstanding into the commit at HEAD.
+ *
+ * Resumable by construction: the journal carries the cursor, so a pause in the
+ * middle of several absorbed changes resumes at the one that stopped rather
+ * than re-applying the ones already folded in.
+ *
+ * An absorbed change is applied with the same three-way machinery as any pick,
+ * so its conflicts carry the same `ordered-three-way-blobs/v1` signatures and
+ * are reusable under the same exact rules (ADR-0007). It gets the same two
+ * chances a pick gets: an exact prior resolution settles it without a person,
+ * and anything else pauses for one.
+ */
+function absorbOutstanding(operation, cwd) {
+  const absorption = operation.current.absorption;
+  while (absorption.nextIndex < absorption.items.length) {
+    const item = absorption.items[absorption.nextIndex];
     const applied = runGit(
       [...GIT_NO_RERERE, "cherry-pick", "--no-commit", item.commit],
       { cwd, allowFailure: true },
     );
     if (!applied.ok) {
-      runGit(["cherry-pick", "--abort"], { cwd, allowFailure: true });
-      operation.state = "blocked";
-      writeRebaseState(operation, cwd);
-      throw new CliError(
-        `Absorbing ${item.commit.slice(0, 12)} conflicted.`,
-        {
-          code: "conflict-blocked",
-          details: [
-            applied.output,
-            "Nothing was absorbed. Run 'vlab rebase --abort'.",
-          ].filter(Boolean).join("\n"),
-        },
-      );
+      const paths = unmergedPaths(cwd);
+      if (paths.length === 0) {
+        // No conflicted path means Git could not apply it at all, which no
+        // resolution can settle.
+        runGit(["cherry-pick", "--abort"], { cwd, allowFailure: true });
+        operation.state = "blocked";
+        writeRebaseState(operation, cwd);
+        throw new CliError(
+          `Absorbing ${item.commit.slice(0, 12)} failed without a conflicted path.`,
+          {
+            code: "conflict-blocked",
+            details: [applied.output, "Run 'vlab rebase --abort'."]
+              .filter(Boolean).join("\n"),
+          },
+        );
+      }
+      const conflicts = captureConflictDescriptors(paths, cwd);
+      const exact = conflicts.every((conflict) => conflict.candidates.length === 1);
+      if (!exact) {
+        absorption.conflicts = conflicts;
+        absorption.conflictedPaths = paths;
+        absorption.conflictedCommit = item.commit;
+        operation.state = "awaiting-absorption";
+        operation.current.conflicts = conflicts;
+        operation.current.conflictedPaths = paths;
+        writeRebaseState(operation, cwd);
+        const candidates = conflicts.reduce(
+          (count, conflict) => count + conflict.candidates.length, 0,
+        );
+        throw new CliError(
+          `Causal rebase paused absorbing ${item.commit.slice(0, 12)} into ${operation.current.sourceCommit.slice(0, 12)}.`,
+          {
+            code: "conflict-paused",
+            details: [
+              applied.output,
+              `Conflicted paths: ${paths.join(", ")}`,
+              candidates
+                ? `${candidates} exact prior resolution candidate${candidates === 1 ? "" : "s"} found. Run 'vlab resolve status'.`
+                : "No exact prior resolution was found.",
+              "Resolve and stage the files, then run 'vlab rebase --continue'.",
+              "The surviving commit keeps its own identity either way; 'vlab rebase --abort' restores the original tip.",
+            ].filter(Boolean).join("\n"),
+          },
+        );
+      }
+      for (const conflict of conflicts) {
+        const [candidate] = conflict.candidates;
+        materializeResolutionCandidate(conflict, candidate, cwd);
+        conflict.selectedResolutionId = candidate.id;
+        conflict.decisionOverride = null;
+        conflict.selectionMethod = "absorption-exact-reuse";
+        conflict.suggestionAppliedAt = new Date().toISOString();
+      }
+      absorption.resolutions.push(...captureResolutionOutcomes(conflicts, cwd));
     }
+    absorption.nextIndex += 1;
+    writeRebaseState(operation, cwd);
   }
+
   const amended = runGit(
-    ["-c", "core.editor=true", "commit", "--amend", "-m", message],
+    ["-c", "core.editor=true", "commit", "--amend", "-m", absorption.message],
     { cwd, allowFailure: true },
   );
   if (!amended.ok) {
@@ -610,6 +677,8 @@ function absorbChanges(operation, absorbs, message, cwd) {
       details: amended.output,
     });
   }
+  operation.current.conflicts = [];
+  operation.current.conflictedPaths = [];
 }
 
 /**
@@ -618,6 +687,9 @@ function absorbChanges(operation, absorbs, message, cwd) {
  */
 function applyAbsorption(operation, item, change, cwd) {
   if (!item.absorbs?.length) return null;
+  // Composed up front from every absorbed message, so the identity check runs
+  // before any content moves and a later pause cannot change what the surviving
+  // commit will say (ADR-0035).
   const message = absorbedMessage(
     commitMessage("HEAD", cwd),
     item.absorbs.map((absorbed) => ({
@@ -626,16 +698,31 @@ function applyAbsorption(operation, item, change, cwd) {
     })),
     change.changeId,
   );
-  // Checked before the commit exists, because the commit is the thing a peer
-  // reads (ADR-0035).
   assertSingleIdentity(message, change.changeId);
-  absorbChanges(operation, item.absorbs, message, cwd);
-  return {
+  operation.current.absorption = {
     action: item.absorbs[0].action,
-    absorbedCommits: item.absorbs.map((absorbed) => absorbed.commit),
-    absorbedChanges: item.absorbs.map(
-      (absorbed) => absorbed.change?.changeId ?? `git:${absorbed.commit}`,
-    ),
+    message,
+    items: item.absorbs.map((absorbed) => ({
+      commit: absorbed.commit,
+      changeId: absorbed.change?.changeId ?? `git:${absorbed.commit}`,
+      action: absorbed.action,
+    })),
+    nextIndex: 0,
+    resolutions: [],
+  };
+  writeRebaseState(operation, cwd);
+  absorbOutstanding(operation, cwd);
+  return absorptionOutcome(operation);
+}
+
+/** The absorption an application record should carry, once it has finished. */
+function absorptionOutcome(operation) {
+  const absorption = operation.current.absorption;
+  return {
+    action: absorption.action,
+    absorbedCommits: absorption.items.map((absorbed) => absorbed.commit),
+    absorbedChanges: absorption.items.map((absorbed) => absorbed.changeId),
+    resolutions: absorption.resolutions,
   };
 }
 
@@ -1059,28 +1146,17 @@ function runRebaseQueue(operation, cwd, phaseStarted = performance.now()) {
           recordRecreatedMerge(operation, change, parents, true, cwd);
           continue;
         }
-        const absorption = applyAbsorption(operation, item, change, cwd);
-        if (absorption) {
-          operation.current.absorption = absorption;
-          writeRebaseState(operation, cwd);
-        }
-        // Both pauses happen *after* the change is applied, so the work is
-        // already in the worktree when the caller is asked for a message or for
-        // content. Journaled before it leaves, so a resumed process knows what
-        // it is waiting for.
-        if (item.action === "reword" || item.action === "edit") {
-          operation.current.treeBeforeEdit = treeId("HEAD", cwd);
+        // Absorption first, then whatever the step's own action asks for. Both
+        // interactive pauses happen *after* the work is in the worktree, so the
+        // caller is shown the commit they are about to describe or amend rather
+        // than one still missing what was folded into it.
+        try {
+          applyAbsorption(operation, item, change, cwd);
+          finishSurvivingStep(operation, cwd);
+        } catch (error) {
           finishPhase(false);
-          throw interactivePause(
-            operation,
-            change,
-            item.action === "reword" ? "awaiting-message" : "awaiting-content",
-            cwd,
-          );
+          throw error;
         }
-        const resultTree = treeId("HEAD", cwd);
-        validateForecastAfter(operation, change, resultTree, "clean", cwd);
-        recordSuccessfulApplication(operation, "causal-rebase", cwd);
         continue;
       }
 
@@ -1447,6 +1523,63 @@ function completeInteractiveStep(operation, options, cwd) {
   recordSuccessfulApplication(operation, "causal-rebase", cwd);
 }
 
+/**
+ * Finish the absorbed change a caller has resolved, then carry on with the rest.
+ *
+ * The resolution is captured and published like any other, because it *is* like
+ * any other: a merge rather than a pick producing the conflict changes nothing
+ * about its signature, and neither does an absorption (ADR-0007, ADR-0035).
+ */
+function completeAbsorption(operation, cwd) {
+  const unresolved = unmergedPaths(cwd);
+  if (unresolved.length) {
+    throw new CliError("The absorbed change still has unresolved paths.", {
+      code: "conflict-blocked",
+      details: unresolved.join("\n"),
+    });
+  }
+  const absorption = operation.current.absorption;
+  absorption.resolutions.push(
+    ...captureResolutionOutcomes(absorption.conflicts ?? [], cwd),
+  );
+  absorption.conflicts = null;
+  absorption.conflictedPaths = [];
+  absorption.conflictedCommit = null;
+  // The change that conflicted is folded in now, so the cursor advances past it
+  // before the loop resumes; otherwise it would be applied twice.
+  absorption.nextIndex += 1;
+  operation.state = "applying";
+  writeRebaseState(operation, cwd);
+  absorbOutstanding(operation, cwd);
+  operation.current.absorption = absorption;
+  finishSurvivingStep(operation, cwd);
+}
+
+/**
+ * Record the surviving step once its absorption is complete, honoring whatever
+ * the step's own action asked for afterwards.
+ *
+ * A `reword` or an `edit` pauses *after* absorption, because the caller should
+ * be shown the commit they are about to describe or amend, not one that is
+ * still missing the changes folded into it.
+ */
+function finishSurvivingStep(operation, cwd) {
+  const item = operation.queue[operation.nextIndex];
+  const change = item.change ?? item;
+  if (item.action === "reword" || item.action === "edit") {
+    operation.current.treeBeforeEdit = treeId("HEAD", cwd);
+    throw interactivePause(
+      operation,
+      change,
+      item.action === "reword" ? "awaiting-message" : "awaiting-content",
+      cwd,
+    );
+  }
+  const resultTree = treeId("HEAD", cwd);
+  validateForecastAfter(operation, change, resultTree, "clean", cwd);
+  recordSuccessfulApplication(operation, "causal-rebase", cwd);
+}
+
 function continueRebaseInSession(options, cwd) {
   const phaseStarted = performance.now();
   const operation = requirePendingRebase(cwd);
@@ -1454,6 +1587,10 @@ function continueRebaseInSession(options, cwd) {
   requireOperationBranch(operation, cwd);
   if (operation.state === "awaiting-message" || operation.state === "awaiting-content") {
     completeInteractiveStep(operation, options, cwd);
+    return runRebaseQueue(operation, cwd, phaseStarted);
+  }
+  if (operation.state === "awaiting-absorption") {
+    completeAbsorption(operation, cwd);
     return runRebaseQueue(operation, cwd, phaseStarted);
   }
   if (operation.state !== "conflicted" || !operation.current) {
@@ -1577,6 +1714,11 @@ export function abortRebase(options = {}) {
   } else if (pendingMergeHead(cwd)) {
     // A recreated merge is pending, so the dirt is this operation's own join.
     runGit(["merge", "--abort"], { cwd });
+  } else if (operation.state === "awaiting-absorption") {
+    // `cherry-pick --no-commit` leaves no CHERRY_PICK_HEAD and no sequencer
+    // directory on conflict — only unmerged index entries — so neither branch
+    // above sees it and the clean check would refuse on this operation's own
+    // dirt. The journal is what identifies it, and the reset below clears it.
   } else if (!operation.overlayRematerialized) {
     // Skipped only once the journal says this operation put the overlay back
     // itself. The clean check exists to protect the user's own edits, and in

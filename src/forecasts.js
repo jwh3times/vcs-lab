@@ -232,14 +232,41 @@ function commitRecreatedMerge(change, cwd) {
  * passed in, so the identity check runs before the commit exists.
  */
 function absorbChanges(absorbs, message, cwd) {
+  const resolutions = [];
   for (const item of absorbs) {
     const applied = runGit(
       [...GIT_NO_RERERE, "cherry-pick", "--no-commit", item.commit],
       { cwd, allowFailure: true },
     );
     if (!applied.ok) {
-      runGit(["cherry-pick", "--abort"], { cwd, allowFailure: true });
-      return { ok: false, commit: item.commit, output: applied.output };
+      // An absorbed change conflicts like any pick, and gets the same one
+      // chance a forecast can take: an exact prior resolution. Anything else
+      // needs a person, which a forecast cannot supply, so it blocks and says
+      // which change and which paths (ADR-0007, ADR-0035).
+      const paths = unmergedPaths(cwd);
+      const conflicts = paths.length ? captureConflictDescriptors(paths, cwd) : [];
+      if (!conflicts.length || !conflicts.every((c) => c.candidates.length === 1)) {
+        runGit(["cherry-pick", "--abort"], { cwd, allowFailure: true });
+        return {
+          ok: false,
+          commit: item.commit,
+          output: applied.output,
+          conflicts,
+          reason: conflicts.length ? blockedReason(conflicts) : "git-application-error",
+        };
+      }
+      for (const conflict of conflicts) {
+        const [candidate] = conflict.candidates;
+        materializeResolutionCandidate(conflict, candidate, cwd);
+        conflict.selectedResolutionId = candidate.id;
+        conflict.selectionMethod = "absorption-exact-reuse";
+      }
+      resolutions.push(
+        ...captureResolutionOutcomes(conflicts, cwd).map((outcome) => ({
+          ...outcome,
+          absorbedCommit: item.commit,
+        })),
+      );
     }
   }
   const amended = runGit(
@@ -247,8 +274,8 @@ function absorbChanges(absorbs, message, cwd) {
     { cwd, allowFailure: true },
   );
   return amended.ok
-    ? { ok: true }
-    : { ok: false, commit: null, output: amended.output };
+    ? { ok: true, resolutions }
+    : { ok: false, commit: null, output: amended.output, reason: "absorption-amend-error" };
 }
 
 function blockedReason(conflicts) {
@@ -624,6 +651,7 @@ function simulatePlan(plan, cwd, options = {}) {
         });
         break;
       }
+      let absorbedResolutions = [];
       if (applied.ok) {
         if (recreatingMerge) {
           commitRecreatedMerge(change, temporaryWorktree);
@@ -653,9 +681,10 @@ function simulatePlan(plan, cwd, options = {}) {
           );
           assertSingleIdentity(message, change.changeId);
           const absorbed = absorbChanges(item.absorbs, message, temporaryWorktree);
+          absorbedResolutions = absorbed.resolutions ?? [];
           if (!absorbed.ok) {
             status = "blocked";
-            reason = "absorbed-change-conflict";
+            reason = absorbed.reason ?? "absorbed-change-conflict";
             steps.push({
               sourceCommit: change.commit,
               changeId: change.changeId,
@@ -665,6 +694,7 @@ function simulatePlan(plan, cwd, options = {}) {
               action: change.action,
               absorbedCommits: item.absorbs.map((entry) => entry.commit),
               conflictedAbsorption: absorbed.commit,
+              conflicts: absorbed.conflicts ?? [],
               targetBeforeTree,
               gitOutput: absorbed.output,
             });
@@ -683,6 +713,7 @@ function simulatePlan(plan, cwd, options = {}) {
             ? {
                 absorbedCommits: item.absorbs.map((entry) => entry.commit),
                 absorbedChanges: item.absorbs.map((entry) => entry.change?.changeId ?? `git:${entry.commit}`),
+                absorbedResolutions: absorbedResolutions,
               }
             : {}),
           relation: cleanRelation,

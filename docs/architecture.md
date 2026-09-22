@@ -510,6 +510,11 @@ Unaccepted heuristic candidates convert an otherwise complete simulation to
 without conflict paths—including an unexpected empty replay—blocks instead of
 being silently skipped.
 
+An absorbed change gets the same conflict treatment as a pick: an exact prior
+resolution settles it, anything else pauses in the journaled
+`awaiting-absorption` state, and the absorption cursor is recorded so a resume
+folds in the change that stopped rather than re-applying what came before it.
+
 `src/rebase-interactive.js` owns the declaration and its refusals, and mints no
 identity and reads no repository: the plan hands it a resolver so every
 expression is resolved through the session already open. Two note record
