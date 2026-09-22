@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.17.0
 
 - Add declared interactive rewrite actions to causal rebase (issue #30,
   [ADR-0035](docs/adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md)).
