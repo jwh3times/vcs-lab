@@ -435,6 +435,21 @@ be a way to fail to get one and not be told.
 The refusal case is a table, one row per shape ADR-0035 does not admit, each
 asserting the refusal names the shape rather than the command.
 
+Three later cases cover a conflicted absorption (issue #122), and their fixture
+is doing deliberate work: the survivor touches a file the target never saw and
+the absorbed change edits the one the target moved, so *only* the absorption
+conflicts. A fixture where the survivor's own pick conflicts would pass while
+testing nothing about absorption, which is exactly the shape the first draft
+had. The second branch is built from the shared base rather than from the moved
+target, because reuse is only reuse if the base/ours/theirs blobs — and so the
+signature — actually match; branching from the target changes the base and the
+test would silently prove nothing.
+
+The abort case earns its place separately. `cherry-pick --no-commit` leaves no
+`CHERRY_PICK_HEAD` and no sequencer directory when it conflicts, so the recovery
+path could not see the state it was in and refused on the operation's own dirt.
+That was reachable from the moment `--squash` shipped.
+
 `test/portable-verification.test.js` covers the Git bindings a proof bundle
 carries ([ADR-0031](adr/0031-carry-a-bound-source-inventory-for-portable-verification.md)).
 Its fixture is the one the ADR's evidence table was measured on: a source branch

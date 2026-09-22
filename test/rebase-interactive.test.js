@@ -386,3 +386,140 @@ test("aborting from either pause restores the source exactly", (t) => {
     assert.equal(git(repo, "status", "--porcelain=v1"), "", label);
   }
 });
+
+// ---------------------------------------------------------------------------
+// A conflicted absorption (#122)
+// ---------------------------------------------------------------------------
+
+/**
+ * An absorbed change is applied with the same three-way machinery as any pick,
+ * so its conflicts carry the same signatures and deserve the same two chances:
+ * an exact prior resolution settles it unattended, and anything else pauses for
+ * a person. Before #122 it did neither — it blocked and told the caller to
+ * abort.
+ *
+ * The fixture is shaped so that *only* the absorbed change conflicts: the
+ * survivor touches a file `main` never saw, and the absorbed change edits the
+ * one `main` moved.
+ */
+function absorbing(t, label) {
+  const parent = fs.realpathSync.native(
+    fs.mkdtempSync(path.join(os.tmpdir(), `vcs-lab-${label}-`)),
+  );
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const repo = path.join(parent, "repo");
+  fs.mkdirSync(repo);
+  git(repo, "init", "-b", "main");
+  git(repo, "config", "core.autocrlf", "false");
+  git(repo, "config", "core.eol", "lf");
+  git(repo, "config", "user.name", "VCS Lab Absorption Test");
+  git(repo, "config", "user.email", "vcs-lab-absorb@example.invalid");
+  vlab(repo, "init");
+  commit(repo, "base", "shared.txt", "line one\n");
+
+  // Branched from the shared base rather than from `main`, so a second branch
+  // built later still yields the same base/ours/theirs blobs — and therefore
+  // the same resolution signature — as the first.
+  const base = git(repo, "rev-parse", "main");
+  const build = (branch) => {
+    git(repo, "switch", "-c", branch, base);
+    const survivor = commit(repo, `survivor-${branch}`, "side.txt", "side\n");
+    const absorbed = commit(repo, `absorbed-${branch}`, "shared.txt", "line one\nabsorbed\n");
+    return { survivor: survivor.commit, absorbed: absorbed.commit };
+  };
+
+  const first = build("feature");
+  git(repo, "switch", "main");
+  commit(repo, "main-moves", "shared.txt", "line one\nmain moved\n");
+  git(repo, "switch", "feature");
+  return { repo, first, build };
+}
+
+const RESOLVED = "line one\nmain moved\nabsorbed\n";
+
+test("an absorbed change that conflicts pauses and resumes instead of blocking", (t) => {
+  const { repo, first } = absorbing(t, "absorb-pause");
+
+  const paused = run(repo, "rebase", "main", "--fixup", `${first.absorbed}=${first.survivor}`, "--json");
+  assert.notEqual(paused.status, 0);
+  const envelope = JSON.parse(paused.stdout);
+  // Paused, not blocked: the distinction is the whole of #122.
+  assert.equal(envelope.code, "conflict-paused");
+  assert.match(envelope.message, /absorbing/);
+
+  const status = vlabJson(repo, "rebase", "--status");
+  assert.equal(status.state, "awaiting-absorption");
+  assert.deepEqual(status.current.unresolvedPaths, ["shared.txt"]);
+  assert.equal(status.current.absorption.action, "fixup");
+  assert.equal(status.current.absorption.conflictedCommit, first.absorbed);
+
+  write(repo, "shared.txt", RESOLVED);
+  git(repo, "add", "-A");
+  const result = vlabJson(repo, "rebase", "--continue");
+
+  const [absorption] = result.receipt.absorptions;
+  assert.equal(absorption.action, "fixup");
+  assert.deepEqual(absorption.absorbedCommits, [first.absorbed]);
+  // One surviving commit, one identity, and the absorbed content inside it.
+  const rewritten = git(repo, "rev-list", "main..HEAD").split(/\s+/);
+  assert.equal(rewritten.length, 1);
+  assert.equal(trailerCount(repo, rewritten[0]), 1);
+  assert.equal(fs.readFileSync(path.join(repo, "shared.txt"), "utf8"), RESOLVED);
+
+  // The resolution is an ordinary resolution: an absorption producing the
+  // conflict changes nothing about its signature.
+  const resolutions = vlabJson(repo, "resolve", "list");
+  assert.equal(resolutions.length, 1);
+  assert.equal(resolutions[0].originalPath, "shared.txt");
+  assert.match(resolutions[0].signature, /^rsig_/);
+});
+
+test("a second identical absorption reuses the exact resolution unattended", (t) => {
+  const { repo, first, build } = absorbing(t, "absorb-reuse");
+
+  // First pass records the resolution by hand.
+  assert.notEqual(
+    run(repo, "rebase", "main", "--fixup", `${first.absorbed}=${first.survivor}`, "--json").status,
+    0,
+  );
+  write(repo, "shared.txt", RESOLVED);
+  git(repo, "add", "-A");
+  vlabJson(repo, "rebase", "--continue");
+
+  // The same conflict again, on a branch built to the same shape, so the
+  // base/ours/theirs blobs — and therefore the signature — match.
+  const second = build("feature2");
+  git(repo, "switch", "feature2");
+
+  const forecast = vlabJson(
+    repo, "rebase-forecast", "main", "feature2",
+    "--fixup", `${second.absorbed}=${second.survivor}`,
+    "--forecast-engine", "worktree",
+  );
+  assert.equal(forecast.status, "complete", "an exact resolution makes the absorption predictable");
+  assert.ok(forecast.predictedResultTree);
+  const step = forecast.steps.find((item) => item.sourceCommit === second.survivor);
+  assert.equal(step.absorbedResolutions.length, 1);
+
+  // And it applies without stopping for anyone.
+  const result = vlabJson(repo, "rebase", "main", "--fixup", `${second.absorbed}=${second.survivor}`);
+  assert.equal(result.receipt.absorptions.length, 1);
+  assert.equal(fs.readFileSync(path.join(repo, "shared.txt"), "utf8"), RESOLVED);
+});
+
+test("aborting a paused absorption restores the source exactly", (t) => {
+  const { repo, first } = absorbing(t, "absorb-abort");
+  const originalHead = git(repo, "rev-parse", "HEAD");
+  const originalTree = git(repo, "rev-parse", "HEAD^{tree}");
+
+  assert.notEqual(
+    run(repo, "rebase", "main", "--fixup", `${first.absorbed}=${first.survivor}`, "--json").status,
+    0,
+  );
+  const aborted = vlabJson(repo, "rebase", "--abort");
+
+  assert.equal(aborted.aborted, true);
+  assert.equal(git(repo, "rev-parse", "HEAD"), originalHead);
+  assert.equal(git(repo, "rev-parse", "HEAD^{tree}"), originalTree);
+  assert.equal(git(repo, "status", "--porcelain=v1"), "");
+});
