@@ -107,7 +107,8 @@ AI development increases both concurrency and durable documentation volume:
 The product will first prove a **causal compatibility layer over Git**:
 
 1. Git remains the exact state store and universal escape hatch.
-2. Stable logical identities survive safe history rewriting.
+2. Stable logical identities survive safe history rewriting, and an operation
+   that changes what one contains says so.
 3. Landing and application receipts add causal edges that topology lost.
 4. Planning subtracts only work supported by exact evidence.
 5. A forecast makes the full intended operation reviewable before mutation.
@@ -307,7 +308,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | ID | Pri | Requirement | Status | Acceptance signal |
 | --- | --- | --- | --- | --- |
 | FR-ID-01 | P0 | A new logical change shall receive a stable unique `Change-Id`. | Implemented | `vlab commit` writes a `ch_*` trailer. |
-| FR-ID-02 | P0 | Rebase and same-intent cherry-pick shall preserve the logical ID. | Implemented | Cherry-pick and supervised causal rebase preserve the source Change ID; integration tests inspect the rewritten commit and application receipt. |
+| FR-ID-02 | P0 | Rebase and same-intent cherry-pick shall preserve the logical ID. | Implemented | Cherry-pick and supervised causal rebase preserve the source Change ID; integration tests inspect the rewritten commit and application receipt. Since v0.17.0 the interactive actions preserve it too, each by its own rule ([ADR-0035](adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md)): `reword` composes the trailer itself and refuses a message declaring a different identity, `squash`/`fixup` leave exactly one trailer on the survivor and name the absorbed identities in a record, and `edit` retains the identity while publishing an amendment for the content that diverged. |
 | FR-ID-03 | P0 | An intentional semantic divergence shall create a new logical ID and record its origin. | Implemented | `vlab cherry-pick --fork` and conflict continuation `--fork` record derived identity. |
 | FR-ID-04 | P1 | Reapplying a covered logical change shall default to a no-op unless repetition is explicitly requested. | Implemented | `vlab cherry-pick` detects coverage; `--repeat` overrides, and the record names the change's origin under the rule the [identity protocol](identity/README.md) §5 states. |
 | FR-ID-05 | P1 | Commits without a `Change-Id` shall remain addressable without inventing an unverifiable stable identity. | Implemented | Fallback identity is `git:<commit-oid>`. |
@@ -327,7 +328,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-LAND-06 | P1 | Exact target/source tree equality shall be visible even when history differs. | Implemented | Merge plan reports `same state`. |
 | FR-LAND-07 | P1 | Landing messages shall retain portable trailers for mode, source revision, and absorbed logical changes. | Implemented | Git commit message is useful even when notes are not fetched. |
 | FR-LAND-08 | P1 | A landing that conflicts before commit shall publish no false receipt. | Implemented | Conflict exits without receipt creation. |
-| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Implemented experimentally | [ADR-0011](adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted; plan, forecast, supervised application, recovery, and portable completed receipts are integration-tested. Since v0.15.0 the source set may be an explicit range ([ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md), built in #27): `--from <base>` names it, commits below it are declared in `excludedByRange` and claimed by no receipt, and the forecast pins the base. Since v0.17.0 a merge in the range is preserved rather than refused ([ADR-0034](adr/0034-recreate-merges-as-joins-that-claim-nothing.md), built in #29): the join is recreated from its rewritten parents, takes a new identity, carries only its resolutions, and claims nothing — so the coverage model is untouched, which is the point. Octopus merges and parents outside the range are refused by name. Per-commit origin/result mapping and unexpected-empty blocking are unchanged, which is what both generalizations had to preserve. |
+| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Implemented experimentally | [ADR-0011](adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted; plan, forecast, supervised application, recovery, and portable completed receipts are integration-tested. Since v0.15.0 the source set may be an explicit range ([ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md), built in #27): `--from <base>` names it, commits below it are declared in `excludedByRange` and claimed by no receipt, and the forecast pins the base. Since v0.17.0 a merge in the range is preserved rather than refused ([ADR-0034](adr/0034-recreate-merges-as-joins-that-claim-nothing.md), built in #29): the join is recreated from its rewritten parents, takes a new identity, carries only its resolutions, and claims nothing — so the coverage model is untouched, which is the point. Octopus merges and parents outside the range are refused by name. The same release adds declared interactive actions ([ADR-0035](adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md), built in #30): `reword`, `edit`, `squash`, and `fixup` are plan actions with their own identity rules, never inherited from Git's sequencer. Per-commit origin/result mapping and unexpected-empty blocking are unchanged, which is what all three generalizations had to preserve. |
 | FR-LAND-10 | P2 | A higher-level landing transaction shall eventually support policy checks and atomic publication. | Deferred | Requires a trusted coordinator or protocol gateway. |
 
 ### 9.4 Causal merge planning
@@ -335,7 +336,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | ID | Pri | Requirement | Status | Acceptance signal |
 | --- | --- | --- | --- | --- |
 | FR-PLAN-01 | P0 | A plan shall classify each relevant source change as `covered`, `candidate-equivalent`, or `new`. | Implemented | `vlab merge-plan` emits all three statuses and counts. |
-| FR-PLAN-02 | P0 | Coverage shall cite its proof: physical ancestry, stable identity, landing receipt, reconciliation receipt, or another versioned exact proof. | Implemented | Each covered change includes a proof label. |
+| FR-PLAN-02 | P0 | Coverage shall cite its proof: physical ancestry, stable identity, landing receipt, reconciliation receipt, or another versioned exact proof. | Implemented | Each covered change includes a proof label. Since v0.17.0 one label names a *withdrawn* proof: `amended-change-id` reports a change whose identity matched but whose content diverged under an interactive `edit`, classified `candidate-equivalent` rather than `covered` ([ADR-0035](adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md)). It is the first narrowing of ADR-0004's exact-evidence list, and it only ever weakens a conclusion. |
 | FR-PLAN-03 | P0 | Patch equivalence shall remain advisory and never silently suppress a change. | Implemented | Candidate presence requires `--accept-candidates`. |
 | FR-PLAN-04 | P0 | The physical merge base and best proven causal/effective base shall both be visible. | Implemented | Plan prints both bases and receipt source. |
 | FR-PLAN-05 | P0 | Coverage shall be limited to receipts reachable from the target, not arbitrary repository metadata. | Implemented | Receipt scan filters by target reachability. |
@@ -581,7 +582,7 @@ stable IDs, or auditability.
 | Stable change identity | Complete for local prototype | Commit/cherry-pick/fork integration tests |
 | Compact and hard-squash landing | Complete for local prototype | Parent-shape and receipt tests |
 | Causal planning | Complete for current proof types | Hard-squash and candidate tests |
-| Causal rebase | Supervised flow implemented for linear ranges and two-parent merge preservation | Exact omission/replay, heuristic decisions, forecast tree, stale rejection, stable/forked identity, recreated-merge topology and identity, conflict recovery, abort, worktree isolation, and portable receipt tests |
+| Causal rebase | Supervised flow implemented for linear ranges, two-parent merge preservation, and declared interactive actions | Exact omission/replay, heuristic decisions, forecast tree, stale rejection, stable/forked identity, recreated-merge topology and identity, interactive identity rules and the amendment downgrade, conflict recovery, abort, worktree isolation, and portable receipt tests |
 | Resumable reconciliation | Complete for current queue model | Continue, abort, fork, multi-worktree tests |
 | Exact resolution reuse | Complete locally | Cross-path/worktree and provenance tests |
 | Forecast and pinned batch application | Complete locally | Non-mutation, stale, mismatch, batch tests |
@@ -784,7 +785,8 @@ Each links to the issue that carries it; the board is where its status lives.
   recreation cannot be forecast — and will need their own decision. Interactive
   editing ([#30](https://github.com/jwh3times/vcs-lab/issues/30),
   [ADR-0035](adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md)
-  accepted) is buildable and not yet built. Explicit linear
+  accepted) landed in v0.17.0 with all four actions, including `edit` and the
+  deliberate weakening of ADR-0004 it carries. Explicit linear
   ranges ([#27](https://github.com/jwh3times/vcs-lab/issues/27)) landed in
   v0.15.0 and checkpoint/draft overlays
   ([#28](https://github.com/jwh3times/vcs-lab/issues/28)) after it; a range whose

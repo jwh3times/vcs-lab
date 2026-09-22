@@ -60,9 +60,19 @@ export function rebaseForecastForPlan(id, plan, cwd = process.cwd()) {
     forecast.status !== "complete" ||
     !forecast.predictedResultTree
   ) {
+    // `edit` exists to let a person change content, so a program containing one
+    // has no predictable result tree and cannot be pre-approved. Saying that,
+    // rather than "not complete", is the difference between a reason a caller
+    // can act on and one they cannot (ADR-0035).
     throw new CliError(
       `Rebase forecast '${id}' is not a complete application approval.`,
-        { code: "operation-state-invalid" },
+      {
+        code: "operation-state-invalid",
+        details:
+          forecast.status === "pauses-for-content"
+            ? "The program declares an --edit, whose result a forecast cannot predict. Run the rebase without --use-forecast; it will pause for the content and verify the rest of the queue as it goes."
+            : "",
+      },
     );
   }
   if (
@@ -206,7 +216,10 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
   phases.preflightMs = performance.now() - preflightStarted;
 
   const planningStarted = performance.now();
-  const plan = buildRebasePlan(ontoRef, sourceRef, cwd, { from: options.from });
+  const plan = buildRebasePlan(ontoRef, sourceRef, cwd, {
+    from: options.from,
+    interactive: options.interactive,
+  });
   phases.planningMs = performance.now() - planningStarted;
 
   const simulationStarted = performance.now();
@@ -278,7 +291,7 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     ...simulationResult
   } = simulation;
   const forecast = {
-    schema: "vcs-lab.rebase-forecast/v2",
+    schema: "vcs-lab.rebase-forecast/v3",
     id: newId("rebase_forecast"),
     mode: plan.mode,
     sourceRef: plan.sourceRef,
@@ -320,6 +333,9 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     // Lifted out of `plan` so a reader of the forecast sees the preserved
     // topology without reading the plan it pins (ADR-0034).
     recreatedMerges: plan.recreatedMerges ?? [],
+    // The declared program, beside the topology, for the same reason: a reader
+    // sees what the rewrite will do without reading the plan it pins.
+    interactive: plan.interactive ?? [],
     plan,
     ...simulationResult,
     engine,

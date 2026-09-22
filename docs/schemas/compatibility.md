@@ -47,13 +47,15 @@ version in `also read` is migrated forward as section 3 describes.
 | `vcs-lab.application` | note-record | v1, v4 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.reconciliation` | note-record | v6 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.rebase-application` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
-| `vcs-lab.rebase` | note-record | v2 | v1 | quarantine | refs/notes/vcs-lab note containers |
+| `vcs-lab.rebase` | note-record | v3 | v1, v2 | quarantine | refs/notes/vcs-lab note containers |
+| `vcs-lab.amendment` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
+| `vcs-lab.interactive-absorption` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.provenance` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.resolution` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.reconciliation-operation` | private | v4 | — | refuse | `<git dir>/vcs-lab/reconciliation.json` |
-| `vcs-lab.rebase-operation` | private | v2 | — | refuse | `<git dir>/vcs-lab/rebase.json` |
+| `vcs-lab.rebase-operation` | private | v3 | — | refuse | `<git dir>/vcs-lab/rebase.json` |
 | `vcs-lab.forecast` | private | v2 | v1 | refuse | `<git dir>/vcs-lab/forecasts/<id>.json` |
-| `vcs-lab.rebase-forecast` | private | v2 | — | refuse | `<git dir>/vcs-lab/forecasts/<id>.json` |
+| `vcs-lab.rebase-forecast` | private | v3 | — | refuse | `<git dir>/vcs-lab/forecasts/<id>.json` |
 | `vcs-lab.workspaces` | shared-local | v1 | — | refuse | `<common dir>/vcs-lab/workspaces.json` |
 | `vcs-lab.workspace` | shared-local | v1 | — | refuse | entries of `<common dir>/vcs-lab/workspaces.json` |
 | `vcs-lab.quarantined-record` | shared-local | v1 | — | refuse | refs/vcs-lab/quarantine/<lineage>/<record id> blobs |
@@ -182,9 +184,10 @@ a rewrite that recreated nothing is exact rather than an assumption
 
 **The rebase journal and rebase forecast are refused at v1 rather than
 migrated.** Both are worktree-private and both describe *a rewrite in flight*.
-A v1 journal's queue cannot express a recreated merge or the parent mapping one
-needs, so resuming from it would mean guessing a shape and moving refs from the
-guess. A v1 forecast pins a v1 plan fingerprint, and a v2 plan hashes the
+An older journal's queue cannot express what the current one carries — a
+recreated merge and its parent mapping, or a declared interactive action and the
+pause it is waiting in — so resuming from one would mean guessing a shape and
+moving refs from the guess. A v1 forecast pins a v1 plan fingerprint, and a v2 plan hashes the
 preserved topology, so no v1 forecast can approve a v2 plan — refusing it by
 version says *regenerate*, where accepting it would say *stale* for a reason the
 reader could not act on. A forecast costs one command to regenerate; a journal

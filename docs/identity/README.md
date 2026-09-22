@@ -49,6 +49,8 @@ string that happens to contain an underscore.
 | `prov` | a declared authorship provenance record |
 | `artifact` | a specification artifact |
 | `disposition` | a local decision about a parked conflict (ADR-0030) |
+| `amend` | a recorded divergence between what an identity contained before an interactive `edit` and after (ADR-0035) |
+| `absorb` | an interactive absorption of one or more identities into a surviving commit (ADR-0035) |
 
 ### Identifiers that are not minted
 
@@ -105,8 +107,23 @@ precisely the shape a forged or copied trailer takes.
 
 Identifiers are **globally scoped, not repository-scoped**: the point of a
 logical identity is that it survives moving between clones, so `ch_abc` in one
-repository names the same logical change as `ch_abc` in another. Nothing
-rewrites an identifier on import.
+repository names the same logical change as `ch_abc` in another — **unless an
+amendment says otherwise**. Nothing rewrites an identifier on import.
+
+That qualification is newer and weaker than the claim it replaces, and it is
+published as such. An interactive `edit` (ADR-0035) changes what a change
+contains while keeping its identity, which is the one operation that can make
+`ch_abc` name different work in two clones. It is not silent: the operation
+publishes a `vcs-lab.amendment/v1` record naming the identity and the trees on
+either side of the edit, and a reader that can see that record stops treating a
+bare `Change-Id` match for the identity as exact evidence — the classification
+degrades from `covered` to `candidate-equivalent`, which asks a person rather
+than concluding.
+
+The narrower claim that still holds without qualification is the one coverage
+actually leans on elsewhere: a receipt naming a **specific commit** proves that
+commit, and ancestry proves what ancestry proves. Neither is affected by an
+amendment, because neither reasons from the name.
 
 That makes the disagreement case the interesting one. When
 `vlab metadata import` merges records from an envelope, each incoming record

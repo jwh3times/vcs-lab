@@ -113,9 +113,29 @@ export const RECORD_FAMILIES = new Map([
     // v2 adds the preserved topology and `recreatedMerges` (ADR-0034). It is a
     // strict superset, so a v1 receipt stays readable and means exactly what it
     // always did: a rewrite with no merge in range.
-    registered: [1, 2],
-    readable: [1, 2],
-    written: [2],
+    registered: [1, 2, 3],
+    readable: [1, 2, 3],
+    written: [3],
+    unknownVersion: "quarantine",
+    store: "refs/notes/vcs-lab note containers",
+  }],
+  ["vcs-lab.amendment", {
+    scope: "note-record",
+    // The divergence an interactive `edit` recorded (ADR-0035). It is the one
+    // fact that weakens a coverage conclusion rather than strengthening one, so
+    // a version this build cannot read is quarantined like any other: a reader
+    // that skipped it would silently go back to the stronger claim.
+    registered: [1],
+    readable: [1],
+    written: [1],
+    unknownVersion: "quarantine",
+    store: "refs/notes/vcs-lab note containers",
+  }],
+  ["vcs-lab.interactive-absorption", {
+    scope: "note-record",
+    registered: [1],
+    readable: [1],
+    written: [1],
     unknownVersion: "quarantine",
     store: "refs/notes/vcs-lab note containers",
   }],
@@ -149,9 +169,9 @@ export const RECORD_FAMILIES = new Map([
     // (ADR-0034). A v1 journal is refused rather than resumed: its queue cannot
     // express a recreated merge, and resuming from a shape we would have to
     // guess at could move refs the writer never intended (ADR-0020).
-    registered: [1, 2],
-    readable: [2],
-    written: [2],
+    registered: [1, 2, 3],
+    readable: [3],
+    written: [3],
     unknownVersion: "refuse",
     store: "<git dir>/vcs-lab/rebase.json",
   }],
@@ -170,9 +190,9 @@ export const RECORD_FAMILIES = new Map([
     // says "regenerate"; leaving it readable would say "stale" for a reason the
     // reader cannot act on. A forecast is worktree-private and regenerable, so
     // this costs one command (ADR-0020, ADR-0034).
-    registered: [1, 2],
-    readable: [2],
-    written: [2],
+    registered: [1, 2, 3],
+    readable: [3],
+    written: [3],
     unknownVersion: "refuse",
     store: "<git dir>/vcs-lab/forecasts/<id>.json",
   }],
@@ -566,7 +586,7 @@ export function validateNoteRecord(record, objectFormat = "sha1") {
     fieldError(errors, Array.isArray(record.resolutions), "resolutions", "array");
     fieldError(errors, Array.isArray(record.semanticMerges), "semanticMerges", "array");
     attachmentMatches(record, "appliedCommit", errors);
-  } else if (schema === "vcs-lab.rebase/v1" || schema === "vcs-lab.rebase/v2") {
+  } else if (schema === "vcs-lab.rebase/v1" || schema === "vcs-lab.rebase/v2" || schema === "vcs-lab.rebase/v3") {
     validateCommonRecord(record, "rebase", objectFormat, errors);
     for (const field of ["sourceHead", "ontoHead", "physicalBase", "resultCommit"]) {
       requireOid(record, field, objectFormat, errors);
@@ -598,7 +618,7 @@ export function validateNoteRecord(record, objectFormat = "sha1") {
         fieldError(errors, typeof application[field] === "string" && application[field].length > 0, `applications[${index}].${field}`, "non-empty string");
       }
     }
-    if (schema === "vcs-lab.rebase/v2") {
+    if (schema === "vcs-lab.rebase/v2" || schema === "vcs-lab.rebase/v3") {
       fieldError(errors, Array.isArray(record.recreatedMerges), "recreatedMerges", "array");
       for (const [index, merge] of (record.recreatedMerges ?? []).entries()) {
         const label = `recreatedMerges[${index}]`;
@@ -633,6 +653,33 @@ export function validateNoteRecord(record, objectFormat = "sha1") {
       }
     }
     attachmentMatches(record, "resultCommit", errors);
+  } else if (schema === "vcs-lab.amendment/v1") {
+    validateCommonRecord(record, "amendment", objectFormat, errors);
+    for (const field of ["commit", "originCommit"]) {
+      requireOid(record, field, objectFormat, errors);
+    }
+    for (const field of ["treeBefore", "treeAfter"]) {
+      requireOid(record, field, objectFormat, errors);
+    }
+    fieldError(errors, typeof record.changeId === "string" && record.changeId.length > 0, "changeId", "non-empty string");
+    // An amendment whose trees are equal says nothing diverged, and publishing
+    // it would weaken a coverage conclusion for no reason (ADR-0035).
+    fieldError(errors, record.treeBefore !== record.treeAfter, "treeAfter", "a tree different from treeBefore");
+    fieldError(errors, typeof record.rebaseOperation === "string" && record.rebaseOperation.length > 3, "rebaseOperation", "non-empty operation ID");
+    attachmentMatches(record, "commit", errors);
+  } else if (schema === "vcs-lab.interactive-absorption/v1") {
+    validateCommonRecord(record, "interactive-absorption", objectFormat, errors);
+    requireOid(record, "survivingCommit", objectFormat, errors);
+    requireOidArray(record, "absorbedCommits", objectFormat, errors);
+    requireStringArray(record, "absorbedChanges", errors);
+    fieldError(errors, typeof record.survivingChangeId === "string" && record.survivingChangeId.length > 0, "survivingChangeId", "non-empty string");
+    fieldError(errors, ["squash", "fixup"].includes(record.action), "action", "squash or fixup");
+    // The survivor keeps its own identity; an absorbed one is named in the
+    // record and never on the commit, which is what keeps exactly one trailer.
+    fieldError(errors, !(record.absorbedChanges ?? []).includes(record.survivingChangeId), "absorbedChanges", "identities other than the survivor's");
+    fieldError(errors, (record.absorbedCommits ?? []).length > 0, "absorbedCommits", "at least one absorbed commit");
+    fieldError(errors, typeof record.rebaseOperation === "string" && record.rebaseOperation.length > 3, "rebaseOperation", "non-empty operation ID");
+    attachmentMatches(record, "survivingCommit", errors);
   } else if (schema === "vcs-lab.resolution/v1") {
     validateCommonRecord(record, "resolution", objectFormat, errors);
     fieldError(errors, record.algorithm === RESOLUTION_SIGNATURE_ALGORITHM, "algorithm", RESOLUTION_SIGNATURE_ALGORITHM);
@@ -675,7 +722,7 @@ export function referencedObjectsForRecord(record) {
   } else if (record.schema === "vcs-lab.rebase-application/v1") {
     for (const field of ["originCommit", "appliedCommit", "targetBefore"]) add(record[field], "commit", field);
     for (const field of ["sourceTree", "targetBeforeTree", "resultTree"]) add(record[field], "tree", field);
-  } else if (record.schema === "vcs-lab.rebase/v1" || record.schema === "vcs-lab.rebase/v2") {
+  } else if (["vcs-lab.rebase/v1", "vcs-lab.rebase/v2", "vcs-lab.rebase/v3"].includes(record.schema)) {
     for (const field of ["sourceHead", "ontoHead", "physicalBase", "resultCommit"]) add(record[field], "commit", field);
     for (const merge of record.recreatedMerges ?? []) {
       add(merge.originCommit, "commit", "recreatedMerges.originCommit");
@@ -693,6 +740,12 @@ export function referencedObjectsForRecord(record) {
       add(application.resultTree, "tree", "applications.resultTree");
     }
     for (const field of ["sourceTree", "ontoTree", "resultTree"]) add(record[field], "tree", field);
+  } else if (record.schema === "vcs-lab.amendment/v1") {
+    for (const field of ["commit", "originCommit"]) add(record[field], "commit", field);
+    for (const field of ["treeBefore", "treeAfter"]) add(record[field], "tree", field);
+  } else if (record.schema === "vcs-lab.interactive-absorption/v1") {
+    add(record.survivingCommit, "commit", "survivingCommit");
+    for (const oid of record.absorbedCommits ?? []) add(oid, "commit", "absorbedCommits");
   } else if (record.schema === "vcs-lab.provenance/v1") {
     add(record.commit, "commit", "commit");
     for (const oid of record.carriedFrom ?? []) add(oid, "commit", "carriedFrom");

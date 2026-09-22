@@ -149,6 +149,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/provenance.js` | Declared authorship provenance (`vcs-lab.provenance/v1`): the closed role vocabulary, `VLAB_AGENT`, declaration at commit time, and exact carry onto rewritten commits | Notes, IDs, schemas |
 | `src/quarantine.js` | The conflict policy's two local stores: parked conflicting records as one blob-bearing ref each under `refs/vcs-lab/quarantine/<lineage>/<record id>`, and the shared-local disposition registry (ADR-0030) | `src/engine.js`, `src/git.js`, `src/store.js`, `src/schemas.js` |
 | `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, the carried caller overlay and its second predicted tree, and private forecast presentation | Rebase plan, forecast simulator, target overlays, semantic version guards, Git adapter |
+| `src/rebase-interactive.js` | Declared interactive actions: their parsing, the shapes ADR-0035 refuses, the surviving-identity message rules, and the single-trailer check | Errors |
 | `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, overlay reduction and re-materialization, conflict recovery, identity, and final receipts | Rebase plan/forecast, target overlays, Git, notes, specs, resolutions |
 | `src/rebase-plan.js` | Read-only rebase selection, actions, preserved merge topology, shape constraints, and deterministic fingerprint | Merge plan, rebase topology, Git adapter, IDs |
 | `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
@@ -283,21 +284,23 @@ use at the current development baseline:
 <!-- generated:schemas:start -->
 | Family | Readable versions | Written versions | Store | Scope |
 | --- | --- | --- | --- | --- |
+| `vcs-lab.amendment` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.application` | v1, v4 | v1, v4 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.capabilities` | v1 | v1 | `produced on demand by vlab capabilities; served by a gateway` | `advertisement` |
 | `vcs-lab.disposition` | v1 | v1 | `entries of <common dir>/vcs-lab/dispositions.json` | `shared-local` |
 | `vcs-lab.dispositions` | v1 | v1 | `<common dir>/vcs-lab/dispositions.json` | `shared-local` |
 | `vcs-lab.forecast` | v1, v2 | v2 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
+| `vcs-lab.interactive-absorption` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.landing` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.metadata-envelope` | v1 | v1 | `manifest.json of a metadata export directory` | `envelope` |
 | `vcs-lab.note` | v1 | v1 | `refs/notes/vcs-lab note blobs` | `note-container` |
 | `vcs-lab.proof-bundle` | v1, v2 | v2 | `a file handed to vlab verify-proof` | `envelope` |
 | `vcs-lab.provenance` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.quarantined-record` | v1 | v1 | `refs/vcs-lab/quarantine/<lineage>/<record id> blobs` | `shared-local` |
-| `vcs-lab.rebase` | v1, v2 | v2 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.rebase` | v1, v2, v3 | v3 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.rebase-application` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
-| `vcs-lab.rebase-forecast` | v2 | v2 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
-| `vcs-lab.rebase-operation` | v2 | v2 | `<git dir>/vcs-lab/rebase.json` | `private` |
+| `vcs-lab.rebase-forecast` | v3 | v3 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
+| `vcs-lab.rebase-operation` | v3 | v3 | `<git dir>/vcs-lab/rebase.json` | `private` |
 | `vcs-lab.reconciliation` | v6 | v6 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.reconciliation-operation` | v4 | v4 | `<git dir>/vcs-lab/reconciliation.json` | `private` |
 | `vcs-lab.resolution` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
@@ -313,7 +316,7 @@ Command and automation output shapes (outside the persisted-family registry):
 | `vcs-lab.merge-plan/v1` | Source/target coverage plan | `merge-plan.js` |
 | `vcs-lab.proof-bundle/v1` | Merge plan plus the evidence its classification rests on, for an independent verifier | `proof-bundle.js` |
 | `vcs-lab.proof-verification/v1` | Integrity, classification, and repository verification result of a proof bundle | `proof-bundle.js` |
-| `vcs-lab.rebase-plan/v2` | Read-only causal rebase selection, preserved merge topology, and shape constraints | `rebase-plan.js` |
+| `vcs-lab.rebase-plan/v3` | Read-only causal rebase selection, preserved merge topology, shape constraints, and the declared interactive program | `rebase-plan.js` |
 | `vcs-lab.checkpoint/v1` | Checkpoint command result | `workspaces.js` |
 | `vcs-lab.workspace-prune/v1` | Preview/apply stale-path prune result | `workspaces.js` |
 | `vcs-lab.spec-merge-plan/v2` | Deterministic three-way semantic plan | `specs.js` |
@@ -446,7 +449,7 @@ unrelated target. Note contents are read in a batch after the reachability walk.
 
 `buildMergePlanBetween(ontoRef, sourceRef)` exposes the same proof lattice for
 an explicit target without switching `HEAD`. `buildRebasePlan` wraps that
-classification as `vcs-lab.rebase-plan/v2`:
+classification as `vcs-lab.rebase-plan/v3`:
 
 - covered changes become `omit` actions with exact proofs;
 - candidate-equivalent changes become `review` and cannot enter the replay
@@ -460,9 +463,16 @@ classification as `vcs-lab.rebase-plan/v2`:
   recreates", and `constraints.linearHistory` answers the older question
   separately. `constraints.unsupportedMerges` names each merge outside the v1
   topology scope with its own refusal code; and
+- a declared interactive action replaces `replay` for its commit. `reword` and
+  `edit` still produce a commit and stay in the replay queue; `squash` and
+  `fixup` land inside a surviving commit and leave it. The classification is
+  untouched either way — an action says what the rewrite *does* with a change,
+  never whether it is covered (ADR-0035); and
 - exact heads, trees, bases, receipts, classifications, actions, merge
-  constraints, and the preserved topology feed a deterministic SHA-256
-  fingerprint. The topology is hashed because a merge never reaches `changes`,
+  constraints, the preserved topology, and the declared action list feed a
+  deterministic SHA-256 fingerprint. The reworded *text* is deliberately
+  excluded: it arrives at continue time, it changes no tree, and hashing it
+  would make an approval depend on prose nobody had written yet. The topology is hashed because a merge never reaches `changes`,
   so two ranges with identical replay queues can still join them differently.
 
 The command performs only Git/object/metadata reads. Integration tests compare
@@ -487,7 +497,7 @@ no notion of a second parent, so a merge-preserving program falls back to the
 worktree oracle and records the fallback. Each attempted step records its target-before
 tree, conflict evidence when present, and result tree when complete.
 
-`vcs-lab.rebase-forecast/v2` pins source/onto heads and trees, the full plan and
+`vcs-lab.rebase-forecast/v3` pins source/onto heads and trees, the full plan and
 fingerprint, explicit candidate policy/omissions, automated resolution/spec
 decisions, step trees, and the predicted final tree. Caller evidence includes
 the exact branch, HEAD/tree, plus SHA-256 digests of index entries, porcelain
@@ -500,11 +510,23 @@ Unaccepted heuristic candidates convert an otherwise complete simulation to
 without conflict paths—including an unexpected empty replay—blocks instead of
 being silently skipped.
 
+`src/rebase-interactive.js` owns the declaration and its refusals, and mints no
+identity and reads no repository: the plan hands it a resolver so every
+expression is resolved through the session already open. Two note record
+families carry what the identity-bearing actions produce. A
+`vcs-lab.amendment/v1` records that an identity's content diverged under an
+`edit`, and `src/merge-plan.js` reads it to downgrade a bare `Change-Id` match
+from `covered` to `candidate-equivalent` — the single change to the coverage
+lattice, and one that only ever weakens a conclusion. A
+`vcs-lab.interactive-absorption/v1` records which identities a surviving commit
+took in, reusing the landing absorption model so coverage for an absorbed change
+comes from the record rather than from a second trailer on the commit.
+
 ### 7.5 Supervised causal rebase application
 
 `startRebase` operates only on the current named branch with a clean worktree.
 It rebuilds the exact plan, rejects stale or incomplete forecast approval before
-mutation, writes `vcs-lab.rebase-operation/v2`, resets the branch to `ontoHead`,
+mutation, writes `vcs-lab.rebase-operation/v3`, resets the branch to `ontoHead`,
 and cherry-picks only the ordered replay queue. Every forecasted step must
 reproduce its target-before tree, decision kind, result tree, and final predicted
 tree. Heuristic candidates require an explicit accepted policy.

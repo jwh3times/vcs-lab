@@ -115,6 +115,10 @@
     "responsibility": "Portable coverage proof bundles and their independent verifier, which applies its own copy of the lattice (`PROOF_RULES`) and compares the evidence with the repository",
     "dependencies": "Merge plan, canonical JSON, metadata, engine"
   },
+  "src/rebase-interactive.js": {
+    "responsibility": "Declared interactive actions: their parsing, the shapes ADR-0035 refuses, the surviving-identity message rules, and the single-trailer check",
+    "dependencies": "Errors"
+  },
   "src/rebase-plan.js": {
     "responsibility": "Read-only rebase selection, actions, preserved merge topology, shape constraints, and deterministic fingerprint",
     "dependencies": "Merge plan, rebase topology, Git adapter, IDs"

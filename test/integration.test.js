@@ -380,7 +380,7 @@ test("causal rebase planning is deterministic and replays only hard-squash conti
   const plan = JSON.parse(vlab(repo, "rebase-plan", "main", "--json"));
   const repeated = JSON.parse(vlab(repo, "rebase-plan", "main", "--json"));
 
-  assert.equal(plan.schema, "vcs-lab.rebase-plan/v2");
+  assert.equal(plan.schema, "vcs-lab.rebase-plan/v3");
   assert.equal(plan.mode, "linear");
   assert.equal(plan.ontoRef, "main");
   assert.equal(plan.sourceRef, "feature");
@@ -555,7 +555,7 @@ test("causal rebase forecasts are deterministic and preserve a dirty caller", (t
     vlab(repo, "rebase-forecast", "main", "--json"),
   );
 
-  assert.equal(first.schema, "vcs-lab.rebase-forecast/v2");
+  assert.equal(first.schema, "vcs-lab.rebase-forecast/v3");
   assert.equal(first.status, "complete");
   assert.equal(first.sourceRef, "feature");
   assert.equal(first.scope, "committed-heads");
@@ -740,7 +740,7 @@ test("causal rebase applies a reviewed continuation and ports unreachable origin
       "--json",
     ),
   );
-  assert.equal(result.receipt.schema, "vcs-lab.rebase/v2");
+  assert.equal(result.receipt.schema, "vcs-lab.rebase/v3");
   assert.equal(result.receipt.forecastId, forecast.id);
   assert.equal(result.receipt.sourceHead, continuation.commit);
   assert.equal(result.receipt.resultTree, forecast.predictedResultTree);
@@ -6305,7 +6305,7 @@ test("merge-tree rebase forecasts match the worktree oracle and apply through --
 
   const worktree = forecastWithEngine(repo, "worktree", "rebase-forecast", "main");
   const mergeTree = forecastWithEngine(repo, "merge-tree", "rebase-forecast", "main");
-  assert.equal(worktree.schema, "vcs-lab.rebase-forecast/v2");
+  assert.equal(worktree.schema, "vcs-lab.rebase-forecast/v3");
   assert.equal(worktree.status, "complete");
   assert.equal(worktree.engine, "worktree");
   assert.deepEqual(
@@ -6313,7 +6313,7 @@ test("merge-tree rebase forecasts match the worktree oracle and apply through --
     [continuation.changeId, more.changeId],
   );
   assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
-  assert.equal(mergeTree.schema, "vcs-lab.rebase-forecast/v2");
+  assert.equal(mergeTree.schema, "vcs-lab.rebase-forecast/v3");
   assert.equal(mergeTree.engine, "merge-tree");
   assert.deepEqual(mergeTree.fallbacks, []);
   assert.equal(mergeTree.steps[0].relation, "causal-rebase");

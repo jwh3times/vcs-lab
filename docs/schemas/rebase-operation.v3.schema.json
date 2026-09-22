@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "vcs-lab.rebase-operation/v2",
+  "$id": "vcs-lab.rebase-operation/v3",
   "title": "Causal rebase operation journal",
-  "description": "Private supervised-replay and recovery journal, stored worktree-private at .git/vcs-lab/rebase.json while a causal rebase is in progress (src/rebase-operations.js startOperation). v2 carries the whole rewrite program rather than only the replay queue, so a merge-preserving operation can rebuild its parent mapping after an interruption (ADR-0034).",
+  "description": "Private supervised-replay and recovery journal, stored worktree-private at .git/vcs-lab/rebase.json while a causal rebase is in progress (src/rebase-operations.js startOperation). v2 carries the whole rewrite program rather than only the replay queue, so a merge-preserving operation can rebuild its parent mapping after an interruption (ADR-0034). v3 adds the declared interactive program of ADR-0035 \u2014 `reword`, `edit`, `squash`, and `fixup` as plan actions, each with its own identity rule \u2014 and is a strict superset of v2.",
   "x-vcs-lab-scope": "worktree-private",
   "type": "object",
   "required": [
@@ -34,7 +34,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "vcs-lab.rebase-operation/v2"
+      "const": "vcs-lab.rebase-operation/v3"
     },
     "id": {
       "type": "string",
@@ -42,7 +42,7 @@
     },
     "state": {
       "type": "string",
-      "description": "'prepared', 'reducing-overlay', 'resetting', 'running', 'positioning', 'applying', 'conflicted', 'blocked', 'forecast-mismatch', or 'identity-mismatch'. 'reducing-overlay' is the moment before the reset onto the new base when the worktree is being returned to the committed head, with the overlay already safe in its checkpoint (ADR-0028). 'positioning' is a merge-preserving operation moving to the parent its next step applies onto (ADR-0034)."
+      "description": "'prepared', 'reducing-overlay', 'resetting', 'running', 'positioning', 'applying', 'conflicted', 'blocked', 'forecast-mismatch', or 'identity-mismatch'. 'reducing-overlay' is the moment before the reset onto the new base when the worktree is being returned to the committed head, with the overlay already safe in its checkpoint (ADR-0028). 'positioning' is a merge-preserving operation moving to the parent its next step applies onto (ADR-0034). 'awaiting-message' and 'awaiting-content' are the two interactive pauses: a `reword` waiting for its new message, and an `edit` waiting for the caller to change content (ADR-0035). Both come after the change is applied, so the work is already in the worktree when the caller is asked."
     },
     "worktree": {
       "type": "string",
@@ -189,7 +189,7 @@
       "description": "True once this operation has put the overlay back into the worktree, which happens after the committed result verifies and before the re-materialized tree is compared with the prediction. Journaled because it is what tells an abort that a dirty worktree in 'forecast-mismatch' is this operation's own doing rather than the user's, so the recovery ADR-0028 names stays reachable. Absent or false otherwise."
     },
     "plan": {
-      "$ref": "vcs-lab.rebase-plan/v2"
+      "$ref": "vcs-lab.rebase-plan/v3"
     },
     "queue": {
       "type": "array",
@@ -319,6 +319,51 @@
     "recreatedMerges": {
       "type": "array",
       "description": "The joins recreated so far. They are not applications and never become ones (ADR-0034).",
+      "items": {
+        "type": "object"
+      }
+    },
+    "interactive": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "action",
+          "commit",
+          "target"
+        ],
+        "properties": {
+          "action": {
+            "enum": [
+              "reword",
+              "edit",
+              "squash",
+              "fixup"
+            ]
+          },
+          "commit": {
+            "$ref": "#/$defs/oid",
+            "description": "The subject the action applies to."
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$",
+            "description": "For `squash` and `fixup`, the commit that survives and keeps its identity; null for `reword` and `edit`, which name only a subject."
+          }
+        }
+      }
+    },
+    "amendments": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "absorptions": {
+      "type": "array",
       "items": {
         "type": "object"
       }

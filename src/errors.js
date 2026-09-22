@@ -69,6 +69,7 @@ export const ERROR_CODES = Object.freeze({
 
   // --- Conflicts and decisions that need a person --------------------------
   "conflict-paused": "The operation paused on a conflict and is resumable. Resolve the paths, then continue.",
+  "interactive-paused": "A declared interactive action paused the rebase for the caller to supply a message or change content. Continue when ready; nothing was lost.",
   "conflict-blocked": "Git could not apply or continue the change. The details carry Git's own output.",
   "approval-required": "The plan contains heuristic candidates that must be accepted explicitly before proceeding.",
   "manual-review-required": "A semantic merge could not be decided conservatively and needs a human.",
