@@ -12,6 +12,11 @@ import {
   analyzeRebaseTopology,
   topologyFingerprintInput,
 } from "./rebase-topology.js";
+import {
+  declaredInteractiveActions,
+  resolveInteractiveProgram,
+  SURVIVING_ACTIONS,
+} from "./rebase-interactive.js";
 import { CliError } from "./errors.js";
 
 function currentBranch(cwd) {
@@ -58,6 +63,11 @@ function fingerprint(plan) {
     })),
     mergeCommits: plan.constraints.mergeCommits,
     topology: topologyFingerprintInput(plan.topology),
+    // The declared action list, so an approval for one interactive program
+    // cannot authorize another (ADR-0035). The reworded *text* is deliberately
+    // absent: it arrives at continue time, it changes no tree, and hashing it
+    // would make an approval depend on prose nobody had written yet.
+    interactive: plan.interactive.map((item) => [item.action, item.commit, item.target]),
   }));
 }
 
@@ -170,13 +180,37 @@ function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd, options = {}
         source: parent.source,
       })),
     }));
+  // Resolved against the plan's own changes, so every refusal can say which
+  // change it is about, and through the session's own resolver so no extra
+  // process is spent turning a revision expression into a commit (ADR-0035).
+  const declared = declaredInteractiveActions(options.interactive ?? {});
+  const interactive = resolveInteractiveProgram(
+    declared,
+    {
+      changes,
+      constraints: { mergeCommits: topology.mergeCommits },
+    },
+    (expression) => resolveObjectIds([`${expression}^{commit}`], cwd)[0],
+  );
+  // A declared action replaces `replay` for that commit. The classification is
+  // untouched: an action says what the rewrite does with a change, never
+  // whether the change is covered.
+  for (const change of changes) {
+    const action = interactive.byCommit.get(change.commit);
+    if (action) change.action = action.action;
+  }
+
+  // `reword` and `edit` replay their change and then act on the result, so they
+  // stay in the queue; `squash` and `fixup` land inside a surviving commit and
+  // so have no entry of their own (ADR-0035).
   const replayQueue = changes
-    .filter((change) => change.action === "replay")
-    .map(({ commit, shortCommit, changeId, subject }) => ({
+    .filter((change) => SURVIVING_ACTIONS.has(change.action))
+    .map(({ commit, shortCommit, changeId, subject, action }) => ({
       commit,
       shortCommit,
       changeId,
       subject,
+      action,
     }));
   const omitted = changes
     .filter((change) => change.action === "omit")
@@ -198,7 +232,7 @@ function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd, options = {}
   );
   const supported = topology.supported;
   const plan = {
-    schema: "vcs-lab.rebase-plan/v2",
+    schema: "vcs-lab.rebase-plan/v3",
     // A fact about the range, not a caller choice. ADR-0034 left the naming to
     // implementation: there is no flattening form to keep a name, because the
     // form this replaces refused merges rather than flattening them, so a range
@@ -232,6 +266,9 @@ function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd, options = {}
     counts,
     topology,
     recreatedMerges,
+    // The declared interactive program, in the order the rewrite runs it.
+    // Empty for an ordinary rebase, which is every rebase that declares none.
+    interactive: interactive.actions,
     changes,
     replayQueue,
     omitted,

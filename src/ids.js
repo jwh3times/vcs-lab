@@ -24,6 +24,8 @@ export const ID_NAMESPACES = Object.freeze({
   prov: "a declared authorship provenance record",
   artifact: "a specification artifact",
   disposition: "a local decision about a parked conflict",
+  amend: "a recorded divergence between what an identity contained before an interactive edit and after",
+  absorb: "an interactive absorption of one or more identities into a surviving commit",
 });
 
 /** Random bits per identifier: `randomBytes(6)` rendered as 12 hex digits. */

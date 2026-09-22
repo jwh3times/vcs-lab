@@ -12,6 +12,7 @@ import {
 import {
   assertClean,
   changeIdForCommit,
+  commitMessage,
   currentHead,
   gitPath,
   repoContext,
@@ -43,6 +44,11 @@ import {
   resolveStepParents,
   unsupportedTopologyError,
 } from "./rebase-topology.js";
+import {
+  absorbedMessage,
+  assertSingleIdentity,
+  rewordedMessage,
+} from "./rebase-interactive.js";
 import { readRebaseForecast, rebaseForecastForPlan } from "./rebase-forecast.js";
 import {
   assertOverlayCurrent,
@@ -323,6 +329,20 @@ function recordSuccessfulApplication(operation, relation, cwd) {
   const change = item.change ?? item;
   const application = applicationRecord(operation, change, relation, cwd);
   operation.applied.push(application);
+  if (operation.current?.absorption) {
+    operation.absorptions.push({
+      schema: "vcs-lab.interactive-absorption/v1",
+      type: "interactive-absorption",
+      id: newId("absorb"),
+      action: operation.current.absorption.action,
+      survivingCommit: application.appliedCommit,
+      survivingChangeId: application.appliedChangeId,
+      absorbedCommits: operation.current.absorption.absorbedCommits,
+      absorbedChanges: operation.current.absorption.absorbedChanges,
+      rebaseOperation: operation.id,
+      createdAt: new Date().toISOString(),
+    });
+  }
   anchorRewritten(operation, change.commit, application.appliedCommit, cwd);
   operation.nextIndex += 1;
   operation.executedCount = (operation.executedCount ?? 0) + 1;
@@ -551,6 +571,99 @@ function commitRecreatedMerge(operation, change, cwd) {
   }
 }
 
+/**
+ * Meld every absorbed change into the commit at HEAD, under a message that
+ * carries exactly one identity.
+ *
+ * The same shape the forecast simulated, so an approved forecast and the real
+ * run produce the same commit rather than merely the same tree.
+ */
+function absorbChanges(operation, absorbs, message, cwd) {
+  for (const item of absorbs) {
+    const applied = runGit(
+      [...GIT_NO_RERERE, "cherry-pick", "--no-commit", item.commit],
+      { cwd, allowFailure: true },
+    );
+    if (!applied.ok) {
+      runGit(["cherry-pick", "--abort"], { cwd, allowFailure: true });
+      operation.state = "blocked";
+      writeRebaseState(operation, cwd);
+      throw new CliError(
+        `Absorbing ${item.commit.slice(0, 12)} conflicted.`,
+        {
+          code: "conflict-blocked",
+          details: [
+            applied.output,
+            "Nothing was absorbed. Run 'vlab rebase --abort'.",
+          ].filter(Boolean).join("\n"),
+        },
+      );
+    }
+  }
+  const amended = runGit(
+    ["-c", "core.editor=true", "commit", "--amend", "-m", message],
+    { cwd, allowFailure: true },
+  );
+  if (!amended.ok) {
+    throw new CliError("Git could not fold the absorbed changes into the surviving commit.", {
+      code: "conflict-blocked",
+      details: amended.output,
+    });
+  }
+}
+
+/**
+ * Apply the absorbed changes a surviving step carries, if any, composing the
+ * one message that survives them.
+ */
+function applyAbsorption(operation, item, change, cwd) {
+  if (!item.absorbs?.length) return null;
+  const message = absorbedMessage(
+    commitMessage("HEAD", cwd),
+    item.absorbs.map((absorbed) => ({
+      action: absorbed.action,
+      message: commitMessage(absorbed.commit, cwd),
+    })),
+    change.changeId,
+  );
+  // Checked before the commit exists, because the commit is the thing a peer
+  // reads (ADR-0035).
+  assertSingleIdentity(message, change.changeId);
+  absorbChanges(operation, item.absorbs, message, cwd);
+  return {
+    action: item.absorbs[0].action,
+    absorbedCommits: item.absorbs.map((absorbed) => absorbed.commit),
+    absorbedChanges: item.absorbs.map(
+      (absorbed) => absorbed.change?.changeId ?? `git:${absorbed.commit}`,
+    ),
+  };
+}
+
+/**
+ * Pause the operation for the caller, journaling why.
+ *
+ * A pause is not a failure — nothing was lost and the queue is resumable — but
+ * it must not look like completion to a script, so it leaves through the same
+ * non-zero path a conflict does, under its own code (ADR-0021).
+ */
+function interactivePause(operation, change, waiting, cwd) {
+  operation.state = waiting;
+  writeRebaseState(operation, cwd);
+  const instruction = waiting === "awaiting-message"
+    ? "Supply the new message with: vlab rebase --continue -m \"<message>\""
+    : "Change the files, stage them, then run: vlab rebase --continue";
+  return new CliError(
+    `Causal rebase paused at ${change.shortCommit ?? change.commit.slice(0, 12)} for ${waiting === "awaiting-message" ? "a message" : "content"}.`,
+    {
+      code: "interactive-paused",
+      details: [
+        instruction,
+        "The identity is kept either way; run 'vlab rebase --abort' to restore the original tip.",
+      ].join("\n"),
+    },
+  );
+}
+
 function conflictError(operation, result) {
   const queued = operation.queue[operation.nextIndex];
   const change = queued.change ?? queued;
@@ -695,7 +808,7 @@ function finalizeRebase(operation, cwd) {
     semanticMerges: application.semanticMerges,
   }));
   const receipt = {
-    schema: "vcs-lab.rebase/v2",
+    schema: "vcs-lab.rebase/v3",
     type: "rebase",
     id: newId("rebase"),
     operationId: operation.id,
@@ -747,6 +860,26 @@ function finalizeRebase(operation, cwd) {
       cleanJoin: merge.cleanJoin,
       relation: "recreated-merge",
     })),
+    // The declared program this rebase ran, and what the two identity-bearing
+    // actions produced. An amendment says an identity's content diverged; an
+    // absorption says which identities a surviving commit took in (ADR-0035).
+    interactive: operation.plan.interactive ?? [],
+    amendments: (operation.amendments ?? []).map((amendment) => ({
+      id: amendment.id,
+      changeId: amendment.changeId,
+      commit: amendment.commit,
+      originCommit: amendment.originCommit,
+      treeBefore: amendment.treeBefore,
+      treeAfter: amendment.treeAfter,
+    })),
+    absorptions: (operation.absorptions ?? []).map((absorption) => ({
+      id: absorption.id,
+      action: absorption.action,
+      survivingCommit: absorption.survivingCommit,
+      survivingChangeId: absorption.survivingChangeId,
+      absorbedCommits: absorption.absorbedCommits,
+      absorbedChanges: absorption.absorbedChanges,
+    })),
     forkedSourceCommits: [...forkedOrigins],
     absorbedCommits: absorbed.map((change) => change.commit),
     absorbedChanges: absorbed.map((change) => change.changeId),
@@ -797,6 +930,14 @@ function finalizeRebase(operation, cwd) {
       );
     }
   }
+  // Published before the receipt that names them, so a reader that sees the
+  // receipt can always resolve the facts it points at.
+  for (const amendment of operation.amendments ?? []) {
+    appendNote(amendment.commit, amendment, cwd);
+  }
+  for (const absorption of operation.absorptions ?? []) {
+    appendNote(absorption.survivingCommit, absorption, cwd);
+  }
   faultPoint("rebase:before-receipt");
   appendNote(resultCommit, receipt, cwd);
   releaseAnchors(operation, cwd);
@@ -806,6 +947,8 @@ function finalizeRebase(operation, cwd) {
     operationId: operation.id,
     plan: operation.plan,
     recreatedMerges: receipt.recreatedMerges,
+    amendments: receipt.amendments,
+    absorptions: receipt.absorptions,
     receipt,
     // Reported, never published: the overlay is uncommitted context, so it
     // belongs in the command's answer and in no receipt (ADR-0028).
@@ -916,6 +1059,25 @@ function runRebaseQueue(operation, cwd, phaseStarted = performance.now()) {
           recordRecreatedMerge(operation, change, parents, true, cwd);
           continue;
         }
+        const absorption = applyAbsorption(operation, item, change, cwd);
+        if (absorption) {
+          operation.current.absorption = absorption;
+          writeRebaseState(operation, cwd);
+        }
+        // Both pauses happen *after* the change is applied, so the work is
+        // already in the worktree when the caller is asked for a message or for
+        // content. Journaled before it leaves, so a resumed process knows what
+        // it is waiting for.
+        if (item.action === "reword" || item.action === "edit") {
+          operation.current.treeBeforeEdit = treeId("HEAD", cwd);
+          finishPhase(false);
+          throw interactivePause(
+            operation,
+            change,
+            item.action === "reword" ? "awaiting-message" : "awaiting-content",
+            cwd,
+          );
+        }
         const resultTree = treeId("HEAD", cwd);
         validateForecastAfter(operation, change, resultTree, "clean", cwd);
         recordSuccessfulApplication(operation, "causal-rebase", cwd);
@@ -972,7 +1134,7 @@ function startOperation(branch, ontoRef, plan, options, cwd) {
   const context = repoContext(cwd);
   const forecast = options.forecast;
   return {
-    schema: "vcs-lab.rebase-operation/v2",
+    schema: "vcs-lab.rebase-operation/v3",
     id: newId("rebase_op"),
     state: "prepared",
     worktree: context.root,
@@ -1019,6 +1181,11 @@ function startOperation(branch, ontoRef, plan, options, cwd) {
     // journal round-trips through JSON.
     rewritten: {},
     recreatedMerges: [],
+    // Divergences an `edit` recorded, and the identities each surviving commit
+    // absorbed. Neither is an application; both are published at finalization
+    // (ADR-0035).
+    amendments: [],
+    absorptions: [],
     applied: [],
     current: null,
     startedAt: new Date().toISOString(),
@@ -1055,7 +1222,10 @@ function startRebaseInSession(ontoRef, options, cwd) {
   if (!approvedOverlay) assertClean(cwd);
   assertNoGitReplay(cwd);
   const branch = currentBranch(cwd);
-  const plan = buildRebasePlan(ontoRef, branch.name, cwd, { from: options.from });
+  const plan = buildRebasePlan(ontoRef, branch.name, cwd, {
+    from: options.from,
+    interactive: options.interactive,
+  });
   if (!plan.constraints.supported) throw unsupportedTopologyError(plan.topology);
   const forecast = options.forecastId
     ? rebaseForecastForPlan(options.forecastId, plan, cwd)
@@ -1183,11 +1353,109 @@ function forkMergeMessage(operation, cwd) {
   writeRebaseState(operation, cwd);
 }
 
+/**
+ * Finish a `reword` or an `edit` the caller has come back to.
+ *
+ * `reword` rewrites the message under the original identity and nothing else.
+ * `edit` keeps both message and identity and takes whatever the caller staged,
+ * then compares the tree before the pause with the tree after it. A divergence
+ * publishes an **amendment**, which is the whole reason `edit` is safe to offer:
+ * it is what stops a receipt in another clone going on vouching for content
+ * nobody reviewed (ADR-0035).
+ */
+function completeInteractiveStep(operation, options, cwd) {
+  const queued = operation.queue[operation.nextIndex];
+  const change = queued.change ?? queued;
+  const waiting = operation.state;
+
+  if (waiting === "awaiting-message") {
+    if (!options.message) {
+      throw new CliError("This rebase is paused for a new message.", {
+        code: "usage-missing-argument",
+        details: "Supply it with: vlab rebase --continue -m \"<message>\"",
+      });
+    }
+    const message = rewordedMessage(options.message, change.changeId);
+    assertSingleIdentity(message, change.changeId);
+    const amended = runGit(
+      ["-c", "core.editor=true", "commit", "--amend", "-m", message],
+      { cwd, allowFailure: true },
+    );
+    if (!amended.ok) {
+      throw new CliError("Git could not apply the reworded message.", {
+        code: "conflict-blocked",
+        details: amended.output,
+      });
+    }
+    // A reword changes a message and nothing else, so a tree that moved means
+    // something else changed the worktree while the operation was paused.
+    const after = treeId("HEAD", cwd);
+    if (after !== operation.current.treeBeforeEdit) {
+      operation.state = "blocked";
+      writeRebaseState(operation, cwd);
+      throw new CliError("The worktree changed while the reword was paused.", {
+        code: "out-of-band-change",
+        details: [
+          `Tree at the pause: ${operation.current.treeBeforeEdit}`,
+          `Tree now:          ${after}`,
+          "A reword changes a message and nothing else. Run 'vlab rebase --abort'.",
+        ].join("\n"),
+      });
+    }
+    operation.current.rewordedTo = message;
+    recordSuccessfulApplication(operation, "causal-rebase", cwd);
+    return;
+  }
+
+  if (options.message) {
+    throw new CliError("This rebase is paused for content, not for a message.", {
+      code: "usage-invalid-option-value",
+      details: "An edit keeps the message it had. Stage your changes and continue without -m.",
+    });
+  }
+  const staged = runGit(
+    ["-c", "core.editor=true", "commit", "--amend", "--no-edit", "--allow-empty"],
+    { cwd, allowFailure: true },
+  );
+  if (!staged.ok) {
+    throw new CliError("Git could not apply the edited content.", {
+      code: "conflict-blocked",
+      details: staged.output,
+    });
+  }
+  const [editedCommit, treeAfter] = resolveObjectIds(
+    ["HEAD^{commit}", "HEAD^{tree}"],
+    cwd,
+  );
+  const treeBefore = operation.current.treeBeforeEdit;
+  // An amendment whose before and after trees are equal publishes nothing,
+  // because nothing diverged (ADR-0035).
+  if (treeAfter !== treeBefore) {
+    operation.amendments.push({
+      schema: "vcs-lab.amendment/v1",
+      type: "amendment",
+      id: newId("amend"),
+      changeId: change.changeId,
+      commit: editedCommit,
+      originCommit: change.commit,
+      treeBefore,
+      treeAfter,
+      rebaseOperation: operation.id,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  recordSuccessfulApplication(operation, "causal-rebase", cwd);
+}
+
 function continueRebaseInSession(options, cwd) {
   const phaseStarted = performance.now();
   const operation = requirePendingRebase(cwd);
   assertCurrentSpecDecisions(operation);
   requireOperationBranch(operation, cwd);
+  if (operation.state === "awaiting-message" || operation.state === "awaiting-content") {
+    completeInteractiveStep(operation, options, cwd);
+    return runRebaseQueue(operation, cwd, phaseStarted);
+  }
   if (operation.state !== "conflicted" || !operation.current) {
     throw new CliError(
       `Rebase state '${operation.state}' cannot be continued.`,

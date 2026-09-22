@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "vcs-lab.rebase-plan/v2",
+  "$id": "vcs-lab.rebase-plan/v3",
   "title": "Causal rebase plan",
-  "description": "Read-only causal rebase selection, preserved topology, and constraints (CLI output of vlab rebase-plan --json; embedded as the plan of rebase forecasts and journals; src/rebase-plan.js). A strict superset of v1: v2 adds `topology` and `recreatedMerges`, admits `merge-preserving` as a mode, and redefines `constraints.supported` to mean \"every merge in range is a supported shape\" rather than \"the range is linear\" (ADR-0034).",
+  "description": "Read-only causal rebase selection, preserved topology, and constraints (CLI output of vlab rebase-plan --json; embedded as the plan of rebase forecasts and journals; src/rebase-plan.js). A strict superset of v1: v2 adds `topology` and `recreatedMerges`, admits `merge-preserving` as a mode, and redefines `constraints.supported` to mean \"every merge in range is a supported shape\" rather than \"the range is linear\" (ADR-0034). v3 adds the declared interactive program of ADR-0035 \u2014 `reword`, `edit`, `squash`, and `fixup` as plan actions, each with its own identity rule \u2014 and is a strict superset of v2.",
   "x-vcs-lab-scope": "cli-output",
   "type": "object",
   "required": [
@@ -28,11 +28,12 @@
     "executableWithoutReview",
     "fingerprint",
     "topology",
-    "recreatedMerges"
+    "recreatedMerges",
+    "interactive"
   ],
   "properties": {
     "schema": {
-      "const": "vcs-lab.rebase-plan/v2"
+      "const": "vcs-lab.rebase-plan/v3"
     },
     "mode": {
       "enum": [
@@ -228,10 +229,15 @@
           },
           "action": {
             "enum": [
+              "replay",
               "omit",
               "review",
-              "replay"
-            ]
+              "reword",
+              "edit",
+              "squash",
+              "fixup"
+            ],
+            "description": "What the rewrite does with this change. `replay`, `reword`, and `edit` each produce a commit and stay in the replay queue; `squash` and `fixup` land inside a surviving commit and have no entry of their own; `omit` and `review` are classification outcomes, not declared actions."
           }
         }
       }
@@ -527,6 +533,40 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "interactive": {
+      "type": "array",
+      "description": "The declared interactive program, in the order the rewrite runs it. Empty for an ordinary rebase. The plan fingerprint covers this list, so an approval for one interactive program cannot authorize another; the reworded text is deliberately not covered, because it arrives at continue time and changes no tree (ADR-0035).",
+      "items": {
+        "type": "object",
+        "required": [
+          "action",
+          "commit",
+          "target"
+        ],
+        "properties": {
+          "action": {
+            "enum": [
+              "reword",
+              "edit",
+              "squash",
+              "fixup"
+            ]
+          },
+          "commit": {
+            "$ref": "#/$defs/oid",
+            "description": "The subject the action applies to."
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$",
+            "description": "For `squash` and `fixup`, the commit that survives and keeps its identity; null for `reword` and `edit`, which name only a subject."
           }
         }
       }

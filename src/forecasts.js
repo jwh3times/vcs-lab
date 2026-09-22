@@ -15,6 +15,7 @@ import {
   currentHead,
   gitAtLeast,
   gitVersion,
+  commitMessage,
   inspectGitObjects,
   mergeBase,
   porcelainStatus,
@@ -43,6 +44,12 @@ import {
 } from "./workspaces.js";
 import { predictOverlayTree, resolveTargetOverlay } from "./target-overlay.js";
 import { recreatedMergeMessage, resolveStepParents } from "./rebase-topology.js";
+import {
+  absorbedMessage,
+  assertSingleIdentity,
+  isAbsorbing,
+  SURVIVING_ACTIONS,
+} from "./rebase-interactive.js";
 import { CliError } from "./errors.js";
 import { assertReadableSchema } from "./schemas.js";
 import {
@@ -213,6 +220,35 @@ function commitRecreatedMerge(change, cwd) {
     }),
   );
   runGit(["-c", "core.editor=true", "commit", "--no-edit"], { cwd });
+}
+
+/**
+ * Meld every absorbed change into the commit at HEAD.
+ *
+ * Each absorbed change is applied without committing and then folded into the
+ * surviving commit with `--amend`, which is what keeps exactly one commit — and
+ * so exactly one `Change-Id` — where Git's sequencer would have concatenated
+ * messages (ADR-0035). The surviving message is composed by the caller and
+ * passed in, so the identity check runs before the commit exists.
+ */
+function absorbChanges(absorbs, message, cwd) {
+  for (const item of absorbs) {
+    const applied = runGit(
+      [...GIT_NO_RERERE, "cherry-pick", "--no-commit", item.commit],
+      { cwd, allowFailure: true },
+    );
+    if (!applied.ok) {
+      runGit(["cherry-pick", "--abort"], { cwd, allowFailure: true });
+      return { ok: false, commit: item.commit, output: applied.output };
+    }
+  }
+  const amended = runGit(
+    ["-c", "core.editor=true", "commit", "--amend", "-m", message],
+    { cwd, allowFailure: true },
+  );
+  return amended.ok
+    ? { ok: true }
+    : { ok: false, commit: null, output: amended.output };
 }
 
 function blockedReason(conflicts) {
@@ -469,10 +505,19 @@ function simulatePlan(plan, cwd, options = {}) {
   // has no notion of a second parent, so a program that recreates a merge is
   // handed to the worktree oracle rather than approximated.
   const mergePreserving = program.some((step) => step.kind === "recreate-merge");
-  if (mergePreserving && forecastEngine() === "merge-tree") {
-    fallbacks.push({ engine: "merge-tree", reason: "merge-preserving-program" });
+  // `merge-tree` accumulates one tree from a queue of picks. It has no second
+  // parent for a recreated merge, and no commit to amend for a reworded,
+  // edited, or absorbing step, so either program goes to the worktree oracle.
+  const interactive = program.some(
+    (step) => (step.action && step.action !== "replay") || step.absorbs?.length,
+  );
+  if ((mergePreserving || interactive) && forecastEngine() === "merge-tree") {
+    fallbacks.push({
+      engine: "merge-tree",
+      reason: mergePreserving ? "merge-preserving-program" : "interactive-program",
+    });
   }
-  if (!mergePreserving && forecastEngine() === "merge-tree") {
+  if (!mergePreserving && !interactive && forecastEngine() === "merge-tree") {
     const attempt = simulatePlanWithMergeTree(cwd, {
       targetHead,
       expectedResultTree,
@@ -503,8 +548,12 @@ function simulatePlan(plan, cwd, options = {}) {
     // step to fill it costs one process per step in the ordinary transport, so
     // a linear program does not pay for a map it never reads (ADR-0034).
     const rewritten = new Map();
+    // Filled exactly when the program states its parents, which is every
+    // merge-preserving and every interactive program and no plain queue. A
+    // plain queue would pay one `rev-parse` per step for a map it never reads.
+    const statesParents = program.some((item) => item.step);
     const trackRewrite = (commit) => {
-      if (!mergePreserving) return;
+      if (!statesParents) return;
       rewritten.set(commit, currentHead(temporaryWorktree));
     };
 
@@ -521,6 +570,24 @@ function simulatePlan(plan, cwd, options = {}) {
         // it as a parent now names whatever replaced the commit beneath it.
         rewritten.set(change.commit, parents[0].commit);
         continue;
+      }
+      // `edit` exists to let a person change the content, so its result tree is
+      // not a thing a forecast can predict. It says so and stops, rather than
+      // predicting a tree the operation would then fail to reproduce
+      // (ADR-0035).
+      if (item.action === "edit") {
+        status = "pauses-for-content";
+        reason = "interactive-edit-pauses";
+        steps.push({
+          sourceCommit: change.commit,
+          changeId: change.changeId,
+          subject: change.subject,
+          outcome: "pauses-for-content",
+          kind: "pick",
+          action: "edit",
+          targetBeforeTree: treeId(currentHead(temporaryWorktree), temporaryWorktree),
+        });
+        break;
       }
       // A pick continues from wherever the last step left HEAD, which for a
       // linear program is always its own parent. A program with merges jumps
@@ -575,6 +642,35 @@ function simulatePlan(plan, cwd, options = {}) {
           });
           continue;
         }
+        if (item.absorbs?.length) {
+          const message = absorbedMessage(
+            commitMessage("HEAD", temporaryWorktree),
+            item.absorbs.map((absorbed) => ({
+              action: absorbed.action,
+              message: commitMessage(absorbed.commit, temporaryWorktree),
+            })),
+            change.changeId,
+          );
+          assertSingleIdentity(message, change.changeId);
+          const absorbed = absorbChanges(item.absorbs, message, temporaryWorktree);
+          if (!absorbed.ok) {
+            status = "blocked";
+            reason = "absorbed-change-conflict";
+            steps.push({
+              sourceCommit: change.commit,
+              changeId: change.changeId,
+              subject: change.subject,
+              outcome: "blocked-absorption",
+              kind: "pick",
+              action: change.action,
+              absorbedCommits: item.absorbs.map((entry) => entry.commit),
+              conflictedAbsorption: absorbed.commit,
+              targetBeforeTree,
+              gitOutput: absorbed.output,
+            });
+            break;
+          }
+        }
         trackRewrite(change.commit);
         steps.push({
           sourceCommit: change.commit,
@@ -582,6 +678,13 @@ function simulatePlan(plan, cwd, options = {}) {
           subject: change.subject,
           outcome: "clean",
           kind: "pick",
+          action: change.action ?? "replay",
+          ...(item.absorbs?.length
+            ? {
+                absorbedCommits: item.absorbs.map((entry) => entry.commit),
+                absorbedChanges: item.absorbs.map((entry) => entry.change?.changeId ?? `git:${entry.commit}`),
+              }
+            : {}),
           relation: cleanRelation,
           targetBeforeTree,
           resultTree: treeId("HEAD", temporaryWorktree),
@@ -781,9 +884,22 @@ function simulatePlan(plan, cwd, options = {}) {
 export function rebaseProgram(plan) {
   const replayed = new Map(
     plan.changes
-      .filter((change) => change.action === "replay")
+      .filter((change) => SURVIVING_ACTIONS.has(change.action))
       .map((change) => [change.commit, change]),
   );
+  // Absorbed changes are grouped under the commit that survives them, so the
+  // step that creates the survivor melds them in before moving on. That is the
+  // reordering Git's todo list does by hand, made explicit and covered by the
+  // plan fingerprint (ADR-0035).
+  const absorbedInto = new Map();
+  for (const item of plan.interactive ?? []) {
+    if (!isAbsorbing(item.action)) continue;
+    const change = plan.changes.find((entry) => entry.commit === item.commit);
+    absorbedInto.set(item.target, [
+      ...(absorbedInto.get(item.target) ?? []),
+      { ...item, change },
+    ]);
+  }
   const merges = new Map(
     (plan.recreatedMerges ?? []).map((merge) => [merge.commit, merge]),
   );
@@ -806,9 +922,16 @@ export function rebaseProgram(plan) {
     // costs no Git work, but the rewrite still has to know what replaced it:
     // a later merge may name it as a parent, and the answer is whatever
     // replaced the commit beneath it. Dropping it here would leave that merge
-    // pointing at nothing.
+    // pointing at nothing. An absorbed commit is an `omit` of its own line for
+    // the same reason — its content is applied inside its survivor's step.
     return change
-      ? { kind: "pick", step, change }
+      ? {
+          kind: "pick",
+          action: change.action,
+          step,
+          change,
+          absorbs: absorbedInto.get(step.commit) ?? [],
+        }
       : { kind: "omit", step, change: { commit: step.commit } };
   });
 }
@@ -822,7 +945,10 @@ export function simulateCausalRebasePlan(plan, cwd = process.cwd()) {
     // A linear plan keeps its queue untouched, so nothing about its simulation
     // changes: the program is the queue, HEAD never has to move between steps,
     // and the merge-tree engine still answers it.
-    program: plan.mode === "merge-preserving" ? rebaseProgram(plan) : undefined,
+    program:
+      plan.mode === "merge-preserving" || (plan.interactive ?? []).length > 0
+        ? rebaseProgram(plan)
+        : undefined,
     newBase: plan.ontoHead,
     cleanRelation: "causal-rebase",
     contextualRelation: "contextual-rebase",

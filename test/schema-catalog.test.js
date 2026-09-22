@@ -22,6 +22,8 @@ const SUPERSEDED_WITHOUT_DOCUMENT = new Set([
   // (ADR-0034).
   "vcs-lab.rebase-forecast/v1",
   "vcs-lab.rebase-operation/v1",
+  "vcs-lab.rebase-forecast/v2",
+  "vcs-lab.rebase-operation/v2",
 ]);
 
 // Frozen output contracts remain available after their writers advance.
@@ -409,6 +411,28 @@ function scenario() {
   keep("rebase-plan", vlabJson(repo, "rebase-plan", "main", "--json"));
   keep("rebase-forecast", vlabJson(repo, "rebase-forecast", "main", "--json"));
   keep("rebase-result", vlabJson(repo, "rebase", "main", "--json"));
+
+  // An interactive rebase, so the two families only it publishes exist: an
+  // amendment from an `edit` that changed content, and an absorption from a
+  // `fixup` (ADR-0035). Both are note records and both must satisfy their
+  // documents like any other.
+  git(repo, "switch", "-c", "rebase-interactive", baseCommit);
+  write(repo, "i1.txt", "one\n");
+  const interactiveFirst = commit(repo, "Interactive survivor").commit;
+  write(repo, "i2.txt", "two\n");
+  const interactiveAbsorbed = commit(repo, "Interactive absorbed").commit;
+  write(repo, "i3.txt", "three\n");
+  const interactiveEdited = commit(repo, "Interactive edited").commit;
+  const paused = vlabResult(
+    repo, "rebase", "main",
+    "--fixup", `${interactiveAbsorbed}=${interactiveFirst}`,
+    "--edit", interactiveEdited,
+    "--json",
+  );
+  assert.notEqual(paused.status, 0, "the interactive fixture must pause for content");
+  write(repo, "i3.txt", "three, edited\n");
+  git(repo, "add", "-A");
+  keep("rebase-interactive-result", vlabJson(repo, "rebase", "--continue", "--json"));
   git(repo, "switch", "main");
 
   // Workspaces, checkpoint, prune, and the shared-local registry.
@@ -499,9 +523,9 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
     ["vcs-lab.reconciliation-operation/v4", "reconciliation-journal"],
     ["vcs-lab.spec-merge-plan/v2", "spec-merge-plan"],
     ["vcs-lab.spec-manifest/v4", "spec-manifest"],
-    ["vcs-lab.rebase-operation/v2", "rebase-journal"],
-    ["vcs-lab.rebase-plan/v2", "rebase-plan"],
-    ["vcs-lab.rebase-forecast/v2", "rebase-forecast"],
+    ["vcs-lab.rebase-operation/v3", "rebase-journal"],
+    ["vcs-lab.rebase-plan/v3", "rebase-plan"],
+    ["vcs-lab.rebase-forecast/v3", "rebase-forecast"],
     ["vcs-lab.workspace/v1", "workspace"],
     ["vcs-lab.checkpoint/v1", "checkpoint"],
     ["vcs-lab.workspace-prune/v1", "workspace-prune"],
@@ -532,8 +556,8 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
   assertValid("vcs-lab.application/v1", state.outputs.get("cherry-pick"), "cherry-pick");
   assertValid("vcs-lab.reconciliation/v6", state.outputs.get("reconcile-result").receipt, "reconcile receipt");
   assertValid("vcs-lab.merge-plan/v1", state.outputs.get("reconcile-result").plan, "reconcile plan");
-  assertValid("vcs-lab.rebase/v2", state.outputs.get("rebase-result").receipt, "rebase receipt");
-  assertValid("vcs-lab.rebase-plan/v2", state.outputs.get("rebase-result").plan, "rebase plan");
+  assertValid("vcs-lab.rebase/v3", state.outputs.get("rebase-result").receipt, "rebase receipt");
+  assertValid("vcs-lab.rebase-plan/v3", state.outputs.get("rebase-result").plan, "rebase plan");
   assertValid("vcs-lab.engine-differential/v1", state.outputs.get("doctor").differential, "doctor differential");
   for (const workspace of state.outputs.get("workspace-list")) {
     assertValid("vcs-lab.workspace/v1", workspace, `workspace listing '${workspace.name}'`);
@@ -558,11 +582,13 @@ test("every published note record satisfies its document and the runtime validat
   assert.deepEqual(
     [...families].sort(),
     [
+      "vcs-lab.amendment/v1",
       "vcs-lab.application/v1",
       "vcs-lab.application/v4",
+      "vcs-lab.interactive-absorption/v1",
       "vcs-lab.landing/v1",
       "vcs-lab.rebase-application/v1",
-      "vcs-lab.rebase/v2",
+      "vcs-lab.rebase/v3",
       "vcs-lab.reconciliation/v6",
       "vcs-lab.resolution/v1",
     ],

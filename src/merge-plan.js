@@ -10,6 +10,29 @@ import { acceptedCausalRecords, readCausalRecordCatalog } from "./metadata.js";
 
 const RECEIPT_TYPES = new Set(["landing", "reconciliation", "rebase"]);
 
+/**
+ * Identities whose content diverged under an interactive `edit` (ADR-0035).
+ *
+ * ADR-0004 accepts a target-history stable Change-Id as exact evidence, and
+ * that is sound only while an identity names the same work everywhere it
+ * appears. `edit` is the one operation that breaks the assumption: it changes
+ * content while keeping the identity, so a peer holding a receipt for that
+ * identity would go on reporting it as covered for content that no longer
+ * exists.
+ *
+ * An amendment is the signal that makes the downgrade possible. It is read from
+ * the same reachable catalog every other fact comes from, so an amendment
+ * published in another clone only counts once it has actually travelled here.
+ */
+function amendedChangeIds(reachable, cwd, conflictingIds) {
+  const amendments = acceptedCausalRecords(
+    reachable.filter((record) => record.type === "amendment"),
+    cwd,
+    { conflictingIds },
+  );
+  return new Set(amendments.map((record) => record.changeId).filter(Boolean));
+}
+
 function directChangeCoverage(ref, cwd) {
   const history = commitHistory([ref], cwd);
   return {
@@ -46,7 +69,13 @@ function receiptCoverage(directCommits, cwd) {
     for (const commit of receipt.absorbedCommits ?? []) commits.add(commit);
     for (const changeId of receipt.absorbedChanges ?? []) changeIds.add(changeId);
   }
-  return { receipts, commits, changeIds, quarantined: quarantinedFacts(reachable, catalog) };
+  return {
+    receipts,
+    commits,
+    changeIds,
+    amended: amendedChangeIds(reachable, cwd, catalog.conflictingIds),
+    quarantined: quarantinedFacts(reachable, catalog),
+  };
 }
 
 /**
@@ -152,12 +181,23 @@ function buildMergePlanInSession(targetRef, sourceRef, cwd, options = {}) {
       // "signed" about a record nothing signs; that value remains legal in
       // records written before v0.12.0 (docs/schemas/compatibility.md).
       proof = "receipt-commit";
-    } else if (direct.changeIds.has(changeId)) {
-      status = "covered";
-      proof = "stable-change-id";
-    } else if (receipt.changeIds.has(changeId)) {
-      status = "covered";
-      proof = "receipt-change-id";
+    } else if (direct.changeIds.has(changeId) || receipt.changeIds.has(changeId)) {
+      // Both of these prove the *identity*, not the commit. An identity with a
+      // reachable amendment no longer names one body of work everywhere, so it
+      // stops being exact evidence and becomes a decision for a person
+      // (ADR-0035). The commit-based proofs above are untouched: a receipt
+      // naming the specific commit still proves that commit, and ancestry still
+      // proves what ancestry proves.
+      const identityProof = direct.changeIds.has(changeId)
+        ? "stable-change-id"
+        : "receipt-change-id";
+      if (receipt.amended.has(changeId)) {
+        status = "candidate-equivalent";
+        proof = "amended-change-id";
+      } else {
+        status = "covered";
+        proof = identityProof;
+      }
     } else if (candidates.has(commit)) {
       status = "candidate-equivalent";
       proof = "git-patch-id-heuristic";

@@ -285,8 +285,31 @@ Two shapes are still refused by name, before anything moves: an octopus merge,
 whose resolution order is not recoverable from its result, and a merge with a
 parent that is neither in the range nor an ancestor of the new base.
 
+An interactive program is **declared**, never inherited from Git's sequencer.
+`--reword <commit>`, `--edit <commit>`, `--squash <subject>=<target>`, and
+`--fixup <subject>=<target>` are plan actions, each with its own rule about
+logical identity ([ADR-0035](docs/adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md)):
+
+- `reword` composes the `Change-Id` trailer itself and refuses a message that
+  would declare a different one — `--fork` is how you ask for a new identity.
+- `squash` and `fixup` leave **exactly one** trailer on the surviving commit and
+  name the absorbed identities in a record, because several trailers would make
+  the survivor depend on parse order. They differ only in whether the absorbed
+  prose is kept.
+- `edit` keeps the identity while changing what it contains, so it publishes an
+  **amendment**. That is the one local operation that can make a proof in
+  another clone wrong, and the amendment is what stops it being silent: a bare
+  `Change-Id` match for an amended identity degrades from `covered` to
+  `candidate-equivalent`. A receipt naming the specific commit still proves that
+  commit, and ancestry still proves what ancestry proves.
+
+`reword` and `edit` pause for the caller — `vlab rebase --continue -m "..."` for
+a message, `vlab rebase --continue` after staging content. An `edit` is the only
+action whose result a forecast cannot predict, so a forecast containing one
+reports `pauses-for-content` and says it cannot be used as an approval.
+
 `rebase-forecast` saves a worktree-private
-`vcs-lab.rebase-forecast/v2` artifact. It simulates only the ordered replay
+`vcs-lab.rebase-forecast/v3` artifact. It simulates only the ordered replay
 queue in a disposable detached worktree, records every target-before and
 result tree, pins the plan fingerprint and candidate policy, and reports a
 complete predicted tree or a fail-closed conflict/unsupported reason. Dirty

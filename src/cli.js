@@ -186,7 +186,12 @@ function parseArgs(args) {
   const options = {};
   // Declared provenance can name several actors on one commit (FR-ID-08), so
   // these accumulate instead of the last one winning.
-  const repeatableFlags = new Set(["--authored-by", "--generated-by", "--reviewed-by"]);
+  // Declared interactive actions accumulate the same way: a program names as
+  // many commits as it likes, and each declaration is its own action (ADR-0035).
+  const repeatableFlags = new Set([
+    "--authored-by", "--generated-by", "--reviewed-by",
+    "--reword", "--edit", "--squash", "--fixup",
+  ]);
   const valueFlags = new Set(["--message", "-m", "--from", "--path", "--owner", "--focus", "--cone", "--against", "--anchors-from", "--label", "--reason", "--resolution", "--use-forecast", "--samples", "--warmup", "--documents", "--blocks", "--history", "--workspaces", "--notes", "--resolutions", "--budget-ms", "--areas", "--files-per-area"]);
   for (let index = 0; index < args.length; index += 1) {
     const item = args[index];
@@ -1375,7 +1380,16 @@ export async function main(rawArgs) {
         throw new CliError("Usage: vlab rebase-plan <onto> [<source>]",
           { code: "usage-missing-argument" });
       }
-      const plan = buildRebasePlan(onto, positionals[1], undefined, { from: options.from });
+      const interactive = {
+        reword: options.reword,
+        edit: options.edit,
+        squash: options.squash,
+        fixup: options.fixup,
+      };
+      const plan = buildRebasePlan(onto, positionals[1], undefined, {
+        from: options.from,
+        interactive,
+      });
       print(options.json ? plan : formatRebasePlan(plan), options.json);
       return;
     }
@@ -1394,6 +1408,12 @@ export async function main(rawArgs) {
         acceptCandidates: options.acceptCandidates,
         targetCheckpoint: options.targetCheckpoint,
         from: options.from,
+        interactive: {
+          reword: options.reword,
+          edit: options.edit,
+          squash: options.squash,
+          fixup: options.fixup,
+        },
       });
       print(
         options.json ? forecast : formatRebaseForecast(forecast),
@@ -1413,7 +1433,7 @@ export async function main(rawArgs) {
         return;
       }
       if (options.continue) {
-        const result = continueRebase({ fork: options.fork });
+        const result = continueRebase({ fork: options.fork, message: options.message });
         print(options.json ? result : formatRebaseResult(result), options.json);
         return;
       }
@@ -1431,6 +1451,12 @@ export async function main(rawArgs) {
         acceptCandidates: options.acceptCandidates,
         forecastId: options.useForecast,
         from: options.from,
+        interactive: {
+          reword: options.reword,
+          edit: options.edit,
+          squash: options.squash,
+          fixup: options.fixup,
+        },
       });
       print(options.json ? result : formatRebaseResult(result), options.json);
       return;

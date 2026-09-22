@@ -408,6 +408,33 @@ Asking the wrong pair plans a merge of a different thing than the one being
 performed, and it fails quietly — both sides' edits would not survive. The test
 asserts they do.
 
+`test/rebase-interactive.test.js` covers declared interactive actions
+([ADR-0035](adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md)).
+It is organized by the claim each action makes about identity rather than by the
+mechanic each uses, because the mechanics are nearly the same and the claims are
+not. Two cases carry most of the weight.
+
+The first is the coverage downgrade, which is the only change this repository
+has ever made to ADR-0004's exact-evidence list. The fixture builds the exact
+shape the bare-identity rule used to call `covered` — a commit carrying an
+amended identity with different content — and asserts it now lands in
+`candidate-equivalent` with proof `amended-change-id`. Its twin asserts the
+other half: replanning the branch that was actually landed leaves every change
+`covered`, because a receipt naming a specific commit does not reason from the
+name and an amendment cannot touch it. A rule that weakened both would be a
+defect, not a stricter rule.
+
+The second is the trailer. `squash` and `fixup` are asserted to leave **exactly
+one** `Change-Id` on the survivor, counted on the real commit rather than read
+from the receipt, because the commit is what a peer reads and Git's own
+sequencer would have concatenated several. `reword` is asserted to refuse a
+message that declares a different identity rather than stripping it silently —
+rewording must not be a way to get a new identity by accident, and it must not
+be a way to fail to get one and not be told.
+
+The refusal case is a table, one row per shape ADR-0035 does not admit, each
+asserting the refusal names the shape rather than the command.
+
 `test/portable-verification.test.js` covers the Git bindings a proof bundle
 carries ([ADR-0031](adr/0031-carry-a-bound-source-inventory-for-portable-verification.md)).
 Its fixture is the one the ADR's evidence table was measured on: a source branch

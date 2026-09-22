@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+- Add declared interactive rewrite actions to causal rebase (issue #30,
+  [ADR-0035](docs/adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md)).
+  `--reword <commit>`, `--edit <commit>`, `--squash <subject>=<target>`, and
+  `--fixup <subject>=<target>` are plan actions covered by the plan
+  fingerprint, not instructions handed to Git's sequencer. The four are not
+  variations of one operation, and each declares its own rule about logical
+  identity.
+
+  **The consequential one is `edit`, and it narrows ADR-0004.** `edit` changes
+  what an identity contains while keeping it, which makes it the one local
+  operation that can make a proof in another clone wrong: a peer holding a
+  receipt for that identity would go on reporting it covered for content that no
+  longer exists. It now publishes a `vcs-lab.amendment/v1` naming the identity
+  and the trees on either side of the edit, and `src/merge-plan.js` reads it:
+  for an identity with a reachable amendment, a bare `Change-Id` match is
+  classified `candidate-equivalent` with proof `amended-change-id` rather than
+  `covered`.
+
+  That is the first time this repository has removed anything from the
+  exact-evidence list, and it is deliberately narrow. The commit-based proofs
+  are untouched — a receipt naming a specific commit still proves that commit,
+  and ancestry still proves what ancestry proves — because neither reasons from
+  the name. The downgrade lands in the class that already asks a person rather
+  than inventing a new one, and it only ever weakens a conclusion. An edit whose
+  tree did not change publishes nothing, because nothing diverged.
+  `docs/identity/README.md` now states the weaker claim it has to: an identity
+  names the same work everywhere **unless an amendment says otherwise**.
+
+  `reword` composes the `Change-Id` trailer itself and refuses a message
+  declaring a different one, so rewording is neither a way to get a new identity
+  by accident nor a way to fail to get one and not be told; `--fork` remains how
+  you ask for one. `squash` and `fixup` reuse the landing absorption model: the
+  survivor keeps its own identity and carries **exactly one** trailer, and the
+  absorbed identities go in a `vcs-lab.interactive-absorption/v1` record.
+  Git's sequencer concatenates squashed messages, which would put several
+  trailers on one commit and make the surviving identity depend on parse order.
+  The two differ only in whether the absorbed prose is kept.
+
+  `reword` and `edit` pause after the change is applied, so the work is already
+  in the worktree when the caller is asked for a message or for content. An
+  `edit` is the only action whose result a forecast cannot predict, so a
+  forecast containing one reports `pauses-for-content` with no predicted tree
+  and says, when refused as an approval, that this is why.
+
+  New `src/rebase-interactive.js` owns the declaration and every shape the
+  contract refuses — an action on a commit the rebase does not replay, two
+  actions on one commit, a target that comes after its subject, a chain that
+  would make the surviving identity depend on resolution order, and a recreated
+  merge named as a subject, which claims nothing and so has no identity to
+  rewrite. It mints no identity and reads no repository.
+
+  Record versions: `vcs-lab.rebase-plan/v3`, `vcs-lab.rebase-forecast/v3`,
+  `vcs-lab.rebase-operation/v3`, `vcs-lab.rebase/v3`, plus the two new note
+  record families. The receipt is a strict superset and v1 and v2 stay readable;
+  the journal and the forecast are refused at superseded versions, as before.
+  Two identity namespaces join the closed set: `amend` and `absorb`.
+
 - Preserve merges through a causal rebase instead of refusing them (issue #29,
   [ADR-0034](docs/adr/0034-recreate-merges-as-joins-that-claim-nothing.md)).
   A range containing a two-parent merge whose parents are both in the range or
