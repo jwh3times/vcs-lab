@@ -21,7 +21,7 @@ export function writePendingOperation(operation, cwd = process.cwd()) {
   if (operation?.schema === "vcs-lab.reconciliation-operation/v4") {
     return writeReconciliationState(operation, cwd);
   }
-  if (operation?.schema === "vcs-lab.rebase-operation/v1") {
+  if (operation?.schema === "vcs-lab.rebase-operation/v2") {
     return writeRebaseState(operation, cwd);
   }
   throw new CliError(

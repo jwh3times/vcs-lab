@@ -110,9 +110,12 @@ export const RECORD_FAMILIES = new Map([
   }],
   ["vcs-lab.rebase", {
     scope: "note-record",
-    registered: [1],
-    readable: [1],
-    written: [1],
+    // v2 adds the preserved topology and `recreatedMerges` (ADR-0034). It is a
+    // strict superset, so a v1 receipt stays readable and means exactly what it
+    // always did: a rewrite with no merge in range.
+    registered: [1, 2],
+    readable: [1, 2],
+    written: [2],
     unknownVersion: "quarantine",
     store: "refs/notes/vcs-lab note containers",
   }],
@@ -142,9 +145,13 @@ export const RECORD_FAMILIES = new Map([
   }],
   ["vcs-lab.rebase-operation", {
     scope: "private",
-    registered: [1],
-    readable: [1],
-    written: [1],
+    // v2 carries the whole rewrite program rather than only the replay queue
+    // (ADR-0034). A v1 journal is refused rather than resumed: its queue cannot
+    // express a recreated merge, and resuming from a shape we would have to
+    // guess at could move refs the writer never intended (ADR-0020).
+    registered: [1, 2],
+    readable: [2],
+    written: [2],
     unknownVersion: "refuse",
     store: "<git dir>/vcs-lab/rebase.json",
   }],
@@ -158,9 +165,14 @@ export const RECORD_FAMILIES = new Map([
   }],
   ["vcs-lab.rebase-forecast", {
     scope: "private",
-    registered: [1],
-    readable: [1],
-    written: [1],
+    // A v1 forecast pins a v1 plan fingerprint, and v2 plans hash the preserved
+    // topology, so no v1 forecast can approve a v2 plan. Refusing it by version
+    // says "regenerate"; leaving it readable would say "stale" for a reason the
+    // reader cannot act on. A forecast is worktree-private and regenerable, so
+    // this costs one command (ADR-0020, ADR-0034).
+    registered: [1, 2],
+    readable: [2],
+    written: [2],
     unknownVersion: "refuse",
     store: "<git dir>/vcs-lab/forecasts/<id>.json",
   }],
@@ -554,7 +566,7 @@ export function validateNoteRecord(record, objectFormat = "sha1") {
     fieldError(errors, Array.isArray(record.resolutions), "resolutions", "array");
     fieldError(errors, Array.isArray(record.semanticMerges), "semanticMerges", "array");
     attachmentMatches(record, "appliedCommit", errors);
-  } else if (schema === "vcs-lab.rebase/v1") {
+  } else if (schema === "vcs-lab.rebase/v1" || schema === "vcs-lab.rebase/v2") {
     validateCommonRecord(record, "rebase", objectFormat, errors);
     for (const field of ["sourceHead", "ontoHead", "physicalBase", "resultCommit"]) {
       requireOid(record, field, objectFormat, errors);
@@ -584,6 +596,40 @@ export function validateNoteRecord(record, objectFormat = "sha1") {
       }
       for (const field of ["sourceChangeId", "appliedChangeId", "relation"]) {
         fieldError(errors, typeof application[field] === "string" && application[field].length > 0, `applications[${index}].${field}`, "non-empty string");
+      }
+    }
+    if (schema === "vcs-lab.rebase/v2") {
+      fieldError(errors, Array.isArray(record.recreatedMerges), "recreatedMerges", "array");
+      for (const [index, merge] of (record.recreatedMerges ?? []).entries()) {
+        const label = `recreatedMerges[${index}]`;
+        fieldError(errors, merge && typeof merge === "object" && !Array.isArray(merge), label, "object");
+        if (!merge || typeof merge !== "object" || Array.isArray(merge)) continue;
+        for (const field of ["originCommit", "resultCommit"]) {
+          requireOid(merge, field, objectFormat, errors);
+        }
+        for (const field of ["originChangeId", "changeId"]) {
+          fieldError(errors, typeof merge[field] === "string" && merge[field].length > 0, `${label}.${field}`, "non-empty string");
+        }
+        // A recreated merge takes a *new* identity; one that reused the
+        // original's would be asserting that two joins of different parents are
+        // the same change, which is the route by which a rewrite could inflate
+        // coverage (ADR-0034).
+        fieldError(errors, merge.changeId !== merge.originChangeId, `${label}.changeId`, "an identity distinct from the original merge's");
+        // A join, never an application. `recreated-merge` must not be counted
+        // as one, and a record calling it one is refused here rather than read
+        // by a planner that would.
+        fieldError(errors, merge.relation === "recreated-merge", `${label}.relation`, "recreated-merge");
+        fieldError(errors, typeof merge.cleanJoin === "boolean", `${label}.cleanJoin`, "boolean");
+        fieldError(errors, Array.isArray(merge.resolutions), `${label}.resolutions`, "array");
+        fieldError(errors, Array.isArray(merge.parents) && merge.parents.length === 2, `${label}.parents`, "exactly two parents");
+        for (const [position, parent] of (merge.parents ?? []).entries()) {
+          fieldError(errors, parent && typeof parent === "object" && !Array.isArray(parent), `${label}.parents[${position}]`, "object");
+          if (!parent || typeof parent !== "object" || Array.isArray(parent)) continue;
+          requireOid(parent, "commit", objectFormat, errors);
+        }
+        // Nothing may absorb a join: a receipt that did would be claiming the
+        // work beneath a merge nobody re-proved (ADR-0034).
+        fieldError(errors, !(record.absorbedCommits ?? []).includes(merge.originCommit), `${label}.originCommit`, "a commit the receipt does not absorb");
       }
     }
     attachmentMatches(record, "resultCommit", errors);
@@ -629,8 +675,15 @@ export function referencedObjectsForRecord(record) {
   } else if (record.schema === "vcs-lab.rebase-application/v1") {
     for (const field of ["originCommit", "appliedCommit", "targetBefore"]) add(record[field], "commit", field);
     for (const field of ["sourceTree", "targetBeforeTree", "resultTree"]) add(record[field], "tree", field);
-  } else if (record.schema === "vcs-lab.rebase/v1") {
+  } else if (record.schema === "vcs-lab.rebase/v1" || record.schema === "vcs-lab.rebase/v2") {
     for (const field of ["sourceHead", "ontoHead", "physicalBase", "resultCommit"]) add(record[field], "commit", field);
+    for (const merge of record.recreatedMerges ?? []) {
+      add(merge.originCommit, "commit", "recreatedMerges.originCommit");
+      add(merge.resultCommit, "commit", "recreatedMerges.resultCommit");
+      for (const parent of merge.parents ?? []) {
+        add(parent.commit, "commit", "recreatedMerges.parents.commit");
+      }
+    }
     add(record.effectiveBase?.commit, "commit", "effectiveBase.commit");
     for (const oid of record.absorbedCommits ?? []) add(oid, "commit", "absorbedCommits");
     for (const application of record.applications ?? []) {

@@ -27,6 +27,7 @@ import { carryProvenanceForApplications } from "./provenance.js";
 import {
   cherryPickHead,
   mergeMessagePath,
+  pendingMergeHead,
   readReconciliationState,
   unmergedPaths,
 } from "./reconcile-state.js";
@@ -36,6 +37,12 @@ import {
   writeRebaseState,
 } from "./rebase-state.js";
 import { buildRebasePlan } from "./rebase-plan.js";
+import { rebaseProgram } from "./forecasts.js";
+import {
+  recreatedMergeMessage,
+  resolveStepParents,
+  unsupportedTopologyError,
+} from "./rebase-topology.js";
 import { readRebaseForecast, rebaseForecastForPlan } from "./rebase-forecast.js";
 import {
   assertOverlayCurrent,
@@ -56,6 +63,11 @@ import {
   materializeSpecMerge,
   specMergePlansForOperation,
 } from "./specs.js";
+
+/** The program steps that run, which is what progress is counted over. */
+function executableSteps(operation) {
+  return operation.queue.filter((item) => (item.kind ?? "pick") !== "omit");
+}
 
 function requirePendingRebase(cwd) {
   const operation = readRebaseState(cwd);
@@ -188,7 +200,7 @@ function markMismatch(operation, message, cwd, details = null) {
 
 function expectedForecastStep(operation, change, cwd) {
   if (!operation.forecastApproval) return null;
-  const step = operation.forecastApproval.steps[operation.nextIndex];
+  const step = operation.forecastApproval.steps[operation.executedCount ?? operation.nextIndex];
   if (!step || step.sourceCommit !== change.commit) {
     markMismatch(
       operation,
@@ -273,16 +285,91 @@ function applicationRecord(operation, change, relation, cwd) {
   };
 }
 
+/**
+ * Keep every rewritten commit named by a ref of this operation's own.
+ *
+ * A merge-preserving rewrite builds one line, leaves it, builds another, and
+ * only then joins them. Between leaving a line and joining it, nothing but this
+ * journal names its tip; a ref makes that reachability a fact of the repository
+ * rather than a property of the reflog, and makes an interrupted operation's
+ * work visible to a person looking for it.
+ */
+function anchorRewritten(operation, originCommit, newCommit, cwd) {
+  operation.rewritten ??= {};
+  operation.rewritten[originCommit] = newCommit;
+  if (operation.plan.mode !== "merge-preserving") return;
+  runGit(
+    ["update-ref", `refs/vcs-lab/rebase/${operation.id}/${originCommit}`, newCommit],
+    { cwd },
+  );
+}
+
+function releaseAnchors(operation, cwd) {
+  if (operation.plan.mode !== "merge-preserving") return;
+  for (const originCommit of Object.keys(operation.rewritten ?? {})) {
+    runGit(
+      ["update-ref", "-d", `refs/vcs-lab/rebase/${operation.id}/${originCommit}`],
+      { cwd, allowFailure: true },
+    );
+  }
+}
+
+function rewrittenMap(operation) {
+  return new Map(Object.entries(operation.rewritten ?? {}));
+}
+
 function recordSuccessfulApplication(operation, relation, cwd) {
-  const change = operation.queue[operation.nextIndex];
+  const item = operation.queue[operation.nextIndex];
+  const change = item.change ?? item;
   const application = applicationRecord(operation, change, relation, cwd);
   operation.applied.push(application);
+  anchorRewritten(operation, change.commit, application.appliedCommit, cwd);
   operation.nextIndex += 1;
+  operation.executedCount = (operation.executedCount ?? 0) + 1;
   operation.current = null;
   operation.state = "running";
   faultPoint("rebase:before-journal-advance");
   writeRebaseState(operation, cwd);
   return application;
+}
+
+/**
+ * Journal and publish one recreated merge.
+ *
+ * It is not an application record and never becomes one: a recreated merge
+ * applies no change, so it has no origin/result correspondence to assert and
+ * contributes to no coverage class (ADR-0034). What it records is what was
+ * joined, which rewritten parents replaced which originals, and the resolutions
+ * the join needed — auditable, and concluded from by nothing.
+ */
+function recordRecreatedMerge(operation, change, parents, cleanJoin, cwd) {
+  const [resultCommit] = resolveObjectIds(["HEAD^{commit}"], cwd);
+  const entry = {
+    originCommit: change.commit,
+    originChangeId: change.changeId,
+    resultCommit,
+    changeId: operation.current.mergeChangeId,
+    cleanJoin,
+    parents: parents.map((parent) => ({
+      commit: parent.commit,
+      replaces: parent.origin,
+      source: parent.source,
+    })),
+    resolutions: operation.current.resolutionOutcomes ?? [],
+    semanticMerges: operation.current.semanticMerges ?? [],
+    conflictedPaths: operation.current.conflictedPaths ?? [],
+    relation: "recreated-merge",
+    createdAt: new Date().toISOString(),
+  };
+  operation.recreatedMerges.push(entry);
+  anchorRewritten(operation, change.commit, resultCommit, cwd);
+  operation.nextIndex += 1;
+  operation.executedCount = (operation.executedCount ?? 0) + 1;
+  operation.current = null;
+  operation.state = "running";
+  faultPoint("rebase:before-journal-advance");
+  writeRebaseState(operation, cwd);
+  return entry;
 }
 
 function forecastResolutionChoices(operation, change, conflicts) {
@@ -393,15 +480,22 @@ function applyForecastResolutions(operation, change, cwd) {
     cwd,
   );
   writeRebaseState(operation, cwd);
-  const continued = runGit(
-    [...GIT_NO_RERERE, "-c", "core.editor=true", "cherry-pick", "--continue"],
-    { cwd, allowFailure: true },
-  );
-  if (!continued.ok) {
-    throw new CliError("Git could not apply the forecasted rebase resolutions.", {
-      code: "conflict-blocked",
-      details: continued.output,
-    });
+  const recreatingMerge = operation.current.kind === "recreate-merge";
+  // A resolved pick is finished by the sequencer; a resolved join is an
+  // ordinary commit of a staged index, because nothing is sequencing it.
+  if (recreatingMerge) {
+    commitRecreatedMerge(operation, change, cwd);
+  } else {
+    const continued = runGit(
+      [...GIT_NO_RERERE, "-c", "core.editor=true", "cherry-pick", "--continue"],
+      { cwd, allowFailure: true },
+    );
+    if (!continued.ok) {
+      throw new CliError("Git could not apply the forecasted rebase resolutions.", {
+        code: "conflict-blocked",
+        details: continued.output,
+      });
+    }
   }
   const resultTree = treeId("HEAD", cwd);
   const actualOutcome =
@@ -411,12 +505,55 @@ function applyForecastResolutions(operation, change, cwd) {
         ? "semantic-spec-merge"
         : "exact-resolution";
   validateForecastAfter(operation, change, resultTree, actualOutcome, cwd);
-  recordSuccessfulApplication(operation, "contextual-rebase", cwd);
+  if (recreatingMerge) {
+    recordRecreatedMerge(
+      operation,
+      change,
+      operation.current.mergeParents.map((parent) => ({
+        commit: parent.commit,
+        origin: parent.replaces,
+        source: parent.source,
+      })),
+      false,
+      cwd,
+    );
+  } else {
+    recordSuccessfulApplication(operation, "contextual-rebase", cwd);
+  }
   return true;
 }
 
+/**
+ * Commit the staged join, under the identity the journal already minted.
+ *
+ * The message is composed from that journaled identity rather than a fresh one,
+ * so a resumed operation commits the join it promised rather than a second one.
+ */
+function commitRecreatedMerge(operation, change, cwd) {
+  fs.writeFileSync(
+    mergeMessagePath(cwd),
+    recreatedMergeMessage({
+      subject: change.subject,
+      changeId: operation.current.mergeChangeId,
+      originChangeId: change.changeId,
+      originCommit: change.commit,
+    }),
+  );
+  const committed = runGit(
+    ["-c", "core.editor=true", "commit", "--no-edit"],
+    { cwd, allowFailure: true },
+  );
+  if (!committed.ok) {
+    throw new CliError("Git could not commit the recreated merge.", {
+      code: "conflict-blocked",
+      details: committed.output,
+    });
+  }
+}
+
 function conflictError(operation, result) {
-  const change = operation.queue[operation.nextIndex];
+  const queued = operation.queue[operation.nextIndex];
+  const change = queued.change ?? queued;
   const paths = operation.current.conflictedPaths;
   if (paths.length === 0) {
     return new CliError(
@@ -535,6 +672,10 @@ function finalizeRebase(operation, cwd) {
       .filter((application) => application.relation === "contextual-fork")
       .map((application) => application.originCommit),
   );
+  // `plan.changes` already excludes every recreated merge, because a merge is
+  // not a change (ADR-0034). Nothing here has to subtract them, and nothing may
+  // add them back: a receipt that absorbed a join would be claiming the work
+  // beneath it.
   const absorbed = operation.plan.changes.filter(
     (change) =>
       !forkedOrigins.has(change.commit) &&
@@ -554,7 +695,7 @@ function finalizeRebase(operation, cwd) {
     semanticMerges: application.semanticMerges,
   }));
   const receipt = {
-    schema: "vcs-lab.rebase/v1",
+    schema: "vcs-lab.rebase/v2",
     type: "rebase",
     id: newId("rebase"),
     operationId: operation.id,
@@ -582,6 +723,30 @@ function finalizeRebase(operation, cwd) {
         }))
       : [],
     applications,
+    // A join, not a contribution. This entry exists so a reader can audit what
+    // the rewrite did to the topology and so provenance can be carried onto the
+    // new object; a plan concludes nothing from it, it is not exact evidence
+    // under ADR-0004, and it contributes to no coverage class (ADR-0034).
+    recreatedMerges: (operation.recreatedMerges ?? []).map((merge) => ({
+      originCommit: merge.originCommit,
+      originChangeId: merge.originChangeId,
+      resultCommit: merge.resultCommit,
+      changeId: merge.changeId,
+      parents: merge.parents,
+      resolutions: merge.resolutions.map((outcome) => ({
+        path: outcome.path,
+        signature: outcome.signature,
+        algorithm: outcome.algorithm,
+        // `exact-reused` when a recorded signature supplied the result,
+        // `decided` when a person resolved it during the operation.
+        origin: outcome.decision === "created" ? "decided" : "exact-reused",
+        resolutionId: outcome.selectedResolutionId ?? null,
+        resultBlob: outcome.resultBlob ?? null,
+      })),
+      semanticMerges: merge.semanticMerges,
+      cleanJoin: merge.cleanJoin,
+      relation: "recreated-merge",
+    })),
     forkedSourceCommits: [...forkedOrigins],
     absorbedCommits: absorbed.map((change) => change.commit),
     absorbedChanges: absorbed.map((change) => change.changeId),
@@ -615,13 +780,32 @@ function finalizeRebase(operation, cwd) {
   // One read of the notes ref for the whole queue (ADR-0013), as in the
   // reconciliation path.
   carryProvenanceForApplications(operation.applied, cwd);
+  // A resolution decided during a recreated merge is an ordinary resolution:
+  // the fact that a merge rather than a pick produced the conflict changes
+  // nothing about its signature (ADR-0034), so it publishes through the same
+  // path and becomes reusable under the same exact rules.
+  for (const merge of operation.recreatedMerges ?? []) {
+    for (const outcome of merge.resolutions ?? []) {
+      publishResolution(
+        outcome,
+        {
+          id: merge.changeId,
+          appliedCommit: merge.resultCommit,
+          appliedChangeId: merge.changeId,
+        },
+        cwd,
+      );
+    }
+  }
   faultPoint("rebase:before-receipt");
   appendNote(resultCommit, receipt, cwd);
+  releaseAnchors(operation, cwd);
   faultPoint("rebase:before-clear");
   clearRebaseState(cwd);
   return {
     operationId: operation.id,
     plan: operation.plan,
+    recreatedMerges: receipt.recreatedMerges,
     receipt,
     // Reported, never published: the overlay is uncommitted context, so it
     // belongs in the command's answer and in no receipt (ADR-0028).
@@ -641,7 +825,27 @@ function runRebaseQueue(operation, cwd, phaseStarted = performance.now()) {
   };
   try {
     while (operation.nextIndex < operation.queue.length) {
-      const change = operation.queue[operation.nextIndex];
+      const item = operation.queue[operation.nextIndex];
+      const change = item.change ?? item;
+      const recreatingMerge = item.kind === "recreate-merge";
+      const parents = item.step
+        ? resolveStepParents(item.step, operation.ontoHead, rewrittenMap(operation))
+        : null;
+      if (item.kind === "omit") {
+        // The commit collapses out of the rewritten line. Nothing runs and
+        // nothing is recorded but the mapping, which a later merge may need.
+        anchorRewritten(operation, change.commit, parents[0].commit, cwd);
+        operation.nextIndex += 1;
+        writeRebaseState(operation, cwd);
+        continue;
+      }
+      // A program with merges jumps between lines, so a step states the parent
+      // it applies onto rather than inheriting wherever the last one ended.
+      if (parents && currentHead(cwd) !== parents[0].commit) {
+        operation.state = "positioning";
+        writeRebaseState(operation, cwd);
+        runGit(["reset", "--hard", parents[0].commit], { cwd });
+      }
       const targetBefore = currentHead(cwd);
       const targetBeforeTree = treeId(targetBefore, cwd);
       operation.state = "applying";
@@ -651,6 +855,20 @@ function runRebaseQueue(operation, cwd, phaseStarted = performance.now()) {
         targetBefore,
         targetBeforeTree,
         conflictedPaths: [],
+        kind: item.kind,
+        ...(recreatingMerge
+          ? {
+              // Minted and journaled before the commit exists, so an
+              // interruption between the two cannot produce a second identity
+              // for the same join on resume.
+              mergeChangeId: newId("ch"),
+              mergeParents: parents.map((parent) => ({
+                commit: parent.commit,
+                replaces: parent.origin,
+                source: parent.source,
+              })),
+            }
+          : {}),
         startedAt: new Date().toISOString(),
       };
       writeRebaseState(operation, cwd);
@@ -661,11 +879,43 @@ function runRebaseQueue(operation, cwd, phaseStarted = performance.now()) {
         cwd,
       );
 
-      const result = runGit([...GIT_NO_RERERE, "cherry-pick", "-x", change.commit], {
-        cwd,
-        allowFailure: true,
-      });
+      const result = recreatingMerge
+        ? runGit(
+            [...GIT_NO_RERERE, "merge", "--no-ff", "--no-commit", parents[1].commit],
+            { cwd, allowFailure: true },
+          )
+        : runGit([...GIT_NO_RERERE, "cherry-pick", "-x", change.commit], {
+            cwd,
+            allowFailure: true,
+          });
+      // Both parents became the same line, so the join joins nothing. ADR-0034
+      // keeps the existing rule: the operator decides, the machinery does not
+      // drop it.
+      if (recreatingMerge && result.ok && !pendingMergeHead(cwd)) {
+        operation.state = "blocked";
+        finishPhase(false);
+        writeRebaseState(operation, cwd);
+        throw new CliError(
+          `Recreating the merge ${change.shortCommit ?? change.commit.slice(0, 12)} would produce no join.`,
+          {
+            // The existing rule, and the existing code for it: Git could not
+            // produce the join, and the operator decides what to do (ADR-0034).
+            code: "conflict-blocked",
+            details: [
+              `Both parents resolved to the same line (${parents[0].commit.slice(0, 12)}).`,
+              "Nothing was dropped. Run 'vlab rebase --abort'.",
+            ].join("\n"),
+          },
+        );
+      }
       if (result.ok) {
+        if (recreatingMerge) {
+          commitRecreatedMerge(operation, change, cwd);
+          const resultTree = treeId("HEAD", cwd);
+          validateForecastAfter(operation, change, resultTree, "clean", cwd);
+          recordRecreatedMerge(operation, change, parents, true, cwd);
+          continue;
+        }
         const resultTree = treeId("HEAD", cwd);
         validateForecastAfter(operation, change, resultTree, "clean", cwd);
         recordSuccessfulApplication(operation, "causal-rebase", cwd);
@@ -722,7 +972,7 @@ function startOperation(branch, ontoRef, plan, options, cwd) {
   const context = repoContext(cwd);
   const forecast = options.forecast;
   return {
-    schema: "vcs-lab.rebase-operation/v1",
+    schema: "vcs-lab.rebase-operation/v2",
     id: newId("rebase_op"),
     state: "prepared",
     worktree: context.root,
@@ -756,8 +1006,19 @@ function startOperation(branch, ontoRef, plan, options, cwd) {
     // operation in a new process knows an overlay is in play (ADR-0028).
     targetOverlay: forecast?.targetOverlay ?? null,
     plan,
-    queue: plan.changes.filter((change) => change.action === "replay"),
+    // Every step of the rewrite, in the order it runs. For a linear range this
+    // is the replay queue it has always been; for a merge-preserving one it
+    // also carries the recreated merges and the commits that collapse out
+    // (ADR-0034), so the parent mapping can be rebuilt after an interruption.
+    queue: rebaseProgram(plan),
     nextIndex: 0,
+    // Advances only on a step that ran, because a forecast has no entry for a
+    // commit nothing replayed.
+    executedCount: 0,
+    // Original commit to the commit that replaced it, as a plain object so the
+    // journal round-trips through JSON.
+    rewritten: {},
+    recreatedMerges: [],
     applied: [],
     current: null,
     startedAt: new Date().toISOString(),
@@ -795,12 +1056,7 @@ function startRebaseInSession(ontoRef, options, cwd) {
   assertNoGitReplay(cwd);
   const branch = currentBranch(cwd);
   const plan = buildRebasePlan(ontoRef, branch.name, cwd, { from: options.from });
-  if (!plan.constraints.supported) {
-    throw new CliError(
-      "Linear causal rebase does not support source history containing merge commits.",
-      { code: "unsupported-repository-shape", details: "Use ordinary Git for this topology." },
-    );
-  }
+  if (!plan.constraints.supported) throw unsupportedTopologyError(plan.topology);
   const forecast = options.forecastId
     ? rebaseForecastForPlan(options.forecastId, plan, cwd)
     : null;
@@ -874,9 +1130,14 @@ export function rebaseStatus(options = {}) {
     ontoHead: operation.ontoHead,
     forecastId: operation.forecastId ?? null,
     progress: {
-      completed: operation.nextIndex,
-      total: operation.queue.length,
-      remaining: operation.queue.length - operation.nextIndex,
+      // Counted over the steps that run. A merge-preserving program also carries
+      // the commits that collapse out, and reporting those as remaining work
+      // would say there is more to do than there is.
+      completed: operation.executedCount ?? operation.nextIndex,
+      total: executableSteps(operation).length,
+      remaining: executableSteps(operation).filter(
+        (_, index) => index >= (operation.executedCount ?? operation.nextIndex),
+      ).length,
     },
     current: operation.current
       ? {
@@ -886,6 +1147,10 @@ export function rebaseStatus(options = {}) {
         }
       : null,
     applied: operation.applied,
+    // Joins, never applications: listed separately so a reader of a paused
+    // operation can audit the topology without mistaking one for coverage
+    // (ADR-0034).
+    recreatedMerges: operation.recreatedMerges ?? [],
     recovery: {
       expectedBranchRef: operation.sourceBranchRef,
       actualBranchRef,
@@ -936,12 +1201,30 @@ function continueRebaseInSession(options, cwd) {
       details: unresolved.join("\n"),
     });
   }
-  const gitHead = cherryPickHead(cwd);
-  if (!gitHead || gitHead !== operation.current.sourceCommit) {
-    throw new CliError(
-      "Git's pending cherry-pick does not match the causal rebase journal.",
-      { code: "out-of-band-change", details: "Abort the VCS Lab rebase to restore the original branch tip." },
-    );
+  const recreatingMerge = operation.current.kind === "recreate-merge";
+  if (recreatingMerge) {
+    // A recreated merge is pending as a merge, and what identifies it is the
+    // side it is joining — there is no `CHERRY_PICK_HEAD` naming a source
+    // commit, because no commit is being applied (ADR-0034).
+    const joined = pendingMergeHead(cwd);
+    const expected = operation.current.mergeParents?.[1]?.commit;
+    if (!joined || joined !== expected) {
+      throw new CliError(
+        "Git's pending merge does not match the causal rebase journal.",
+        {
+          code: "out-of-band-change",
+          details: "Abort the VCS Lab rebase to restore the original branch tip.",
+        },
+      );
+    }
+  } else {
+    const gitHead = cherryPickHead(cwd);
+    if (!gitHead || gitHead !== operation.current.sourceCommit) {
+      throw new CliError(
+        "Git's pending cherry-pick does not match the causal rebase journal.",
+        { code: "out-of-band-change", details: "Abort the VCS Lab rebase to restore the original branch tip." },
+      );
+    }
   }
 
   operation.current.semanticMerges = captureSpecMergeOutcomes(
@@ -960,6 +1243,36 @@ function continueRebaseInSession(options, cwd) {
     cwd,
   );
   writeRebaseState(operation, cwd);
+  if (recreatingMerge) {
+    // A recreated merge already has a new identity by contract, so there is no
+    // fork to declare: `--fork` is the answer to "this pick diverged from the
+    // change it claims to be", and a join claims to be nothing.
+    if (options.fork) {
+      throw new CliError(
+        "A recreated merge cannot be forked; it already takes a new identity.",
+        {
+          // The state, not the flag: `--fork` is a legal option of this command
+          // and the pending step is what cannot take it.
+          code: "operation-state-invalid",
+          details: "Continue without --fork. See ADR-0034 for why a join claims nothing.",
+        },
+      );
+    }
+    const queued = operation.queue[operation.nextIndex];
+    commitRecreatedMerge(operation, queued.change ?? queued, cwd);
+    recordRecreatedMerge(
+      operation,
+      queued.change ?? queued,
+      operation.current.mergeParents.map((parent) => ({
+        commit: parent.commit,
+        origin: parent.replaces,
+        source: parent.source,
+      })),
+      false,
+      cwd,
+    );
+    return runRebaseQueue(operation, cwd, phaseStarted);
+  }
   if (options.fork || operation.current.forkChangeId) {
     forkMergeMessage(operation, cwd);
   }
@@ -993,6 +1306,9 @@ export function abortRebase(options = {}) {
   requireOperationBranch(operation, cwd);
   if (cherryPickHead(cwd)) {
     runGit(["cherry-pick", "--abort"], { cwd });
+  } else if (pendingMergeHead(cwd)) {
+    // A recreated merge is pending, so the dirt is this operation's own join.
+    runGit(["merge", "--abort"], { cwd });
   } else if (!operation.overlayRematerialized) {
     // Skipped only once the journal says this operation put the overlay back
     // itself. The clean check exists to protect the user's own edits, and in
@@ -1014,6 +1330,10 @@ export function abortRebase(options = {}) {
   const overlay = operation.targetOverlay
     ? restoreOverlayAfterAbort(operation.targetOverlay, cwd)
     : null;
+  // Released only once the tip is restored: until then these refs are the only
+  // thing naming a partially rewritten line, and a person recovering by hand
+  // needs them more than this operation does.
+  releaseAnchors(operation, cwd);
   faultPoint("rebase:abort-before-clear");
   clearRebaseState(cwd);
   return {

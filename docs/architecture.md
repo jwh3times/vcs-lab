@@ -125,7 +125,7 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/capabilities.js` | The `vcs-lab.capabilities/v1` document projected from the runtime registries, and negotiation as a pure function of two such documents (ADR-0033) | `src/schemas.js`, `src/metadata.js`, `src/metadata-envelope.js`, `src/canonical-json.js` |
 | `src/cli.js` | Argument parsing, command dispatch, human and JSON presentation, benchmarks | All domain modules |
 | `src/dispositions.js` | Resolving one parked conflict: keep-local or replace-local, the note rewrite it implies, and the recorded decision that stops the same disagreement being reported twice (ADR-0030) | `src/quarantine.js`, `src/metadata.js`, `src/notes.js` |
-| `src/engine.js` | The read-side engine seam: the catalog of 43 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison | `src/git.js`, `src/native-engine.js` |
+| `src/engine.js` | The read-side engine seam: the catalog of 44 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison | `src/git.js`, `src/native-engine.js` |
 | `src/errors.js` | Expected CLI error type carrying a classification code from the closed `ERROR_CODES` vocabulary of the `vcs-lab.error/v1` failure envelope (ADR-0021) | None |
 | `src/faults.js` | Test-only deterministic fault injection: `VLAB_TEST_FAULT` turns one named point on a mutating path into a hard `process.exit`; `VLAB_TEST_GATE` holds a process at a named point until a test releases it | None |
 | `src/forecasts.js` | Plan fingerprint, merge-tree and temporary-worktree simulation engines with recorded fallback, decision pinning, saved forecasts | Plan, operations helpers, specs, resolutions, Git |
@@ -150,8 +150,9 @@ substrate stays, and ADR-0001 is refined rather than superseded.
 | `src/quarantine.js` | The conflict policy's two local stores: parked conflicting records as one blob-bearing ref each under `refs/vcs-lab/quarantine/<lineage>/<record id>`, and the shared-local disposition registry (ADR-0030) | `src/engine.js`, `src/git.js`, `src/store.js`, `src/schemas.js` |
 | `src/rebase-forecast.js` | Rebase simulation orchestration, caller invariants, candidate pinning, the carried caller overlay and its second predicted tree, and private forecast presentation | Rebase plan, forecast simulator, target overlays, semantic version guards, Git adapter |
 | `src/rebase-operations.js` | Current-branch rebase replay, forecast enforcement, overlay reduction and re-materialization, conflict recovery, identity, and final receipts | Rebase plan/forecast, target overlays, Git, notes, specs, resolutions |
-| `src/rebase-plan.js` | Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint | Merge plan, Git adapter, IDs |
+| `src/rebase-plan.js` | Read-only rebase selection, actions, preserved merge topology, shape constraints, and deterministic fingerprint | Merge plan, rebase topology, Git adapter, IDs |
 | `src/rebase-state.js` | Worktree-private rebase journal path and atomic persistence | Git context, store |
+| `src/rebase-topology.js` | Range topology analysis, ADR-0034 merge shape scope, the rewrite program and its parent mapping, and the recreated-merge identity contract | Engine seam, errors |
 | `src/reconcile-state.js` | Worktree-private reconciliation journal and Git in-progress state probes | Repo context, filesystem |
 | `src/resolutions.js` | Exact three-way conflict signatures, candidate selection, result retention, outcome audit | Git adapter, notes, reconciliation state |
 | `src/retention.js` | Read-only retention preview and checked, idempotent historical backfill | Metadata, carriers, notes lock |
@@ -293,10 +294,10 @@ use at the current development baseline:
 | `vcs-lab.proof-bundle` | v1, v2 | v2 | `a file handed to vlab verify-proof` | `envelope` |
 | `vcs-lab.provenance` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.quarantined-record` | v1 | v1 | `refs/vcs-lab/quarantine/<lineage>/<record id> blobs` | `shared-local` |
-| `vcs-lab.rebase` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
+| `vcs-lab.rebase` | v1, v2 | v2 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.rebase-application` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
-| `vcs-lab.rebase-forecast` | v1 | v1 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
-| `vcs-lab.rebase-operation` | v1 | v1 | `<git dir>/vcs-lab/rebase.json` | `private` |
+| `vcs-lab.rebase-forecast` | v2 | v2 | `<git dir>/vcs-lab/forecasts/<id>.json` | `private` |
+| `vcs-lab.rebase-operation` | v2 | v2 | `<git dir>/vcs-lab/rebase.json` | `private` |
 | `vcs-lab.reconciliation` | v6 | v6 | `refs/notes/vcs-lab note containers` | `note-record` |
 | `vcs-lab.reconciliation-operation` | v4 | v4 | `<git dir>/vcs-lab/reconciliation.json` | `private` |
 | `vcs-lab.resolution` | v1 | v1 | `refs/notes/vcs-lab note containers` | `note-record` |
@@ -312,7 +313,7 @@ Command and automation output shapes (outside the persisted-family registry):
 | `vcs-lab.merge-plan/v1` | Source/target coverage plan | `merge-plan.js` |
 | `vcs-lab.proof-bundle/v1` | Merge plan plus the evidence its classification rests on, for an independent verifier | `proof-bundle.js` |
 | `vcs-lab.proof-verification/v1` | Integrity, classification, and repository verification result of a proof bundle | `proof-bundle.js` |
-| `vcs-lab.rebase-plan/v1` | Read-only causal rebase selection and constraints | `rebase-plan.js` |
+| `vcs-lab.rebase-plan/v2` | Read-only causal rebase selection, preserved merge topology, and shape constraints | `rebase-plan.js` |
 | `vcs-lab.checkpoint/v1` | Checkpoint command result | `workspaces.js` |
 | `vcs-lab.workspace-prune/v1` | Preview/apply stale-path prune result | `workspaces.js` |
 | `vcs-lab.spec-merge-plan/v2` | Deterministic three-way semantic plan | `specs.js` |
@@ -445,16 +446,24 @@ unrelated target. Note contents are read in a batch after the reachability walk.
 
 `buildMergePlanBetween(ontoRef, sourceRef)` exposes the same proof lattice for
 an explicit target without switching `HEAD`. `buildRebasePlan` wraps that
-classification as `vcs-lab.rebase-plan/v1`:
+classification as `vcs-lab.rebase-plan/v2`:
 
 - covered changes become `omit` actions with exact proofs;
 - candidate-equivalent changes become `review` and cannot enter the replay
   queue silently;
 - new changes become ordered `replay` entries;
-- merge commits in the physical source range make the plan unsupported by the
-  accepted linear-v1 scope; and
-- exact heads, trees, bases, receipts, classifications, actions, and merge
-  constraints feed a deterministic SHA-256 fingerprint.
+- merge commits in the range are not classified at all. A merge is a join, not
+  a contribution: it applies no change, so it enters none of the classified
+  sets and appears instead in `recreatedMerges`, which nothing concludes from
+  (ADR-0034);
+- `constraints.supported` means "every merge in range is a shape this version
+  recreates", and `constraints.linearHistory` answers the older question
+  separately. `constraints.unsupportedMerges` names each merge outside the v1
+  topology scope with its own refusal code; and
+- exact heads, trees, bases, receipts, classifications, actions, merge
+  constraints, and the preserved topology feed a deterministic SHA-256
+  fingerprint. The topology is hashed because a merge never reaches `changes`,
+  so two ranges with identical replay queues can still join them differently.
 
 The command performs only Git/object/metadata reads. Integration tests compare
 the caller branch, HEAD, tree, porcelain status, notes ref, and worktree list
@@ -463,13 +472,22 @@ before and after repeated planning.
 ### 7.4 Causal rebase forecast
 
 `forecastRebase` builds the exact rebase plan, refuses merge topology outside
-linear v1, and adapts the shared forecast simulator to start at `ontoHead` and
-apply only `action: replay` entries. Clean steps are labeled `causal-rebase`;
-conflict adaptations retain the exact/spec-aware simulation logic and are
-labeled `contextual-rebase`. Each attempted step records its target-before
+ADR-0034's v1 scope, and adapts the shared forecast simulator to start at
+`ontoHead`. A linear plan hands it the ordered `action: replay` queue, exactly
+as before. A merge-preserving plan hands it the whole rewrite program — the
+picks, the recreated merges, and the commits that collapse out — and each step
+states the parent it applies onto, because a program with merges jumps between
+lines. `src/rebase-topology.js` builds that program and resolves its parents,
+and the forecast and the application call the same resolver, so the two cannot
+disagree by construction. Clean steps are labeled `causal-rebase`; conflict
+adaptations retain the exact/spec-aware simulation logic and are labeled
+`contextual-rebase`; a recreated merge is labeled `recreated-merge`, which is
+not an application relation and is counted as none. The `merge-tree` engine has
+no notion of a second parent, so a merge-preserving program falls back to the
+worktree oracle and records the fallback. Each attempted step records its target-before
 tree, conflict evidence when present, and result tree when complete.
 
-`vcs-lab.rebase-forecast/v1` pins source/onto heads and trees, the full plan and
+`vcs-lab.rebase-forecast/v2` pins source/onto heads and trees, the full plan and
 fingerprint, explicit candidate policy/omissions, automated resolution/spec
 decisions, step trees, and the predicted final tree. Caller evidence includes
 the exact branch, HEAD/tree, plus SHA-256 digests of index entries, porcelain
@@ -486,7 +504,7 @@ being silently skipped.
 
 `startRebase` operates only on the current named branch with a clean worktree.
 It rebuilds the exact plan, rejects stale or incomplete forecast approval before
-mutation, writes `vcs-lab.rebase-operation/v1`, resets the branch to `ontoHead`,
+mutation, writes `vcs-lab.rebase-operation/v2`, resets the branch to `ontoHead`,
 and cherry-picks only the ordered replay queue. Every forecasted step must
 reproduce its target-before tree, decision kind, result tree, and final predicted
 tree. Heuristic candidates require an explicit accepted policy.

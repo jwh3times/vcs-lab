@@ -14,7 +14,15 @@ const cli = path.join(projectRoot, "bin", "vlab.js");
 
 // vcs-lab.forecast/v1 is accepted when reading stored forecasts but never
 // written; the catalog lists it as superseded without a document.
-const SUPERSEDED_WITHOUT_DOCUMENT = new Set(["vcs-lab.forecast/v1"]);
+const SUPERSEDED_WITHOUT_DOCUMENT = new Set([
+  "vcs-lab.forecast/v1",
+  // Registered so a refusal can say "this build knows that version and does not
+  // read it" rather than "unknown family", but documented only as superseded:
+  // a rewrite in flight under either is finished with the build that wrote it
+  // (ADR-0034).
+  "vcs-lab.rebase-forecast/v1",
+  "vcs-lab.rebase-operation/v1",
+]);
 
 // Frozen output contracts remain available after their writers advance.
 const HISTORICAL_OUTPUT_DOCUMENTS = new Map([
@@ -491,9 +499,9 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
     ["vcs-lab.reconciliation-operation/v4", "reconciliation-journal"],
     ["vcs-lab.spec-merge-plan/v2", "spec-merge-plan"],
     ["vcs-lab.spec-manifest/v4", "spec-manifest"],
-    ["vcs-lab.rebase-operation/v1", "rebase-journal"],
-    ["vcs-lab.rebase-plan/v1", "rebase-plan"],
-    ["vcs-lab.rebase-forecast/v1", "rebase-forecast"],
+    ["vcs-lab.rebase-operation/v2", "rebase-journal"],
+    ["vcs-lab.rebase-plan/v2", "rebase-plan"],
+    ["vcs-lab.rebase-forecast/v2", "rebase-forecast"],
     ["vcs-lab.workspace/v1", "workspace"],
     ["vcs-lab.checkpoint/v1", "checkpoint"],
     ["vcs-lab.workspace-prune/v1", "workspace-prune"],
@@ -524,8 +532,8 @@ test("live CLI records and outputs match their catalog documents", { timeout: 60
   assertValid("vcs-lab.application/v1", state.outputs.get("cherry-pick"), "cherry-pick");
   assertValid("vcs-lab.reconciliation/v6", state.outputs.get("reconcile-result").receipt, "reconcile receipt");
   assertValid("vcs-lab.merge-plan/v1", state.outputs.get("reconcile-result").plan, "reconcile plan");
-  assertValid("vcs-lab.rebase/v1", state.outputs.get("rebase-result").receipt, "rebase receipt");
-  assertValid("vcs-lab.rebase-plan/v1", state.outputs.get("rebase-result").plan, "rebase plan");
+  assertValid("vcs-lab.rebase/v2", state.outputs.get("rebase-result").receipt, "rebase receipt");
+  assertValid("vcs-lab.rebase-plan/v2", state.outputs.get("rebase-result").plan, "rebase plan");
   assertValid("vcs-lab.engine-differential/v1", state.outputs.get("doctor").differential, "doctor differential");
   for (const workspace of state.outputs.get("workspace-list")) {
     assertValid("vcs-lab.workspace/v1", workspace, `workspace listing '${workspace.name}'`);
@@ -554,7 +562,7 @@ test("every published note record satisfies its document and the runtime validat
       "vcs-lab.application/v4",
       "vcs-lab.landing/v1",
       "vcs-lab.rebase-application/v1",
-      "vcs-lab.rebase/v1",
+      "vcs-lab.rebase/v2",
       "vcs-lab.reconciliation/v6",
       "vcs-lab.resolution/v1",
     ],

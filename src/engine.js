@@ -41,6 +41,7 @@ const GIT_OPERATIONS = Object.freeze({
   reachableCommits: git.reachableCommits,
   countCommits: git.countCommits,
   mergeCommitsBetween: git.mergeCommitsBetween,
+  commitTopology: git.commitTopology,
   rootCommits: git.rootCommits,
   commitHistory: git.commitHistory,
   commitMessage: git.commitMessage,
@@ -148,6 +149,7 @@ export function listCommits(...args) { return dispatch("listCommits", args); }
 export function reachableCommits(...args) { return dispatch("reachableCommits", args); }
 export function countCommits(...args) { return dispatch("countCommits", args); }
 export function mergeCommitsBetween(...args) { return dispatch("mergeCommitsBetween", args); }
+export function commitTopology(...args) { return dispatch("commitTopology", args); }
 export function rootCommits(...args) { return dispatch("rootCommits", args); }
 export function commitHistory(...args) { return dispatch("commitHistory", args); }
 export function commitMessage(...args) { return dispatch("commitMessage", args); }
@@ -281,6 +283,7 @@ function differentialProbes(cwd) {
     { operation: "reachableCommits", ...needsHead(() => reachableCommits(head, cwd)) },
     { operation: "countCommits", ...needsHead(() => countCommits(head, cwd)) },
     { operation: "mergeCommitsBetween", ...needsHead(() => mergeCommitsBetween(root, head, cwd)) },
+    { operation: "commitTopology", ...needsHead(() => commitTopology(root, head, cwd)) },
     { operation: "rootCommits", run: () => rootCommits(cwd) },
     { operation: "commitHistory", ...needsHead(() => commitHistory([head], cwd, { reverse: true })) },
     { operation: "commitMessage", ...needsHead(() => commitMessage(head, cwd)) },

@@ -4,7 +4,7 @@ import { performance } from "node:perf_hooks";
 import { deflateSync } from "node:zlib";
 import { gitBlobId, newId, sha256, slug } from "./ids.js";
 import { runGit } from "./git.js";
-import { pathInventory, readGitObjects, repoContext } from "./engine.js";
+import { mergeBase, pathInventory, readGitObjects, repoContext } from "./engine.js";
 import { readJson, temporaryDirectory } from "./store.js";
 import {
   readPendingOperation,
@@ -1273,19 +1273,36 @@ export function captureSpecMergeOutcomes(merges, cwd = process.cwd()) {
   });
 }
 
+/**
+ * The three-way endpoints of the step a paused operation is on.
+ *
+ * A pick's are the change, its parent, and the commit it lands on. A recreated
+ * merge applies no change: its endpoints are the two parents it is joining and
+ * their own merge base (ADR-0034). Both the forecast simulator and this
+ * interactive path ask the same question of the same endpoints, because a
+ * deterministic spec merge planned from one pair and applied against another
+ * would be neither deterministic nor the merge the person is looking at.
+ */
+function operationMergeEndpoints(current, cwd) {
+  if (current.kind === "recreate-merge" && current.mergeParents?.length === 2) {
+    const [ours, theirs] = current.mergeParents.map((parent) => parent.commit);
+    return { base: mergeBase(ours, theirs, cwd), target: ours, source: theirs };
+  }
+  return {
+    base: `${current.sourceCommit}^`,
+    target: current.targetBefore,
+    source: current.sourceCommit,
+  };
+}
+
 export function specMergePlansForOperation(operation, cwd = process.cwd()) {
   if (!operation?.current) return [];
   const markdown = specFilesForConflictPaths(
     operation.current.conflictedPaths ?? [],
   );
+  const endpoints = operationMergeEndpoints(operation.current, cwd);
   return markdown.map((file) =>
-    planSpecMerge(
-      file,
-      `${operation.current.sourceCommit}^`,
-      operation.current.targetBefore,
-      operation.current.sourceCommit,
-      cwd,
-    ),
+    planSpecMerge(file, endpoints.base, endpoints.target, endpoints.source, cwd),
   );
 }
 

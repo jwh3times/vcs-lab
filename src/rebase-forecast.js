@@ -214,7 +214,9 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     ? simulateCausalRebasePlan(plan, cwd)
     : emptySimulation(
         "unsupported",
-        "merge-topology-unsupported",
+        // Which shape, not merely "there are merges": the plan recreates merges
+        // now, so the only unsupported ranges are the ones ADR-0034 names.
+        plan.constraints.unsupportedMerges[0]?.reason ?? "merge-topology-unsupported",
         plan.replayQueue.length,
       );
   phases.simulationMs = performance.now() - simulationStarted;
@@ -276,7 +278,7 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
     ...simulationResult
   } = simulation;
   const forecast = {
-    schema: "vcs-lab.rebase-forecast/v1",
+    schema: "vcs-lab.rebase-forecast/v2",
     id: newId("rebase_forecast"),
     mode: plan.mode,
     sourceRef: plan.sourceRef,
@@ -315,6 +317,9 @@ function forecastRebaseInSession(ontoRef, sourceRef, options, cwd) {
         }))
       : [],
     planFingerprint: plan.fingerprint,
+    // Lifted out of `plan` so a reader of the forecast sees the preserved
+    // topology without reading the plan it pins (ADR-0034).
+    recreatedMerges: plan.recreatedMerges ?? [],
     plan,
     ...simulationResult,
     engine,
@@ -372,7 +377,9 @@ export function formatRebaseForecast(forecast) {
     "target-checkpoint": "committed heads plus a caller overlay",
   }[forecast.scope] ?? "committed heads only";
   const lines = [
-    "Causal rebase forecast",
+    forecast.mode === "merge-preserving"
+      ? "Causal rebase forecast (merge-preserving)"
+      : "Causal rebase forecast",
     `forecast     ${forecast.id}`,
     `status       ${forecast.status}`,
     `onto         ${forecast.ontoRef} @ ${short(forecast.ontoHead)}`,
@@ -380,6 +387,9 @@ export function formatRebaseForecast(forecast) {
     `scope        ${scope}`,
     `plan         ${forecast.plan.counts.covered} omit, ${forecast.plan.counts["candidate-equivalent"]} review, ${forecast.plan.counts.new} replay`,
     `simulation   ${forecast.counts.clean} clean, ${forecast.counts.exactResolution} exact-resolved, ${forecast.counts.semanticSpec} spec-merged, ${forecast.counts.blocked} blocked`,
+    ...(forecast.recreatedMerges?.length
+      ? [`recreated    ${forecast.recreatedMerges.length} merge${forecast.recreatedMerges.length === 1 ? "" : "s"} preserved as joins`]
+      : []),
     `predicted    ${short(forecast.predictedResultTree)}`,
     `partial      ${short(forecast.partialResultTree)}`,
     `same state   ${forecast.exactStateEqualityAfter === null || forecast.exactStateEqualityAfter === undefined ? "unknown" : forecast.exactStateEqualityAfter ? "yes" : "no"}`,
@@ -417,7 +427,11 @@ export function formatRebaseForecast(forecast) {
     lines.push("No new source changes required simulation.");
   }
   for (const step of forecast.steps) {
-    const marker = step.outcome.startsWith("blocked") ? "!" : "C";
+    const marker = step.outcome.startsWith("blocked")
+      ? "!"
+      : step.kind === "recreate-merge"
+        ? "M"
+        : "C";
     lines.push(
       `${marker} ${short(step.sourceCommit)} ${step.subject} [${step.outcome}] ${short(step.targetBeforeTree)} -> ${short(step.resultTree)}`,
     );
@@ -443,7 +457,9 @@ export function formatRebaseForecast(forecast) {
       : "The caller HEAD, branch, index, status, files, and worktree list were not changed.",
   );
   if (forecast.status === "unsupported") {
-    lines.push("Linear v1 cannot forecast source history containing merge commits.");
+    for (const merge of forecast.plan.constraints.unsupportedMerges ?? []) {
+      lines.push(`unsupported  ${merge.commit.slice(0, 12)} ${merge.reason}: ${merge.details}`);
+    }
   } else if (forecast.candidateDecisionRequired) {
     lines.push(
       "Review the heuristic candidates, then regenerate with:",

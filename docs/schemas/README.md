@@ -60,7 +60,8 @@ and rebase timing snapshots include and exclude.
 | `vcs-lab.application/v4` | [application.v4.schema.json](application.v4.schema.json) | Reconciliation application receipt with conflict decisions |
 | `vcs-lab.reconciliation/v6` | [reconciliation.v6.schema.json](reconciliation.v6.schema.json) | Final reconciliation summary receipt |
 | `vcs-lab.rebase-application/v1` | [rebase-application.v1.schema.json](rebase-application.v1.schema.json) | Origin-to-rewritten-commit mapping receipt |
-| `vcs-lab.rebase/v1` | [rebase.v1.schema.json](rebase.v1.schema.json) | Completed causal rebase receipt |
+| `vcs-lab.rebase/v2` | [rebase.v2.schema.json](rebase.v2.schema.json) | Completed causal rebase receipt |
+| `vcs-lab.rebase/v1` | [rebase.v1.schema.json](rebase.v1.schema.json) | Superseded; still read, and always a rewrite with no merge in range |
 | `vcs-lab.resolution/v1` | [resolution.v1.schema.json](resolution.v1.schema.json) | Exact resolution result and provenance |
 | `vcs-lab.provenance/v1` | [provenance.v1.schema.json](provenance.v1.schema.json) | Declared authorship provenance, carried across rewrites |
 
@@ -69,9 +70,9 @@ and rebase timing snapshots include and exclude.
 | Schema | Document | Store |
 | --- | --- | --- |
 | `vcs-lab.reconciliation-operation/v4` | [reconciliation-operation.v4.schema.json](reconciliation-operation.v4.schema.json) | `reconciliation.json` journal |
-| `vcs-lab.rebase-operation/v1` | [rebase-operation.v1.schema.json](rebase-operation.v1.schema.json) | `rebase.json` journal |
+| `vcs-lab.rebase-operation/v2` | [rebase-operation.v2.schema.json](rebase-operation.v2.schema.json) | `rebase.json` journal |
 | `vcs-lab.forecast/v2` | [forecast.v2.schema.json](forecast.v2.schema.json) | `forecasts/<id>.json` |
-| `vcs-lab.rebase-forecast/v1` | [rebase-forecast.v1.schema.json](rebase-forecast.v1.schema.json) | `forecasts/<id>.json` |
+| `vcs-lab.rebase-forecast/v2` | [rebase-forecast.v2.schema.json](rebase-forecast.v2.schema.json) | `forecasts/<id>.json` |
 
 ### Shared-local (common Git dir, not exported)
 
@@ -123,7 +124,7 @@ vocabulary is published in [errors.md](errors.md).
 | `vcs-lab.identity-audit/v1` | [identity-audit.v1.schema.json](identity-audit.v1.schema.json) |
 | `vcs-lab.proof-bundle/v1` | [proof-bundle.v1.schema.json](proof-bundle.v1.schema.json) |
 | `vcs-lab.proof-verification/v1` | [proof-verification.v1.schema.json](proof-verification.v1.schema.json) |
-| `vcs-lab.rebase-plan/v1` | [rebase-plan.v1.schema.json](rebase-plan.v1.schema.json) |
+| `vcs-lab.rebase-plan/v2` | [rebase-plan.v2.schema.json](rebase-plan.v2.schema.json) |
 | `vcs-lab.checkpoint/v1` | [checkpoint.v1.schema.json](checkpoint.v1.schema.json) |
 | `vcs-lab.workspace-prune/v1` | [workspace-prune.v1.schema.json](workspace-prune.v1.schema.json) |
 | `vcs-lab.spec-merge-plan/v1` | [spec-merge-plan.v1.schema.json](spec-merge-plan.v1.schema.json) |
@@ -150,6 +151,9 @@ Current commands emit plan v2 and benchmark v3; see the command table below.
 | Schema | Status |
 | --- | --- |
 | `vcs-lab.forecast/v1` | Superseded by `vcs-lab.forecast/v2`; still accepted when reading stored forecasts, never written. |
+| `vcs-lab.rebase-plan/v1` | Superseded by `vcs-lab.rebase-plan/v2`, which adds the preserved topology and redefines `constraints.supported` (ADR-0034). Command output, never stored, so nothing holds a v1 plan except a v1 forecast or journal, both of which are refused. |
+| `vcs-lab.rebase-forecast/v1` | Superseded by `vcs-lab.rebase-forecast/v2`. Refused rather than read: it pins a v1 plan fingerprint that no v2 plan can match. Regenerate with `vlab rebase-forecast`. |
+| `vcs-lab.rebase-operation/v1` | Superseded by `vcs-lab.rebase-operation/v2`. Refused rather than resumed: its queue cannot express a recreated merge. Finish or abort an in-flight v1 journal with the build that wrote it. |
 
 ## CLI JSON output catalog
 
@@ -168,10 +172,10 @@ rendering at all.
 | `vlab audit identity` | `vcs-lab.identity-audit/v1`; exits non-zero when errors are reported, while warnings such as `near-duplicate-actor-names` leave the exit code at zero |
 | `vlab proof-bundle` | `vcs-lab.proof-bundle/v2`; always JSON, since the bundle exists to be handed to another tool. Refuses rather than truncating when its proofs would exceed `proofBundleBytes` |
 | `vlab verify-proof` | `vcs-lab.proof-verification/v1`; reports a tier and the conclusions the carried material cannot support, and exits non-zero when the bundle does not verify. `--anchors-from <remote>` reads anchors with `git ls-remote` from a remote the verifier names |
-| `vlab rebase-plan` | `vcs-lab.rebase-plan/v1` |
-| `vlab rebase-forecast` | `vcs-lab.rebase-forecast/v1` |
-| `vlab rebase`, `vlab rebase --continue` | Projection `{operationId, plan, receipt}` with `plan` a `vcs-lab.rebase-plan/v1` and `receipt` a `vcs-lab.rebase/v1` |
-| `vlab rebase --status` | Projection: `{active: false, state: "idle"}`, or `{active, operationId, state, worktree, sourceRef, sourceHead, sourceBranchRef, ontoRef, ontoHead, forecastId, progress, current, applied, recovery, timings, startedAt, updatedAt}` with `applied` an array of `vcs-lab.rebase-application/v1` |
+| `vlab rebase-plan` | `vcs-lab.rebase-plan/v2` |
+| `vlab rebase-forecast` | `vcs-lab.rebase-forecast/v2` |
+| `vlab rebase`, `vlab rebase --continue` | Projection `{operationId, plan, recreatedMerges, receipt}` with `plan` a `vcs-lab.rebase-plan/v2`, `receipt` a `vcs-lab.rebase/v2`, and `recreatedMerges` the receipt's own list repeated for convenience (empty for a linear rewrite) |
+| `vlab rebase --status` | Projection: `{active: false, state: "idle"}`, or `{active, operationId, state, worktree, sourceRef, sourceHead, sourceBranchRef, ontoRef, ontoHead, forecastId, progress, current, applied, recreatedMerges, recovery, timings, startedAt, updatedAt}` with `applied` an array of `vcs-lab.rebase-application/v1` and `recreatedMerges` the joins recreated so far, which are never applications. `progress` counts the steps that run, so a commit the plan omits is in neither `completed` nor `remaining` |
 | `vlab rebase --abort` | Projection `{aborted, operationId, sourceRef, restoredHead}` |
 | `vlab forecast` | `vcs-lab.forecast/v2` |
 | `vlab reconcile`, `vlab reconcile --continue` | Projection `{operationId, plan, receipt}` with `plan` a `vcs-lab.merge-plan/v1` and `receipt` a `vcs-lab.reconciliation/v6` |

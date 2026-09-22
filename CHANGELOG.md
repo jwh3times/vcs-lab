@@ -2,6 +2,74 @@
 
 ## Unreleased
 
+- Preserve merges through a causal rebase instead of refusing them (issue #29,
+  [ADR-0034](docs/adr/0034-recreate-merges-as-joins-that-claim-nothing.md)).
+  A range containing a two-parent merge whose parents are both in the range or
+  ancestors of the new base is now planned, forecast, and executed: the join is
+  recreated from its rewritten parents and the topology survives the rewrite.
+  Before this, `buildRebasePlan` refused any such range outright.
+
+  The load-bearing part is what a recreated merge does **not** do. It claims
+  nothing about the changes beneath it. It never enters `changes`,
+  `replayQueue`, `omitted`, `candidates`, or `counts`, because a merge applies
+  no change and there is nothing to classify; it is never absorbed by the
+  receipt; and its `recreated-merge` relation is not an application relation and
+  is counted as none. Coverage keeps coming from the per-change applications
+  alone. A rewrite that let a recreated merge vouch for the work beneath it
+  would manufacture coverage nobody re-proved, which is the one unsound step the
+  ADR exists to forbid — so the coverage lattice and every proof rule are
+  unchanged, and `vlab verify-proof` needed no change at all.
+
+  Each recreated merge takes a **new** `ch_` identity recording the merge it
+  came from, uniformly. A rebase replaces the parents by construction, so it is
+  a different join even when its resolution is byte-identical, and preserving
+  the original identity would assert a sameness the operation cannot support.
+  It carries forward exactly one thing: the resolutions the join needed, each
+  published as an ordinary `vcs-lab.resolution/v1` record, because a merge
+  rather than a pick producing the conflict changes nothing about its signature.
+
+  Two shapes are still refused, by name and before any mutation. An octopus
+  merge is `unsupported-repository-shape`: the order it resolved in is not
+  recoverable from its result, so its recreation cannot be forecast. A merge
+  with a parent that is neither in the range nor an ancestor of the new base is
+  `unsupported-range`: the join would reference a line this rebase is not
+  rewriting and cannot map. Both are deliberate scope, and each refusal names
+  the commit it is about rather than reporting that the repository has merges.
+
+  ADR-0034 left one sub-decision to implementation: what the flattening form is
+  called once a preserving form exists. There is nothing to rename. The form
+  this replaces *refused* merges rather than flattening them, so `mode` is a
+  fact about the range — `linear` when it contains no merge, `merge-preserving`
+  when it does — and a range without one is planned, forecast, and executed
+  exactly as it always was, down to the replay queue and the merge-tree engine
+  that answers it. A merge-preserving program falls back to the worktree oracle,
+  which has no notion of a second parent to approximate.
+
+  A linear rewrite pays nothing for any of this. The parent mapping is built
+  only when a program has a merge to resolve against it: filling it on every
+  path cost one `rev-parse` per step, which is one process per step on the
+  ordinary Git transport and showed up as a 63-to-75 process regression in the
+  `forecast:worktree-ordinary` benchmark before it was caught.
+
+  New `src/rebase-topology.js` owns the range topology, the shape scope, the
+  rewrite program, and the parent mapping. The forecast and the application run
+  the same program through the same parent resolver, so the two cannot disagree
+  by construction rather than by matching code. The plan fingerprint covers the
+  preserved topology, because a merge never reaches `changes` and two ranges
+  with identical replay queues can still join them differently — an approval for
+  one shape cannot authorize another. `commitTopology` joins the engine seam as
+  its 44th read.
+
+  Record versions: `vcs-lab.rebase-plan/v2`, `vcs-lab.rebase-forecast/v2`,
+  `vcs-lab.rebase-operation/v2`, and `vcs-lab.rebase/v2`. The receipt is a
+  strict superset and v1 is still read — a v1 receipt was necessarily a rewrite
+  with no merge in range, because no earlier build could execute one. The
+  journal and the forecast are refused at v1 rather than migrated: a v1 queue
+  cannot express a recreated merge, and a v1 forecast pins a plan fingerprint no
+  v2 plan can match, so refusing by version says *regenerate* where accepting
+  would say *stale* for a reason the reader could not act on. Both are
+  worktree-private.
+
 - Settle the three board items whose gate was a written decision:
   merge-preserving causal rebase (issue #29,
   [ADR-0034](docs/adr/0034-recreate-merges-as-joins-that-claim-nothing.md)),

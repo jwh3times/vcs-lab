@@ -25,6 +25,15 @@ claims nothing about the changes beneath it and carries only the resolutions
 that made the join.
 _Avoid_: replayed merge, preserved merge
 
+**Parent mapping**:
+The correspondence a rewrite maintains from each original commit to the commit
+that replaced it. A linear replay never needs to name it; a recreated merge
+does, because a join must name two parents that do not exist until the rewrite
+makes them. A commit the plan omits maps to whatever replaced the commit
+beneath it, so omitting a change collapses it out of the line rather than
+stranding anything that named it.
+_Avoid_: commit map, rewrite table
+
 **Amendment**:
 A recorded divergence between what a logical change contained before an
 interactive edit and what it contains after, under the same identity. It is what
