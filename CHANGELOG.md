@@ -1,40 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- Give a conflicted absorption the same two chances a conflicted pick gets
-  (issue #122). `--squash` and `--fixup` apply the absorbed change with the same
-  three-way machinery as any pick, so its conflicts carry the same
-  `ordered-three-way-blobs/v1` signatures and are reusable under the same exact
-  rules — but the absorption step took neither chance. It aborted the partial
-  apply and told the caller to abort the whole rebase.
-
-  Now an exact prior resolution settles it unattended, and anything else
-  **pauses** rather than blocking: `vlab rebase --continue` folds in the change
-  that stopped and then the ones after it. The absorption cursor is journaled,
-  so a pause in the middle of several absorbed changes resumes at the one that
-  stopped instead of re-applying what was already folded in. A resolution
-  decided or reused while absorbing publishes as an ordinary
-  `vcs-lab.resolution/v1`, because an absorption producing the conflict changes
-  nothing about its signature (ADR-0007, ADR-0035).
-
-  The forecast takes the one chance it can: it reuses an exact resolution and
-  predicts a complete tree, and otherwise blocks naming the absorbed change and
-  its paths rather than reporting a generic failure.
-
-  **A recovery defect came with it.** `cherry-pick --no-commit` leaves no
-  `CHERRY_PICK_HEAD` and no sequencer directory when it conflicts — only
-  unmerged index entries — so `vlab rebase --abort` saw neither a pending pick
-  nor a pending merge, fell through to its clean check, and refused with
-  `dirty-worktree` on the operation's own conflict. Abort now recognizes the
-  journaled `awaiting-absorption` state, exactly as it already recognizes a
-  re-materialized overlay. This was reachable from the moment `--squash` and
-  `--fixup` shipped, and only by a conflicted absorption, which is why nothing
-  caught it: the state that produced it was the state that had no path out.
-
-  `vcs-lab.rebase-operation/v3` gains the `awaiting-absorption` state. No record
-  version changes.
-
 ## 0.17.0
 
 - Add declared interactive rewrite actions to causal rebase (issue #30,
@@ -93,6 +58,39 @@
   record families. The receipt is a strict superset and v1 and v2 stay readable;
   the journal and the forecast are refused at superseded versions, as before.
   Two identity namespaces join the closed set: `amend` and `absorb`.
+
+- Give a conflicted absorption the same two chances a conflicted pick gets
+  (issue #122). `--squash` and `--fixup` apply the absorbed change with the same
+  three-way machinery as any pick, so its conflicts carry the same
+  `ordered-three-way-blobs/v1` signatures and are reusable under the same exact
+  rules — but the absorption step took neither chance. It aborted the partial
+  apply and told the caller to abort the whole rebase.
+
+  Now an exact prior resolution settles it unattended, and anything else
+  **pauses** rather than blocking: `vlab rebase --continue` folds in the change
+  that stopped and then the ones after it. The absorption cursor is journaled,
+  so a pause in the middle of several absorbed changes resumes at the one that
+  stopped instead of re-applying what was already folded in. A resolution
+  decided or reused while absorbing publishes as an ordinary
+  `vcs-lab.resolution/v1`, because an absorption producing the conflict changes
+  nothing about its signature (ADR-0007, ADR-0035).
+
+  The forecast takes the one chance it can: it reuses an exact resolution and
+  predicts a complete tree, and otherwise blocks naming the absorbed change and
+  its paths rather than reporting a generic failure.
+
+  **A recovery defect came with it, fixed before this release.**
+  `cherry-pick --no-commit` leaves no `CHERRY_PICK_HEAD` and no sequencer
+  directory when it conflicts — only unmerged index entries — so `vlab rebase --abort` saw neither a pending pick
+  nor a pending merge, fell through to its clean check, and refused with
+  `dirty-worktree` on the operation's own conflict. Abort now recognizes the
+  journaled `awaiting-absorption` state, exactly as it already recognizes a
+  re-materialized overlay. It was reachable only by a conflicted absorption,
+  which is why nothing caught it: the state that produced it was the state
+  that had no path out.
+
+  `vcs-lab.rebase-operation/v3` gains the `awaiting-absorption` state. No record
+  version changes.
 
 - Preserve merges through a causal rebase instead of refusing them (issue #29,
   [ADR-0034](docs/adr/0034-recreate-merges-as-joins-that-claim-nothing.md)).
