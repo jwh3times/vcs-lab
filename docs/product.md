@@ -327,7 +327,7 @@ Priorities use **P0** (required invariant), **P1** (core product), **P2**
 | FR-LAND-06 | P1 | Exact target/source tree equality shall be visible even when history differs. | Implemented | Merge plan reports `same state`. |
 | FR-LAND-07 | P1 | Landing messages shall retain portable trailers for mode, source revision, and absorbed logical changes. | Implemented | Git commit message is useful even when notes are not fetched. |
 | FR-LAND-08 | P1 | A landing that conflicts before commit shall publish no false receipt. | Implemented | Conflict exits without receipt creation. |
-| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Implemented experimentally | [ADR-0011](adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted; plan, forecast, supervised application, recovery, and portable completed receipts are integration-tested for linear v1. Since v0.15.0 the source set may be an explicit linear range ([ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md), built in #27): `--from <base>` names it, commits below it are declared in `excludedByRange` and claimed by no receipt, and the forecast pins the base. Per-commit origin/result mapping and unexpected-empty blocking are unchanged, which is what the generalization had to preserve. |
+| FR-LAND-09 | P2 | Rebase planning shall use the same coverage model and preserve logical application provenance. | Implemented experimentally | [ADR-0011](adr/0011-model-causal-rebase-as-a-forecasted-application-sequence.md) is Accepted; plan, forecast, supervised application, recovery, and portable completed receipts are integration-tested. Since v0.15.0 the source set may be an explicit range ([ADR-0032](adr/0032-generalize-causal-rebase-to-explicit-linear-ranges.md), built in #27): `--from <base>` names it, commits below it are declared in `excludedByRange` and claimed by no receipt, and the forecast pins the base. Since v0.17.0 a merge in the range is preserved rather than refused ([ADR-0034](adr/0034-recreate-merges-as-joins-that-claim-nothing.md), built in #29): the join is recreated from its rewritten parents, takes a new identity, carries only its resolutions, and claims nothing — so the coverage model is untouched, which is the point. Octopus merges and parents outside the range are refused by name. Per-commit origin/result mapping and unexpected-empty blocking are unchanged, which is what both generalizations had to preserve. |
 | FR-LAND-10 | P2 | A higher-level landing transaction shall eventually support policy checks and atomic publication. | Deferred | Requires a trusted coordinator or protocol gateway. |
 
 ### 9.4 Causal merge planning
@@ -581,7 +581,7 @@ stable IDs, or auditability.
 | Stable change identity | Complete for local prototype | Commit/cherry-pick/fork integration tests |
 | Compact and hard-squash landing | Complete for local prototype | Parent-shape and receipt tests |
 | Causal planning | Complete for current proof types | Hard-squash and candidate tests |
-| Causal rebase | Supervised linear-v1 flow implemented | Exact omission/replay, heuristic decisions, forecast tree, stale rejection, stable/forked identity, conflict recovery, abort, worktree isolation, and portable receipt tests |
+| Causal rebase | Supervised flow implemented for linear ranges and two-parent merge preservation | Exact omission/replay, heuristic decisions, forecast tree, stale rejection, stable/forked identity, recreated-merge topology and identity, conflict recovery, abort, worktree isolation, and portable receipt tests |
 | Resumable reconciliation | Complete for current queue model | Continue, abort, fork, multi-worktree tests |
 | Exact resolution reuse | Complete locally | Cross-path/worktree and provenance tests |
 | Forecast and pinned batch application | Complete locally | Non-mutation, stale, mismatch, batch tests |
@@ -775,13 +775,16 @@ Each links to the issue that carries it; the board is where its status lives.
   carrying a draft through a causal *rebase* the same way
   ([#28](https://github.com/jwh3times/vcs-lab/issues/28)) followed it, inheriting
   the ADR-0028 contract unchanged.
-- Broader causal rebase forms beyond explicit linear ranges: merge preservation
+- Broader causal rebase forms. Merge preservation
   ([#29](https://github.com/jwh3times/vcs-lab/issues/29),
   [ADR-0034](adr/0034-recreate-merges-as-joins-that-claim-nothing.md) accepted)
-  and interactive editing
-  ([#30](https://github.com/jwh3times/vcs-lab/issues/30),
+  landed in v0.17.0 for the accepted v1 topology: two parents, both in the
+  rebased range or ancestors of the new base. Octopus merges stay deferred —
+  the order an octopus resolved in is not recoverable from its result, so its
+  recreation cannot be forecast — and will need their own decision. Interactive
+  editing ([#30](https://github.com/jwh3times/vcs-lab/issues/30),
   [ADR-0035](adr/0035-make-interactive-rewrites-declare-what-they-do-to-identity.md)
-  accepted); both are now buildable. Explicit linear
+  accepted) is buildable and not yet built. Explicit linear
   ranges ([#27](https://github.com/jwh3times/vcs-lab/issues/27)) landed in
   v0.15.0 and checkpoint/draft overlays
   ([#28](https://github.com/jwh3times/vcs-lab/issues/28)) after it; a range whose
@@ -893,7 +896,7 @@ preference, sustained improvement, or reproduction rate.
 | --- | --- | --- |
 | 1. Users prefer compact landing and use receipts to recover squash causality | `vcs-lab.landing/v1` and `vcs-lab.provenance/v1`. The owner adopted the [#19 pilot](https://github.com/jwh3times/vcs-lab/issues/19), which records actual compact landings, reviewed-tree equality, absorbed source commits, carried provenance, and atomic publication | Sustained user preference and an observed receipt-assisted recovery of squash causality. Successful two-parent compact delivery alone does not demonstrate recovery of lost ancestry |
 | 2. Stable logical IDs materially improve rewrite and cherry-pick workflows | `vcs-lab.application/v1`, `vcs-lab.identity-audit/v1`. Integration tests cover preservation, forks, coverage suppression, and collisions. The [#19 pilot](https://github.com/jwh3times/vcs-lab/issues/19) records an actual review-workspace replay preserving the source Change-Id | Demonstrated avoided work or another material benefit across a representative rewrite/cherry-pick workload; one preserved ID does not establish that benefit |
-| 3. Forecasts reproduce predicted trees reliably | `vcs-lab.forecast/v2`, `vcs-lab.rebase-forecast/v1`, `vcs-lab.reconciliation/v6`. Engine/oracle agreement, stale refusal, and apply-time tree checks remain in integration tests. The [#19 pilot](https://github.com/jwh3times/vcs-lab/issues/19) records a clean forecast and pinned application of actual maintained work with matching predicted/applied trees | A reproduction rate over real conflicted histories. One clean review-workspace application and bounded fixtures do not establish a corpus rate |
+| 3. Forecasts reproduce predicted trees reliably | `vcs-lab.forecast/v2`, `vcs-lab.rebase-forecast/v2`, `vcs-lab.reconciliation/v6`. Engine/oracle agreement, stale refusal, and apply-time tree checks remain in integration tests. The [#19 pilot](https://github.com/jwh3times/vcs-lab/issues/19) records a clean forecast and pinned application of actual maintained work with matching predicted/applied trees | A reproduction rate over real conflicted histories. One clean review-workspace application and bounded fixtures do not establish a corpus rate |
 | 4. Worktree workspace and checkpoint behavior improves parallel-agent operation | `vcs-lab.workspaces/v1`, `vcs-lab.checkpoint/v1`. Lifecycle and isolation checks remain in the integration suite. The [#19 pilot](https://github.com/jwh3times/vcs-lab/issues/19) now includes actual evidence/documentation work in a `vlab workspace`, with checkpoint and forecast observations recorded on the issue | Comparative outcomes from concurrent agent work, including handoff/recovery and avoided interference. One agent using a workspace establishes use, not an improvement in parallel operation |
 | 5. Exact resolution reuse avoids repeated work without unsafe automation | `vcs-lab.resolution/v1`. Exact resolutions suggested and reused across worktrees, heuristic candidates requiring explicit acceptance, Git rerere never resolving inside a vlab operation, and modified or rejected suggestions audited as variants (`test/integration.test.js`) | A reuse rate from real conflicts. The resolution catalog is empty in this repository |
 | 6. Stable specification entities and deterministic merge help real corpora | `vcs-lab.spec-manifest/v4`, `vcs-lab.spec-merge-plan/v2`. Block IDs stable across edits and moves, verified migration, deterministic independent-block merges, same-block refusal, and CRLF stability have integration and conformance coverage | Demonstrated benefit on real indexed specifications. The current pilot repository snapshot has no tracked spec manifests; generated-corpus benchmarks and conformance fixtures do not supply that outcome |

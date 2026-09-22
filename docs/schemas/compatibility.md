@@ -47,13 +47,13 @@ version in `also read` is migrated forward as section 3 describes.
 | `vcs-lab.application` | note-record | v1, v4 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.reconciliation` | note-record | v6 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.rebase-application` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
-| `vcs-lab.rebase` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
+| `vcs-lab.rebase` | note-record | v2 | v1 | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.provenance` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.resolution` | note-record | v1 | — | quarantine | refs/notes/vcs-lab note containers |
 | `vcs-lab.reconciliation-operation` | private | v4 | — | refuse | `<git dir>/vcs-lab/reconciliation.json` |
-| `vcs-lab.rebase-operation` | private | v1 | — | refuse | `<git dir>/vcs-lab/rebase.json` |
+| `vcs-lab.rebase-operation` | private | v2 | — | refuse | `<git dir>/vcs-lab/rebase.json` |
 | `vcs-lab.forecast` | private | v2 | v1 | refuse | `<git dir>/vcs-lab/forecasts/<id>.json` |
-| `vcs-lab.rebase-forecast` | private | v1 | — | refuse | `<git dir>/vcs-lab/forecasts/<id>.json` |
+| `vcs-lab.rebase-forecast` | private | v2 | — | refuse | `<git dir>/vcs-lab/forecasts/<id>.json` |
 | `vcs-lab.workspaces` | shared-local | v1 | — | refuse | `<common dir>/vcs-lab/workspaces.json` |
 | `vcs-lab.workspace` | shared-local | v1 | — | refuse | entries of `<common dir>/vcs-lab/workspaces.json` |
 | `vcs-lab.quarantined-record` | shared-local | v1 | — | refuse | refs/vcs-lab/quarantine/<lineage>/<record id> blobs |
@@ -132,7 +132,7 @@ it. The `proof` member of a coverage classification is the current case.
 
 | Member | Retired value | Replaced by | Since |
 | --- | --- | --- | --- |
-| `proof` (`vcs-lab.merge-plan/v1`, `vcs-lab.rebase-plan/v1`, `vcs-lab.rebase/v1`, `vcs-lab.rebase-forecast/v1`) | `signed-shaped-landing-receipt` | `receipt-commit` | v0.12.0 |
+| `proof` (`vcs-lab.merge-plan/v1`, `vcs-lab.rebase-plan/v1` and `/v2`, `vcs-lab.rebase/v1` and `/v2`, `vcs-lab.rebase-forecast/v1` and `/v2`) | `signed-shaped-landing-receipt` | `receipt-commit` | v0.12.0 |
 
 The old label printed the word *signed* in every plan for a record that nothing
 signs. Renaming it is permitted inside the version because the value is opaque
@@ -172,6 +172,24 @@ unchanged, and v2 adds the bound source inventory, reachability and inclusion
 proofs, and the anchors. Nothing migrates a v1 bundle forward — it is a document
 someone already produced, not a store — so a v1 bundle simply reaches a lower
 tier of conclusion, which the verification result states.
+
+**`vcs-lab.rebase` v1 is read but never written and never rewritten.** A v2
+receipt is a strict superset: every v1 member means what it always did, and v2
+adds `recreatedMerges`. A v1 receipt was necessarily written by a rewrite with
+no merge in range, because no earlier build could execute one, so reading it as
+a rewrite that recreated nothing is exact rather than an assumption
+(ADR-0034).
+
+**The rebase journal and rebase forecast are refused at v1 rather than
+migrated.** Both are worktree-private and both describe *a rewrite in flight*.
+A v1 journal's queue cannot express a recreated merge or the parent mapping one
+needs, so resuming from it would mean guessing a shape and moving refs from the
+guess. A v1 forecast pins a v1 plan fingerprint, and a v2 plan hashes the
+preserved topology, so no v1 forecast can approve a v2 plan — refusing it by
+version says *regenerate*, where accepting it would say *stale* for a reason the
+reader could not act on. A forecast costs one command to regenerate; a journal
+in flight is finished or aborted with the build that wrote it (ADR-0020,
+ADR-0034).
 
 **`vcs-lab.forecast` v1 is read but never written and never rewritten.** A v1
 forecast is accepted by `forecastForPlan` and read field by field; it is not

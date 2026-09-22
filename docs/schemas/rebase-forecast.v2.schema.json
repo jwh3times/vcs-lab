@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "vcs-lab.rebase-forecast/v1",
+  "$id": "vcs-lab.rebase-forecast/v2",
   "title": "Causal rebase forecast",
-  "description": "Pinned causal-rebase simulation with caller invariants, stored worktree-private under .git/vcs-lab/forecasts/ and returned by vlab rebase-forecast --json (src/rebase-forecast.js).",
+  "description": "Pinned causal-rebase simulation with caller invariants, stored worktree-private under .git/vcs-lab/forecasts/ and returned by vlab rebase-forecast --json (src/rebase-forecast.js). v2 pins a vcs-lab.rebase-plan/v2 plan and adds `recreatedMerges`; steps carry `kind` and, for a recreated merge, the parents it joined (ADR-0034). v1 is not readable: it pins a v1 plan fingerprint, which no v2 plan can match, so it is refused by version rather than reported as stale.",
   "x-vcs-lab-scope": "worktree-private",
   "type": "object",
   "required": [
@@ -40,18 +40,22 @@
     "callerInvariants",
     "timings",
     "startedAt",
-    "createdAt"
+    "createdAt",
+    "recreatedMerges"
   ],
   "properties": {
     "schema": {
-      "const": "vcs-lab.rebase-forecast/v1"
+      "const": "vcs-lab.rebase-forecast/v2"
     },
     "id": {
       "type": "string",
       "pattern": "^rebase_forecast_[a-z0-9]+$"
     },
     "mode": {
-      "const": "linear"
+      "enum": [
+        "linear",
+        "merge-preserving"
+      ]
     },
     "sourceRef": {
       "type": "string",
@@ -139,7 +143,7 @@
       "pattern": "^[0-9a-fA-F]{64}$"
     },
     "plan": {
-      "$ref": "vcs-lab.rebase-plan/v1"
+      "$ref": "vcs-lab.rebase-plan/v2"
     },
     "status": {
       "type": "string",
@@ -318,7 +322,7 @@
     },
     "excludedByRange": {
       "type": "array",
-      "description": "Commits between the physical merge base and the range base: work the caller declared out of the source set. They are listed and nothing else — never replayed, classified, absorbed, or covered, and no receipt claims them. The omission is declared, not proven (ADR-0032).",
+      "description": "Commits between the physical merge base and the range base: work the caller declared out of the source set. They are listed and nothing else \u2014 never replayed, classified, absorbed, or covered, and no receipt claims them. The omission is declared, not proven (ADR-0032).",
       "items": {
         "type": "object",
         "required": [
@@ -390,7 +394,7 @@
     },
     "predictedOverlayTree": {
       "$ref": "#/$defs/oidOrNull",
-      "description": "The worktree tree predicted after the overlay is put back: a three-way merge of the source tree before the rebase started, the rewritten tip's tree, and the overlay tree. The prediction is pinned once per run, not once per pick. Application verifies the re-materialized tree against this before publishing anything. Null when there is no overlay, or when the overlay does not merge — in which case the forecast is not a complete approval."
+      "description": "The worktree tree predicted after the overlay is put back: a three-way merge of the source tree before the rebase started, the rewritten tip's tree, and the overlay tree. The prediction is pinned once per run, not once per pick. Application verifies the re-materialized tree against this before publishing anything. Null when there is no overlay, or when the overlay does not merge \u2014 in which case the forecast is not a complete approval."
     },
     "targetOverlayConflict": {
       "type": [
@@ -398,6 +402,13 @@
         "null"
       ],
       "description": "Why the overlay could not be re-materialized, when it could not. Live bytes are never merged, so this is decided from trees alone."
+    },
+    "recreatedMerges": {
+      "type": "array",
+      "description": "Lifted out of the pinned plan so a reader sees the preserved topology without reading the plan. Empty for a linear forecast.",
+      "items": {
+        "type": "object"
+      }
     }
   },
   "$defs": {

@@ -53,6 +53,16 @@ export function cherryPickHead(cwd = process.cwd()) {
 }
 
 /**
+ * The commit of Git's pending merge, or null when none is pending. A recreated
+ * merge is the one step of a causal rebase that is a merge rather than a pick,
+ * so it is `MERGE_HEAD` rather than `CHERRY_PICK_HEAD` that says it is pending
+ * (ADR-0034).
+ */
+export function pendingMergeHead(cwd = process.cwd()) {
+  return pseudoRefTarget("MERGE_HEAD", cwd);
+}
+
+/**
  * Where the sequencer keeps the message of the pending pick. This is a path
  * into the sequencer's own state, which a contextual fork rewrites before
  * `cherry-pick --continue` reads it; the Git directory it hangs off is the

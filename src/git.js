@@ -1068,6 +1068,31 @@ export function mergeCommitsBetween(base, tip, cwd = process.cwd()) {
 }
 
 /**
+ * The commits of `base..tip` with their parents, oldest first in topological
+ * order. This is the shape a merge-preserving rewrite needs and the shape
+ * `mergeCommitsBetween` throws away: it reports *which* commits are merges,
+ * where recreating one needs to know *what it joined* and in which order.
+ *
+ * Topological order is what makes the parent mapping buildable in one pass —
+ * every parent inside the range is rewritten before the commit that names it.
+ */
+export function commitTopology(base, tip, cwd = process.cwd()) {
+  validateObjectExpressions([base, tip]);
+  const output = readText(
+    ["rev-list", "--parents", "--topo-order", "--reverse", `${base}..${tip}`],
+    { cwd },
+  );
+  if (!output) return [];
+  return output
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [commit, ...parents] = line.trim().split(/\s+/).filter(Boolean);
+      return { commit, parents };
+    });
+}
+
+/**
  * Root commits (no parents) reachable from any branch, tag, or remote ref,
  * unique and sorted; empty when the repository has no such ref.
  */

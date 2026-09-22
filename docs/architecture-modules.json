@@ -20,7 +20,7 @@
     "dependencies": "None"
   },
   "src/engine.js": {
-    "responsibility": "The read-side engine seam: the catalog of 43 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison",
+    "responsibility": "The read-side engine seam: the catalog of 44 read operations, the read-engine selector, per-operation native execution and fallback, composites, and the differential comparison",
     "dependencies": "`src/git.js`, `src/native-engine.js`"
   },
   "src/native-engine.js": {
@@ -116,8 +116,8 @@
     "dependencies": "Merge plan, canonical JSON, metadata, engine"
   },
   "src/rebase-plan.js": {
-    "responsibility": "Read-only rebase selection, actions, linear-history constraints, and deterministic fingerprint",
-    "dependencies": "Merge plan, Git adapter, IDs"
+    "responsibility": "Read-only rebase selection, actions, preserved merge topology, shape constraints, and deterministic fingerprint",
+    "dependencies": "Merge plan, rebase topology, Git adapter, IDs"
   },
   "src/rebase-forecast.js": {
     "responsibility": "Rebase simulation orchestration, caller invariants, candidate pinning, the carried caller overlay and its second predicted tree, and private forecast presentation",
@@ -130,6 +130,10 @@
   "src/rebase-state.js": {
     "responsibility": "Worktree-private rebase journal path and atomic persistence",
     "dependencies": "Git context, store"
+  },
+  "src/rebase-topology.js": {
+    "responsibility": "Range topology analysis, ADR-0034 merge shape scope, the rewrite program and its parent mapping, and the recreated-merge identity contract",
+    "dependencies": "Engine seam, errors"
   },
   "src/pending-operation.js": {
     "responsibility": "Safe reconciliation/rebase journal routing for shared conflict tools",

@@ -384,6 +384,30 @@ the plan fingerprint rather than beside it.
 One test exists only to pin what did *not* change: abort restores the exact
 original tip whether or not a range was named.
 
+`test/rebase-merge-topology.test.js` covers merge-preserving causal rebase
+([ADR-0034](adr/0034-recreate-merges-as-joins-that-claim-nothing.md)). Every
+case in it looks like it is about topology and is really about one sentence: a
+recreated merge claims nothing. The shape is only interesting because a rewrite
+that preserved it *and* let it vouch for the work beneath it would manufacture
+coverage nobody re-proved, so the central case asserts the four absences
+together — the join is in no `absorbedCommits`, no `absorbedChanges`, no
+`applications` entry, and its `recreated-merge` relation is in no application —
+beside the one presence that matters, a new identity that is not the original's.
+
+Two cases pin the boundary the ADR drew rather than the behavior inside it. The
+octopus and out-of-range refusals each assert that the refusal names its own
+commit and that nothing moved, because "this repository has merges" is not
+something a person can act on. One case builds a flattened history with the
+*same replay queue* as a preserved one and asserts the fingerprints differ:
+a merge never reaches `changes`, so without the topology in the hash an approval
+for one shape would authorize the other.
+
+The spec case is the subtle one. A pick's three-way endpoints are the change
+against its parent; a join's are its two parents against their own merge base.
+Asking the wrong pair plans a merge of a different thing than the one being
+performed, and it fails quietly — both sides' edits would not survive. The test
+asserts they do.
+
 `test/portable-verification.test.js` covers the Git bindings a proof bundle
 carries ([ADR-0031](adr/0031-carry-a-bound-source-inventory-for-portable-verification.md)).
 Its fixture is the one the ADR's evidence table was measured on: a source branch

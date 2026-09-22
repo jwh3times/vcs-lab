@@ -16,6 +16,7 @@ import {
   gitAtLeast,
   gitVersion,
   inspectGitObjects,
+  mergeBase,
   porcelainStatus,
   repoContext,
   resolveObjectIds,
@@ -29,7 +30,11 @@ import {
   captureResolutionOutcomes,
   materializeResolutionCandidate,
 } from "./resolutions.js";
-import { readReconciliationState, unmergedPaths } from "./reconcile-state.js";
+import {
+  pendingMergeHead,
+  readReconciliationState,
+  unmergedPaths,
+} from "./reconcile-state.js";
 import { readRebaseState } from "./rebase-state.js";
 import { readJson, temporaryDirectory, writeJson } from "./store.js";
 import {
@@ -37,6 +42,7 @@ import {
   listWorkspaces,
 } from "./workspaces.js";
 import { predictOverlayTree, resolveTargetOverlay } from "./target-overlay.js";
+import { recreatedMergeMessage, resolveStepParents } from "./rebase-topology.js";
 import { CliError } from "./errors.js";
 import { assertReadableSchema } from "./schemas.js";
 import {
@@ -130,10 +136,16 @@ function withTemporaryWorktree(targetHead, cwd, callback) {
       // forecast's process count is unchanged. (The callback is the forecast
       // loop, whose result carries `status`.)
       if (value?.status !== "complete" && fs.existsSync(temporaryWorktree)) {
-        runGit(["cherry-pick", "--abort"], {
-          cwd: temporaryWorktree,
-          allowFailure: true,
-        });
+        // Either may be pending and neither can both be: a blocked step is one
+        // pick or one recreated merge. Both aborts are harmless when nothing is
+        // pending, so a clean forecast's process count is unchanged by the
+        // second (ADR-0034 added the merge one).
+        for (const command of ["cherry-pick", "merge"]) {
+          runGit([command, "--abort"], {
+            cwd: temporaryWorktree,
+            allowFailure: true,
+          });
+        }
       }
       const removed = runGit(
         ["worktree", "remove", "--force", temporaryWorktree],
@@ -181,6 +193,26 @@ function simulationCounts(steps) {
       blocked: 0,
     },
   );
+}
+
+/**
+ * Commit the staged join of a recreated merge.
+ *
+ * The forecast never publishes this identity — it compares trees, and a message
+ * does not change a tree — but it writes the same message the application will,
+ * so the two runs differ in nothing a reader could later find surprising.
+ */
+function commitRecreatedMerge(change, cwd) {
+  fs.writeFileSync(
+    path.join(repoContext(cwd).gitDir, "MERGE_MSG"),
+    recreatedMergeMessage({
+      subject: change.subject,
+      changeId: newId("ch"),
+      originChangeId: change.changeId,
+      originCommit: change.commit,
+    }),
+  );
+  runGit(["-c", "core.editor=true", "commit", "--no-edit"], { cwd });
 }
 
 function blockedReason(conflicts) {
@@ -425,9 +457,22 @@ function simulatePlan(plan, cwd, options = {}) {
     options.contextualRelation ?? "contextual-application";
   const queue =
     options.queue ?? plan.changes.filter((change) => change.status === "new");
+  // The program is the queue for every caller but a merge-preserving rebase,
+  // which hands one that interleaves recreated merges with the picks and says
+  // where each step's parents come from (ADR-0034).
+  const program =
+    options.program ?? queue.map((change) => ({ kind: "pick", change }));
+  const newBase = options.newBase ?? targetHead;
   const fallbacks = [];
   let mergeTreeTimings = zeroTimings();
-  if (forecastEngine() === "merge-tree") {
+  // `merge-tree` simulates a queue of picks against one accumulating tree; it
+  // has no notion of a second parent, so a program that recreates a merge is
+  // handed to the worktree oracle rather than approximated.
+  const mergePreserving = program.some((step) => step.kind === "recreate-merge");
+  if (mergePreserving && forecastEngine() === "merge-tree") {
+    fallbacks.push({ engine: "merge-tree", reason: "merge-preserving-program" });
+  }
+  if (!mergePreserving && forecastEngine() === "merge-tree") {
     const attempt = simulatePlanWithMergeTree(cwd, {
       targetHead,
       expectedResultTree,
@@ -453,19 +498,90 @@ function simulatePlan(plan, cwd, options = {}) {
     let status = "complete";
     let reason = null;
 
-    for (const change of queue) {
+    // Original commit to the commit that replaced it. Only a merge-preserving
+    // program has anything to resolve against it, and reading HEAD after every
+    // step to fill it costs one process per step in the ordinary transport, so
+    // a linear program does not pay for a map it never reads (ADR-0034).
+    const rewritten = new Map();
+    const trackRewrite = (commit) => {
+      if (!mergePreserving) return;
+      rewritten.set(commit, currentHead(temporaryWorktree));
+    };
+
+    for (const item of program) {
+      const change = item.change;
+      const recreatingMerge = item.kind === "recreate-merge";
+      // Resolved for every step of a program that states its parents, which is
+      // every merge-preserving program and no linear one.
+      const parents = item.step
+        ? resolveStepParents(item.step, newBase, rewritten)
+        : null;
+      if (item.kind === "omit") {
+        // The commit collapses out of the rewritten line: anything that named
+        // it as a parent now names whatever replaced the commit beneath it.
+        rewritten.set(change.commit, parents[0].commit);
+        continue;
+      }
+      // A pick continues from wherever the last step left HEAD, which for a
+      // linear program is always its own parent. A program with merges jumps
+      // between lines, so each step states the parent it applies onto.
+      if (parents && currentHead(temporaryWorktree) !== parents[0].commit) {
+        runGit(["reset", "--hard", parents[0].commit], { cwd: temporaryWorktree });
+      }
       const targetBefore = currentHead(temporaryWorktree);
       const targetBeforeTree = treeId(targetBefore, temporaryWorktree);
-      const picked = runGit([...GIT_NO_RERERE, "cherry-pick", "-x", change.commit], {
-        cwd: temporaryWorktree,
-        allowFailure: true,
-      });
-      if (picked.ok) {
+      const applied = recreatingMerge
+        ? runGit(
+            [...GIT_NO_RERERE, "merge", "--no-ff", "--no-commit", parents[1].commit],
+            { cwd: temporaryWorktree, allowFailure: true },
+          )
+        : runGit([...GIT_NO_RERERE, "cherry-pick", "-x", change.commit], {
+            cwd: temporaryWorktree,
+            allowFailure: true,
+          });
+      // A recreated merge whose two parents became the same line joins nothing.
+      // Git reports that as success with no pending merge, and dropping it
+      // silently is exactly what ADR-0034 forbids: the operator decides.
+      if (recreatingMerge && applied.ok && !pendingMergeHead(temporaryWorktree)) {
+        status = "blocked";
+        reason = "unexpected-empty";
+        steps.push({
+          sourceCommit: change.commit,
+          changeId: change.changeId,
+          subject: change.subject,
+          outcome: "blocked-empty-merge",
+          kind: "recreate-merge",
+          parents: parents.map((parent) => parent.commit),
+          targetBeforeTree,
+          gitOutput: applied.output,
+        });
+        break;
+      }
+      if (applied.ok) {
+        if (recreatingMerge) {
+          commitRecreatedMerge(change, temporaryWorktree);
+          trackRewrite(change.commit);
+          steps.push({
+            sourceCommit: change.commit,
+            changeId: change.changeId,
+            subject: change.subject,
+            outcome: "clean",
+            kind: "recreate-merge",
+            relation: "recreated-merge",
+            parents: parents.map((parent) => parent.commit),
+            cleanJoin: true,
+            targetBeforeTree,
+            resultTree: treeId("HEAD", temporaryWorktree),
+          });
+          continue;
+        }
+        trackRewrite(change.commit);
         steps.push({
           sourceCommit: change.commit,
           changeId: change.changeId,
           subject: change.subject,
           outcome: "clean",
+          kind: "pick",
           relation: cleanRelation,
           targetBeforeTree,
           resultTree: treeId("HEAD", temporaryWorktree),
@@ -482,20 +598,32 @@ function simulatePlan(plan, cwd, options = {}) {
           changeId: change.changeId,
           subject: change.subject,
           outcome: "blocked-git-error",
+          kind: recreatingMerge ? "recreate-merge" : "pick",
           targetBeforeTree,
-          gitOutput: picked.output,
+          gitOutput: applied.output,
         });
         break;
       }
 
       const conflicts = captureConflictDescriptors(paths, temporaryWorktree);
+      // A pick's three-way endpoints are the change, its parent, and the tree
+      // it lands on. A recreated merge's are the two parents it joins and their
+      // own merge base — the same deterministic spec merge, asked about the
+      // join it is actually performing (ADR-0034).
+      const specEndpoints = recreatingMerge
+        ? {
+            base: mergeBase(parents[0].commit, parents[1].commit, temporaryWorktree),
+            target: parents[0].commit,
+            source: parents[1].commit,
+          }
+        : { base: `${change.commit}^`, target: targetBefore, source: change.commit };
       const semanticPlans = specFilesForConflictPaths(paths)
         .map((file) =>
           planSpecMerge(
             file,
-            `${change.commit}^`,
-            targetBefore,
-            change.commit,
+            specEndpoints.base,
+            specEndpoints.target,
+            specEndpoints.source,
             temporaryWorktree,
           ),
         );
@@ -539,6 +667,7 @@ function simulatePlan(plan, cwd, options = {}) {
           changeId: change.changeId,
           subject: change.subject,
           outcome: "blocked-conflict",
+          kind: recreatingMerge ? "recreate-merge" : "pick",
           targetBeforeTree,
           conflicts,
           semanticMerges,
@@ -556,10 +685,14 @@ function simulatePlan(plan, cwd, options = {}) {
         exactConflicts,
         temporaryWorktree,
       );
-      const continued = runGit(
-        [...GIT_NO_RERERE, "-c", "core.editor=true", "cherry-pick", "--continue"],
-        { cwd: temporaryWorktree, allowFailure: true },
-      );
+      // A resolved pick is finished by the sequencer; a resolved merge is an
+      // ordinary commit of a staged index, because nothing is sequencing it.
+      const continued = recreatingMerge
+        ? (commitRecreatedMerge(change, temporaryWorktree), { ok: true, output: "" })
+        : runGit(
+            [...GIT_NO_RERERE, "-c", "core.editor=true", "cherry-pick", "--continue"],
+            { cwd: temporaryWorktree, allowFailure: true },
+          );
       if (!continued.ok) {
         status = "blocked";
         reason = "exact-resolution-application-error";
@@ -568,6 +701,7 @@ function simulatePlan(plan, cwd, options = {}) {
           changeId: change.changeId,
           subject: change.subject,
           outcome: "blocked-resolution-application",
+          kind: recreatingMerge ? "recreate-merge" : "pick",
           targetBeforeTree,
           conflicts,
           semanticMerges,
@@ -586,6 +720,7 @@ function simulatePlan(plan, cwd, options = {}) {
           resultBlob: resolution.resultBlob,
         });
       }
+      trackRewrite(change.commit);
       steps.push({
         sourceCommit: change.commit,
         changeId: change.changeId,
@@ -596,7 +731,11 @@ function simulatePlan(plan, cwd, options = {}) {
             : semanticMerges.length
               ? "semantic-spec-merge"
               : "exact-resolution",
-        relation: contextualRelation,
+        kind: recreatingMerge ? "recreate-merge" : "pick",
+        relation: recreatingMerge ? "recreated-merge" : contextualRelation,
+        ...(recreatingMerge
+          ? { parents: parents.map((parent) => parent.commit), cleanJoin: false }
+          : {}),
         targetBeforeTree,
         conflicts,
         resolutions,
@@ -614,7 +753,8 @@ function simulatePlan(plan, cwd, options = {}) {
       approvedSpecMerges,
       counts: simulationCounts(steps),
       simulatedChanges: steps.length,
-      remainingChanges: queue.length - steps.length,
+      remainingChanges:
+        program.filter((item) => item.kind !== "omit").length - steps.length,
       partialResultTree,
       predictedResultTree: status === "complete" ? partialResultTree : null,
       exactStateEqualityAfter:
@@ -630,11 +770,60 @@ function simulatePlan(plan, cwd, options = {}) {
   };
 }
 
+/**
+ * The program a rebase forecast simulates: every step of the rewrite, in the
+ * order the application will run them.
+ *
+ * A pick whose plan omitted it is not in the program, because it is not
+ * replayed. A recreated merge always is, because a merge is not classified —
+ * it claims nothing, so there is nothing to omit it for (ADR-0034).
+ */
+export function rebaseProgram(plan) {
+  const replayed = new Map(
+    plan.changes
+      .filter((change) => change.action === "replay")
+      .map((change) => [change.commit, change]),
+  );
+  const merges = new Map(
+    (plan.recreatedMerges ?? []).map((merge) => [merge.commit, merge]),
+  );
+  return (plan.topology?.steps ?? []).map((step) => {
+    if (step.kind === "recreate-merge") {
+      const merge = merges.get(step.commit);
+      return {
+        kind: "recreate-merge",
+        step,
+        change: {
+          commit: step.commit,
+          shortCommit: merge?.shortCommit ?? step.commit.slice(0, 12),
+          changeId: merge?.originChangeId ?? `git:${step.commit}`,
+          subject: merge?.subject ?? "",
+        },
+      };
+    }
+    const change = replayed.get(step.commit);
+    // A commit the plan does not replay stays in the program as an `omit`. It
+    // costs no Git work, but the rewrite still has to know what replaced it:
+    // a later merge may name it as a parent, and the answer is whatever
+    // replaced the commit beneath it. Dropping it here would leave that merge
+    // pointing at nothing.
+    return change
+      ? { kind: "pick", step, change }
+      : { kind: "omit", step, change: { commit: step.commit } };
+  });
+}
+
 export function simulateCausalRebasePlan(plan, cwd = process.cwd()) {
+  const queue = plan.changes.filter((change) => change.action === "replay");
   return simulatePlan(plan, cwd, {
     targetHead: plan.ontoHead,
     expectedResultTree: plan.sourceTree,
-    queue: plan.changes.filter((change) => change.action === "replay"),
+    queue,
+    // A linear plan keeps its queue untouched, so nothing about its simulation
+    // changes: the program is the queue, HEAD never has to move between steps,
+    // and the merge-tree engine still answers it.
+    program: plan.mode === "merge-preserving" ? rebaseProgram(plan) : undefined,
+    newBase: plan.ontoHead,
     cleanRelation: "causal-rebase",
     contextualRelation: "contextual-rebase",
   });

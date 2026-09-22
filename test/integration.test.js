@@ -380,7 +380,7 @@ test("causal rebase planning is deterministic and replays only hard-squash conti
   const plan = JSON.parse(vlab(repo, "rebase-plan", "main", "--json"));
   const repeated = JSON.parse(vlab(repo, "rebase-plan", "main", "--json"));
 
-  assert.equal(plan.schema, "vcs-lab.rebase-plan/v1");
+  assert.equal(plan.schema, "vcs-lab.rebase-plan/v2");
   assert.equal(plan.mode, "linear");
   assert.equal(plan.ontoRef, "main");
   assert.equal(plan.sourceRef, "feature");
@@ -451,7 +451,13 @@ test("causal rebase planning keeps heuristic candidates in review", (t) => {
   assert.equal(git(repo, "status", "--porcelain=v1"), "");
 });
 
-test("causal rebase planning marks merge topology unsupported in linear v1", (t) => {
+/**
+ * The shape this build used to refuse outright. `test/rebase-merge-topology.test.js`
+ * owns the whole ADR-0034 contract; this keeps one end-to-end tripwire in the
+ * main suite, because "a merge in range is executable" is the single most
+ * load-bearing thing that changed about rebase planning.
+ */
+test("a merge in range is preserved rather than refused", (t) => {
   const { repo } = makeRepo(t);
   write(repo, "base.txt", "base\n");
   git(repo, "add", ".");
@@ -471,30 +477,41 @@ test("causal rebase planning marks merge topology unsupported in linear v1", (t)
   const mergeCommit = git(repo, "rev-parse", "HEAD");
 
   git(repo, "switch", "main");
-  const plan = JSON.parse(
-    vlab(repo, "rebase-plan", "main", "feature", "--json"),
-  );
-  assert.equal(plan.constraints.supported, false);
+  write(repo, "main.txt", "main\n");
+  git(repo, "add", ".");
+  vlab(repo, "commit", "-m", "main moves");
+
+  const plan = JSON.parse(vlab(repo, "rebase-plan", "main", "feature", "--json"));
+  assert.equal(plan.mode, "merge-preserving");
+  assert.equal(plan.constraints.supported, true);
   assert.equal(plan.constraints.linearHistory, false);
   assert.deepEqual(plan.constraints.mergeCommits, [mergeCommit]);
-  assert.equal(plan.executableWithoutReview, false);
-  assert.match(vlab(repo, "rebase-plan", "main", "feature"), /unsupported/i);
+  assert.deepEqual(plan.constraints.unsupportedMerges, []);
+  assert.equal(plan.executableWithoutReview, true);
+  assert.match(vlab(repo, "rebase-plan", "main", "feature"), /merge-preserving/);
+
   const worktreesBefore = git(repo, "worktree", "list", "--porcelain");
-  const forecast = JSON.parse(
-    vlab(repo, "rebase-forecast", "main", "feature", "--json"),
-  );
-  assert.equal(forecast.status, "unsupported");
-  assert.equal(forecast.blockedReason, "merge-topology-unsupported");
-  assert.equal(forecast.predictedResultTree, null);
-  assert.deepEqual(forecast.steps, []);
-  assert.equal(forecast.remainingChanges, forecast.plan.replayQueue.length);
-  assert.match(
-    vlab(repo, "rebase-forecast", "main", "feature"),
-    /Linear v1 cannot forecast source history containing merge commits/,
-  );
+  const forecast = JSON.parse(vlab(repo, "rebase-forecast", "main", "feature", "--json"));
+  assert.equal(forecast.status, "complete");
+  assert.ok(forecast.predictedResultTree);
+  assert.equal(forecast.recreatedMerges.length, 1);
   assert.equal(git(repo, "worktree", "list", "--porcelain"), worktreesBefore);
   assert.equal(git(repo, "branch", "--show-current"), "main");
   assert.equal(git(repo, "status", "--porcelain=v1"), "");
+
+  git(repo, "switch", "feature");
+  const result = JSON.parse(vlab(repo, "rebase", "main", "--json"));
+  const [recreated] = result.receipt.recreatedMerges;
+  assert.equal(recreated.originCommit, mergeCommit);
+  assert.equal(recreated.relation, "recreated-merge");
+  // The join claims nothing: coverage keeps coming from the per-change
+  // applications alone (ADR-0034).
+  assert.ok(!result.receipt.absorbedCommits.includes(mergeCommit));
+  assert.equal(
+    git(repo, "rev-list", "--parents", "-n", "1", "HEAD").split(/\s+/).length - 1,
+    2,
+    "the rewritten tip is still a two-parent join",
+  );
 });
 
 test("causal rebase forecasts are deterministic and preserve a dirty caller", (t) => {
@@ -538,7 +555,7 @@ test("causal rebase forecasts are deterministic and preserve a dirty caller", (t
     vlab(repo, "rebase-forecast", "main", "--json"),
   );
 
-  assert.equal(first.schema, "vcs-lab.rebase-forecast/v1");
+  assert.equal(first.schema, "vcs-lab.rebase-forecast/v2");
   assert.equal(first.status, "complete");
   assert.equal(first.sourceRef, "feature");
   assert.equal(first.scope, "committed-heads");
@@ -723,7 +740,7 @@ test("causal rebase applies a reviewed continuation and ports unreachable origin
       "--json",
     ),
   );
-  assert.equal(result.receipt.schema, "vcs-lab.rebase/v1");
+  assert.equal(result.receipt.schema, "vcs-lab.rebase/v2");
   assert.equal(result.receipt.forecastId, forecast.id);
   assert.equal(result.receipt.sourceHead, continuation.commit);
   assert.equal(result.receipt.resultTree, forecast.predictedResultTree);
@@ -6288,7 +6305,7 @@ test("merge-tree rebase forecasts match the worktree oracle and apply through --
 
   const worktree = forecastWithEngine(repo, "worktree", "rebase-forecast", "main");
   const mergeTree = forecastWithEngine(repo, "merge-tree", "rebase-forecast", "main");
-  assert.equal(worktree.schema, "vcs-lab.rebase-forecast/v1");
+  assert.equal(worktree.schema, "vcs-lab.rebase-forecast/v2");
   assert.equal(worktree.status, "complete");
   assert.equal(worktree.engine, "worktree");
   assert.deepEqual(
@@ -6296,7 +6313,7 @@ test("merge-tree rebase forecasts match the worktree oracle and apply through --
     [continuation.changeId, more.changeId],
   );
   assert.deepEqual(normalizeForecast(mergeTree), normalizeForecast(worktree));
-  assert.equal(mergeTree.schema, "vcs-lab.rebase-forecast/v1");
+  assert.equal(mergeTree.schema, "vcs-lab.rebase-forecast/v2");
   assert.equal(mergeTree.engine, "merge-tree");
   assert.deepEqual(mergeTree.fallbacks, []);
   assert.equal(mergeTree.steps[0].relation, "causal-rebase");

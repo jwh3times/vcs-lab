@@ -273,11 +273,20 @@ git status --short
 
 The plan uses the same exact coverage proofs as reconciliation. Covered changes
 are marked `omit`, heuristic patch candidates remain `review`, and new changes
-enter the ordered `replay` queue. It also emits a deterministic fingerprint and
-marks source ranges containing merge commits unsupported by linear v1.
+enter the ordered `replay` queue. It also emits a deterministic fingerprint.
+
+A merge in the range is preserved rather than refused. The rewrite recreates it
+as a join of its rewritten parents, and the recreated merge **claims nothing**
+about the changes beneath it: it takes a new identity recording the merge it
+came from, carries forward only the resolutions the join needed, and
+contributes to no coverage class. Coverage keeps coming from the per-change
+applications alone ([ADR-0034](docs/adr/0034-recreate-merges-as-joins-that-claim-nothing.md)).
+Two shapes are still refused by name, before anything moves: an octopus merge,
+whose resolution order is not recoverable from its result, and a merge with a
+parent that is neither in the range nor an ancestor of the new base.
 
 `rebase-forecast` saves a worktree-private
-`vcs-lab.rebase-forecast/v1` artifact. It simulates only the ordered replay
+`vcs-lab.rebase-forecast/v2` artifact. It simulates only the ordered replay
 queue in a disposable detached worktree, records every target-before and
 result tree, pins the plan fingerprint and candidate policy, and reports a
 complete predicted tree or a fail-closed conflict/unsupported reason. Dirty

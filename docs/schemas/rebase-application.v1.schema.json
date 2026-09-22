@@ -18,7 +18,7 @@
     "rebaseOperation": {
       "type": "string",
       "minLength": 4,
-      "description": "ID of the private vcs-lab.rebase-operation/v1 journal that produced this application."
+      "description": "ID of the private vcs-lab.rebase-operation journal that produced this application."
     },
     "forecastId": { "type": ["string", "null"] },
     "originCommit": { "$ref": "#/$defs/oid" },

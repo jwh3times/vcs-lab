@@ -3,12 +3,15 @@ import {
   commitHistory,
   isAncestor,
   listRefs,
-  mergeCommitsBetween,
   resolveObjectIds,
   symbolicRef,
 } from "./engine.js";
 import { sha256 } from "./ids.js";
 import { buildMergePlanBetween } from "./merge-plan.js";
+import {
+  analyzeRebaseTopology,
+  topologyFingerprintInput,
+} from "./rebase-topology.js";
 import { CliError } from "./errors.js";
 
 function currentBranch(cwd) {
@@ -22,16 +25,17 @@ function currentBranch(cwd) {
   return branch;
 }
 
-function mergeCommits(base, sourceHead, cwd) {
-  return mergeCommitsBetween(base, sourceHead, cwd);
-}
-
 /**
  * The plan identity a forecast approval is pinned to. `range.base` is covered
  * because it decides what would be replayed, so a forecast for one range is
  * stale for another. `range.explicit` is deliberately *not* covered: an
  * approval made without `--from` authorizes a run that names the same base,
  * because it is the same range either way (ADR-0032).
+ *
+ * `topology` covers which merges are recreated and where each new parent comes
+ * from, so an approval for one shape cannot authorize another (ADR-0034). It is
+ * not implied by `changes`: a merge is not a change and never appears there, so
+ * two ranges with identical replay queues can still join them differently.
  */
 function fingerprint(plan) {
   return sha256(JSON.stringify({
@@ -53,6 +57,7 @@ function fingerprint(plan) {
       action: change.action,
     })),
     mergeCommits: plan.constraints.mergeCommits,
+    topology: topologyFingerprintInput(plan.topology),
   }));
 }
 
@@ -128,20 +133,43 @@ function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd, options = {}
   const causal = buildMergePlanBetween(ontoRef, sourceRef, cwd, {
     rangeBase: range.base ?? undefined,
   });
-  const unsupportedMerges = mergeCommits(
-    causal.physicalBase,
+  const topology = analyzeRebaseTopology(
+    causal.rangeBase,
     causal.sourceHead,
+    causal.targetHead,
     cwd,
   );
-  const changes = causal.changes.map((change) => ({
-    ...change,
-    action:
-      change.status === "covered"
-        ? "omit"
-        : change.status === "candidate-equivalent"
-          ? "review"
-          : "replay",
-  }));
+  const mergeCommits = new Set(topology.mergeCommits);
+  // A merge is a join, not a contribution: it claims nothing about the changes
+  // beneath it and applies none of them, so it is not a change to replay, omit,
+  // or count as covered (ADR-0034). It leaves `changes` here and reappears in
+  // `recreatedMerges`, where nothing concludes anything from it.
+  const changes = causal.changes
+    .filter((change) => !mergeCommits.has(change.commit))
+    .map((change) => ({
+      ...change,
+      action:
+        change.status === "covered"
+          ? "omit"
+          : change.status === "candidate-equivalent"
+            ? "review"
+            : "replay",
+    }));
+  const changeSubjects = new Map(
+    causal.changes.map((change) => [change.commit, change]),
+  );
+  const recreatedMerges = topology.steps
+    .filter((step) => step.kind === "recreate-merge")
+    .map((step) => ({
+      commit: step.commit,
+      shortCommit: step.commit.slice(0, 12),
+      originChangeId: changeSubjects.get(step.commit)?.changeId ?? `git:${step.commit}`,
+      subject: changeSubjects.get(step.commit)?.subject ?? "",
+      parents: step.parents.map((parent) => ({
+        origin: parent.origin,
+        source: parent.source,
+      })),
+    }));
   const replayQueue = changes
     .filter((change) => change.action === "replay")
     .map(({ commit, shortCommit, changeId, subject }) => ({
@@ -161,10 +189,22 @@ function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd, options = {}
       proof,
       subject,
     }));
-  const supported = unsupportedMerges.length === 0;
+  const counts = changes.reduce(
+    (summary, change) => {
+      summary[change.status] = (summary[change.status] ?? 0) + 1;
+      return summary;
+    },
+    { covered: 0, "candidate-equivalent": 0, new: 0 },
+  );
+  const supported = topology.supported;
   const plan = {
-    schema: "vcs-lab.rebase-plan/v1",
-    mode: "linear",
+    schema: "vcs-lab.rebase-plan/v2",
+    // A fact about the range, not a caller choice. ADR-0034 left the naming to
+    // implementation: there is no flattening form to keep a name, because the
+    // form this replaces refused merges rather than flattening them, so a range
+    // without merges rewrites exactly as it always did and one with them gains
+    // a behavior it never had.
+    mode: topology.linearHistory ? "linear" : "merge-preserving",
     ontoRef,
     ontoHead: causal.targetHead,
     sourceRef,
@@ -181,11 +221,17 @@ function buildRebasePlanInSession(ontoRef, requestedSourceRef, cwd, options = {}
     range: { ...range, base: causal.rangeBase },
     excludedByRange: excludedByRange(causal.physicalBase, range.base, cwd),
     constraints: {
+      // "Every merge in range is a supported shape", not "the range is linear"
+      // (ADR-0034). `linearHistory` keeps the older question answerable,
+      // because a caller may still want to know.
       supported,
-      linearHistory: supported,
-      mergeCommits: unsupportedMerges,
+      linearHistory: topology.linearHistory,
+      mergeCommits: topology.mergeCommits,
+      unsupportedMerges: topology.unsupportedMerges,
     },
-    counts: causal.counts,
+    counts,
+    topology,
+    recreatedMerges,
     changes,
     replayQueue,
     omitted,
@@ -209,7 +255,9 @@ export function buildRebasePlan(
 
 export function formatRebasePlan(plan) {
   const lines = [
-    "Causal rebase plan",
+    plan.mode === "merge-preserving"
+      ? "Causal rebase plan (merge-preserving)"
+      : "Causal rebase plan",
     `onto          ${plan.ontoRef} (${plan.ontoHead.slice(0, 12)})`,
     `source        ${plan.sourceRef} (${plan.sourceHead.slice(0, 12)})`,
     `physical base ${plan.physicalBase.slice(0, 12)}`,
@@ -237,6 +285,21 @@ export function formatRebasePlan(plan) {
     `summary       ${plan.counts.covered} omitted, ${plan.counts["candidate-equivalent"]} review, ${plan.counts.new} replay`,
     `replay queue  ${plan.replayQueue.length}`,
   );
+  if (plan.recreatedMerges?.length) {
+    lines.push(
+      `recreated     ${plan.recreatedMerges.length} merge${plan.recreatedMerges.length === 1 ? "" : "s"} preserved as joins; each takes a new identity and claims nothing`,
+    );
+    for (const merge of plan.recreatedMerges) {
+      const parents = merge.parents
+        .map((parent) =>
+          parent.source === "new-base"
+            ? "the new base"
+            : parent.origin.slice(0, 12),
+        )
+        .join(" + ");
+      lines.push(`  M ${merge.shortCommit} ${merge.subject} <- ${parents}`);
+    }
+  }
   if (plan.range.explicit) {
     lines.push(`range         ${plan.range.baseRef} (${plan.range.base.slice(0, 12)})..${plan.range.tip.slice(0, 12)}`);
   }
@@ -254,9 +317,13 @@ export function formatRebasePlan(plan) {
     );
   }
   if (!plan.constraints.supported) {
+    const unsupported = plan.constraints.unsupportedMerges;
     lines.push(
-      `unsupported  ${plan.constraints.mergeCommits.length} merge commit${plan.constraints.mergeCommits.length === 1 ? "" : "s"}; linear v1 cannot execute this plan`,
+      `unsupported   ${unsupported.length} merge commit${unsupported.length === 1 ? "" : "s"} of an unsupported shape; this plan cannot be executed`,
     );
+    for (const merge of unsupported) {
+      lines.push(`  ! ${merge.commit.slice(0, 12)} ${merge.reason}: ${merge.details}`);
+    }
   } else if (plan.candidateDecisionRequired) {
     lines.push("review        heuristic candidates require explicit acceptance");
   } else {
