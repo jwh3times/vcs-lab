@@ -3798,6 +3798,42 @@ test("metadata validation quarantines invalid causal claims from coverage", (t) 
   assert.equal(plan.changes[0].changeId, feature.changeId);
 });
 
+test("missing note attachments remain errors with retention fetch recovery", (t) => {
+  const { repo } = makeRepo(t);
+  write(repo, "base.txt", "base\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "base");
+
+  git(repo, "switch", "-c", "temporary-source");
+  write(repo, "source.txt", "source\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "temporary source");
+  const attachment = git(repo, "rev-parse", "HEAD");
+  writeVlabNote(repo, attachment, {
+    schema: "vcs-lab.note/v1",
+    records: [],
+  });
+
+  git(repo, "switch", "main");
+  git(repo, "branch", "-D", "temporary-source");
+  git(repo, "reflog", "expire", "--expire=now", "--all");
+  git(repo, "gc", "--prune=now");
+
+  const jsonResult = vlabResult(repo, "metadata", "validate", "--json");
+  assert.notEqual(jsonResult.status, 0);
+  const report = JSON.parse(jsonResult.stdout);
+  const diagnostic = report.diagnostics.find((entry) =>
+    entry.code === "missing-attachment" && entry.subject === attachment,
+  );
+  assert.equal(diagnostic?.severity, "error");
+  assert.match(diagnostic?.message ?? "", /fetch .*refs\/vcs-lab\/\*/i);
+
+  const humanResult = vlabResult(repo, "metadata", "validate");
+  assert.notEqual(humanResult.status, 0);
+  assert.match(humanResult.stdout, /missing-attachment/);
+  assert.match(humanResult.stdout, /fetch .*refs\/vcs-lab\/\*/i);
+});
+
 test("metadata envelope round-trips accepted facts between clones idempotently", (t) => {
   const { repo, parent } = makeRepo(t);
   write(repo, "shared.txt", "base\n");

@@ -271,6 +271,22 @@ identity belongs in tracked files.
 | Spec identity manifest | Tracked/repository portable | `.vcs-lab/specs/<source>.json` | Versioned with Markdown |
 | Persistent object session | One CLI invocation and worktree | Memory plus worker process | Closed at invocation end |
 
+An ordinary clone's default refspec fetches branches, not
+`refs/notes/vcs-lab` or `refs/vcs-lab/*`. A complete causal read needs both:
+the notes namespace supplies the records, and the shared vlab namespace
+supplies the retention carrier and reusable resolution objects those records
+depend on. Fetching notes alone can therefore produce `missing-attachment`
+diagnostics for healthy facts whose attachment commits are present on the
+origin only through `refs/vcs-lab/retention`. The low-level same-origin fetch is:
+
+```bash
+git fetch origin 'refs/notes/vcs-lab:refs/notes/vcs-lab' 'refs/vcs-lab/*:refs/vcs-lab/*'
+```
+
+Validated metadata envelopes remain the supported transfer path between
+clones; a direct ref fetch does not perform envelope validation, conflict
+preview, or quarantine.
+
 `src/store.js` writes JSON through a temporary file and same-directory rename.
 Worktree-private paths are derived from `git rev-parse --git-dir`; shared paths
 are derived from `--git-common-dir`. This distinction is required for linked

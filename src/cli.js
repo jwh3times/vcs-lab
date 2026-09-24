@@ -363,7 +363,10 @@ function formatMetadataStatus(result, title = "Metadata status") {
     );
   }
   for (const diagnostic of result.diagnostics) {
-    lines.push(`  ${diagnostic.severity === "error" ? "!" : "?"} ${diagnostic.code}: ${diagnostic.subject}`);
+    const recovery = diagnostic.code === "missing-attachment"
+      ? ` — ${diagnostic.message}`
+      : "";
+    lines.push(`  ${diagnostic.severity === "error" ? "!" : "?"} ${diagnostic.code}: ${diagnostic.subject}${recovery}`);
   }
   return lines.join("\n");
 }
