@@ -827,6 +827,14 @@ or deleting a note does not release objects. Retained receipts still prove
 coverage only when their attachments are reachable from the selected target.
 See [ADR-0025](docs/adr/0025-retain-the-object-closure-of-published-causal-facts.md).
 
+An ordinary clone fetches branch refs, not causal notes or their shared vlab
+refs. A clone that fetches `refs/notes/vcs-lab` without `refs/vcs-lab/*` can
+therefore see a valid record but not the retention carrier that keeps its
+attachment readable; `metadata validate` then reports `missing-attachment`
+even though the origin is healthy. Fetch both namespaces as shown under
+[Metadata locations](#metadata-locations) before interpreting validation from
+a low-level same-origin read.
+
 For notes created by an older version, preview and apply an explicit backfill:
 
 ```bash
@@ -1035,18 +1043,18 @@ change nothing about what negotiation concludes. See
 - Reusable resolution blobs: `refs/vcs-lab/resolutions/<signature>/<result-blob>`
 - Portable spec manifests: `.vcs-lab/specs/**/*.json`
 
-The supported transfer path is `vlab metadata export/import`. For low-level
-experimentation, the underlying namespaces remain:
+The supported transfer path is `vlab metadata export/import`. For a low-level
+same-origin read, fetch the notes and shared vlab namespaces together:
 
 ```bash
-git fetch origin refs/notes/vcs-lab:refs/notes/vcs-lab
-git fetch origin 'refs/vcs-lab/resolutions/*:refs/vcs-lab/resolutions/*'
+git fetch origin 'refs/notes/vcs-lab:refs/notes/vcs-lab' 'refs/vcs-lab/*:refs/vcs-lab/*'
 ```
 
-Both refs are required for reusable resolution data: notes carry the records
-and the hidden resolution refs retain the result blobs. Fetching them manually
-does not provide complete dependency retention, envelope validation, conflict
-preview, or quarantine. Use the envelope for supported transfers.
+Both namespaces are required for a complete causal read: notes carry the
+records, while the retention root keeps their attachments and dependencies
+readable and resolution refs retain reusable result blobs. Direct ref fetching
+does not provide envelope validation, conflict preview, or quarantine. Use the
+envelope for supported transfers.
 
 ## Measuring the compatibility layer
 

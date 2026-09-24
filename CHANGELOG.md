@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Keep a missing causal-note attachment as an integrity error while making the
+  likely notes-only-fetch case actionable (issue #120). Human and JSON
+  diagnostics now direct the reader to fetch `refs/notes/vcs-lab` together
+  with `refs/vcs-lab/*`, validate again, and restore the object from a trusted
+  source if it remains absent. The README and architecture guide now state
+  that an ordinary branch clone does not include either causal namespace.
+
 ## 0.17.0
 
 - Add declared interactive rewrite actions to causal rebase (issue #30,

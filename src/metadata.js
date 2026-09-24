@@ -256,7 +256,9 @@ function validatePortableNotes(context, diagnostics, options) {
           "error",
           "shared-portable",
           entry.target,
-          "The note attachment is missing or is not a commit.",
+          "The note attachment is missing or is not a commit in this clone. " +
+            "Fetch refs/vcs-lab/* together with refs/notes/vcs-lab from the fact's origin and validate again; " +
+            "if it remains missing, restore it from a trusted clone, backup, or metadata envelope.",
         );
       }
     }
