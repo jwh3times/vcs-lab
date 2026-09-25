@@ -19,7 +19,8 @@
     "demo:git-session": "node ./scripts/git-session-demo.mjs",
     "test:benchmark": "node ./scripts/benchmark-regression.mjs",
     "benchmark:record": "node ./scripts/benchmark-regression.mjs --record",
-    "sync:agents": "node ./scripts/sync-agent-assets.mjs",
+    "sync:agents": "node scripts/sync-agents.mjs",
+    "sync:agents:check": "node scripts/sync-agents.mjs --check",
     "sync:architecture": "node ./scripts/sync-architecture.mjs"
   },
   "engines": {

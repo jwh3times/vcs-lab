@@ -258,7 +258,7 @@ Show findings before acting. Work through:
   ```bash
   git diff --check
   npm run test:docs
-  npm run sync:agents -- --check      # .claude/skills mirrors .agents/skills
+  npm run sync:agents:check           # .claude/skills mirrors .agents/skills
   for f in $(git ls-files 'src/*.js' 'bin/*.js' 'scripts/*.mjs' 'test/*.js'); do node --check "$f"; done
   ```
 

@@ -48,7 +48,9 @@ or build step.
   most recent identified entry for the same platform.
 - `npm run sync:agents` regenerates `.claude/skills/` from `.agents/skills/`;
   it also generates `.codex/agents/*.toml` from `.claude/agents/*.md`.
-  `npm run sync:agents -- --check` reports drift without writing.
+  `npm run sync:agents:check` reports drift without writing. The generator,
+  `scripts/sync-agents.mjs`, and its test are shared byte-for-byte with other
+  repositories; a change to either must be copied to every copy.
   Before adding or updating agent definitions, read
   [the mirror conventions](docs/agents/mirrors.md).
 - `npm run demo` runs the primary workflow demonstration; the other `demo:*`

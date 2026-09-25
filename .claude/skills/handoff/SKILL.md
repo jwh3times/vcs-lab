@@ -1,5 +1,5 @@
 ---
-# GENERATED — do not edit. Source: .agents/skills/handoff/SKILL.md — regenerate with 'npm run sync:agents'.
+# GENERATED — do not edit. Source: .agents/skills/handoff/SKILL.md — regenerate with 'node scripts/sync-agents.mjs'.
 name: handoff
 description: Hand the session off to the other machine — alert on work not merged to main, publish a handoff document to Proton Drive, mark it active in the handoff map, then run end-session.
 argument-hint: "What will the next session be used for?"

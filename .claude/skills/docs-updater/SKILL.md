@@ -1,5 +1,5 @@
 ---
-# GENERATED — do not edit. Source: .agents/skills/docs-updater/SKILL.md — regenerate with 'npm run sync:agents'.
+# GENERATED — do not edit. Source: .agents/skills/docs-updater/SKILL.md — regenerate with 'node scripts/sync-agents.mjs'.
 name: docs-updater
 description: Update vcs-lab README, durable documentation, and wiki guidance after implemented changes; capture required human actions as public issue/wiki follow-ups on the private board, with sensitive vulnerabilities in draft security advisories. Use when asked to update docs or reconcile documentation with completed work.
 ---
@@ -42,7 +42,7 @@ Do not manufacture approval requirements or duplicate already-tracked actions.
 
 Run `npm run test:docs` and `git diff --check`; check wiki navigation and links
 against their intended repositories. When skills change, run
-`npm run sync:agents` followed by `npm run sync:agents -- --check`; never edit
+`npm run sync:agents` followed by `npm run sync:agents:check`; never edit
 `.claude/skills/` directly. Use the user's existing shipping authorization.
 Verify published docs and the issue/private-board/wiki records (or restricted
 advisory) before claiming completion. Report changed pages, validation, and any

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Replace `scripts/sync-agent-assets.mjs` with `scripts/sync-agents.mjs`, the
+  agent-mirror generator shared byte-for-byte across repositories, and its
+  `node:test` suite `scripts/sync-agents.test.mjs` (which `npm test` now picks
+  up). `npm run sync:agents` keeps its name; `npm run sync:agents:check`
+  replaces `npm run sync:agents -- --check` in CI and the docs. Every generated
+  `SKILL.md` banner now names `node scripts/sync-agents.mjs`. Behavior changes
+  are recorded in [the mirror conventions](docs/agents/mirrors.md): generated
+  Codex TOML closes `'''` on the body's last line, a body holding `'''` falls
+  back to an escaped string instead of failing, read-only tool lists add
+  `sandbox_mode = "read-only"`, an agent `name` must match its filename,
+  regeneration prunes empty generated directories, a symlink in a generated
+  tree is removed as an orphan rather than rejected, and a `--hook` mode
+  serves as a Claude Code PostToolUse hook.
+
 - Keep a missing causal-note attachment as an integrity error while making the
   likely notes-only-fetch case actionable (issue #120). Human and JSON
   diagnostics now direct the reader to fetch `refs/notes/vcs-lab` together
