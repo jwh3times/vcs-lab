@@ -1,5 +1,5 @@
 ---
-# GENERATED — do not edit. Source: .agents/skills/domain-modeling/SKILL.md — regenerate with 'npm run sync:agents'.
+# GENERATED — do not edit. Source: .agents/skills/domain-modeling/SKILL.md — regenerate with 'node scripts/sync-agents.mjs'.
 name: domain-modeling
 description: Build and sharpen a project's domain model. Use when discussing codebase terminology, writing or editing a CONTEXT.md, or recording or editing an ADR.
 ---

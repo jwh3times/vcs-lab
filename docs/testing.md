@@ -729,7 +729,7 @@ Before merging a documentation or source change:
 ```bash
 git diff --check
 npm run test:docs
-npm run sync:agents -- --check
+npm run sync:agents:check
 node --check src/cli.js
 node --test
 ```
@@ -752,7 +752,7 @@ because a suite no document names is a suite nobody maintains.
 | `test/scale-benchmark-analysis.test.js` | The repository-scale benchmark's own arithmetic — per-entity amplification and the phase summary — without running the benchmark. |
 | `test/ci-plan.test.js` | The change classifier in `scripts/ci-plan.mjs` choosing the wrong job set, which is how a documentation-only change would silently skip a suite it needed. |
 | `test/doc-links.test.js` | A local Markdown link with no target. The same check `npm run test:docs` runs, wired into the suite so a broken link fails a plain `npm test`. |
-| `test/sync-agent-assets.test.js` | Drift between `.agents/skills/` and the generated `.claude/skills/` mirror, and between `.claude/agents/` and `.codex/agents/`. The mirror is generated; this is what stops a hand-edit surviving. |
+| `scripts/sync-agents.test.mjs` | The mirror generator (`scripts/sync-agents.mjs`, shared verbatim with other repositories) misreading frontmatter, mis-rendering a Codex agent, altering a copied skill asset, or mishandling missing, orphaned, and symlinked entries — exercised on disposable fixtures. Drift in this checkout is what `npm run sync:agents:check` catches. |
 | `test/handoff-map.test.js` | The cross-machine handoff map's read/write discipline in `scripts/handoff-map.mjs` — that an entry is consumed once and cleared. |
 
 ## Release gate
