@@ -274,8 +274,12 @@ function differentialProbes(cwd) {
     },
     { operation: "readGitObjects", ...needsHead(() => readGitObjects([`${head}^{tree}`], cwd)) },
     {
+      // Only shapes the native binding implements: OID-rooted, with the one
+      // path it resolves (a retained resolution's `:result`). A refused
+      // expression fails the whole batch over to Git, which compares nothing.
       operation: "inspectGitObjects",
-      run: () => inspectGitObjects(["HEAD^{commit}", "HEAD^{tree}", "HEAD:.gitattributes"], cwd),
+      ...needsHead(() =>
+        inspectGitObjects([`${head}^{commit}`, `${head}^{tree}`, `${head}:result`], cwd)),
     },
     { operation: "mergeBase", ...needsHead(() => mergeBase(head, head, cwd)) },
     { operation: "isAncestor", ...needsHead(() => isAncestor(root, head, cwd)) },

@@ -16,6 +16,14 @@
   tree is removed as an orphan rather than rejected, and a `--hook` mode
   serves as a Claude Code PostToolUse hook.
 
+- Make `vlab doctor --differential` compare `inspectGitObjects` natively
+  (issue #125). Its probe passed ref-rooted expressions such as
+  `HEAD^{commit}`, which the native binding refuses by design, so the
+  operation fell back to Git and was reported `equal` against itself; the
+  probe now uses OID-rooted expressions, and all five native operations are
+  compared. Like the other HEAD-derived probes, it is now `skipped` in a
+  repository with no commit on HEAD.
+
 - Keep a missing causal-note attachment as an integrity error while making the
   likely notes-only-fetch case actionable (issue #120). Human and JSON
   diagnostics now direct the reader to fetch `refs/notes/vcs-lab` together
