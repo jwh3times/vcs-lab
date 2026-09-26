@@ -177,6 +177,17 @@ test("a small packed delta cannot bypass the native allocation limit with a larg
   compare("readGitObjects", [[resultId], root], false);
 });
 
+test("the engine differential compares every native operation natively", { skip: !available }, (t) => {
+  const { root } = fixture(t);
+  const differential = engine.runDifferential(root);
+  assert.equal(differential.equal, true);
+  const fallbacks = Object.fromEntries(differential.operations.map((item) =>
+    [item.operation, item.results?.native.fallbacks ?? item.reason]));
+  for (const operation of Object.keys(engine.nativeEngine().operations)) {
+    assert.deepEqual(fallbacks[operation], [], operation);
+  }
+});
+
 test("absent empty-tree objects retain Git existence semantics", { skip: !available }, (t) => {
   const { root } = fixture(t);
   compare("readGitObjects", [["4b825dc642cb6eb9a060e54bf8d69288fbee4904"], root]);

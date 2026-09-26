@@ -1163,7 +1163,11 @@ object-session invalidation.
 `vlab doctor --differential` runs every cataloged operation through each
 engine against the current repository, comparing result digests, process
 counts, and fallbacks operation by operation
-(`vcs-lab.engine-differential/v1`). The suite's `VLAB_ENGINE=native` mode, one
+(`vcs-lab.engine-differential/v1`). Each probe uses only input shapes the
+native binding implements, such as OID-rooted object expressions, because an
+input it refuses falls back to Git and would put Git's answer on both sides;
+with a binding present, every operation it implements is compared natively.
+The suite's `VLAB_ENGINE=native` mode, one
 of the six modes [testing.md](testing.md) lists, proves that every read it
 exercises goes through the seam.
 
